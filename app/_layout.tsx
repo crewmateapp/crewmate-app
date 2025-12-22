@@ -1,9 +1,11 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { router, Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { doc, getDoc } from 'firebase/firestore';
+import { useEffect, useState } from 'react';
 import 'react-native-reanimated';
 
+import { db } from '@/config/firebase';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
@@ -14,20 +16,41 @@ export const unstable_settings = {
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
   const { user, loading } = useAuth();
+  const [checkingProfile, setCheckingProfile] = useState(true);
 
   useEffect(() => {
-    if (loading) return; // Wait for auth to initialize
+    const checkUserState = async () => {
+      if (loading) return;
 
-    if (!user) {
-      // Not logged in - go to sign in
-      router.replace('/auth/signin');
-    } else if (!user.emailVerified) {
-      // Logged in but email not verified
-      router.replace('/auth/verify-email');
-    } else {
-      // Logged in and verified - go to main app
-      router.replace('/(tabs)');
-    }
+      if (!user) {
+        router.replace('/auth/signin');
+        setCheckingProfile(false);
+        return;
+      }
+
+      if (!user.emailVerified) {
+        router.replace('/auth/verify-email');
+        setCheckingProfile(false);
+        return;
+      }
+
+      // Check if profile exists in Firestore
+      try {
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (userDoc.exists() && userDoc.data().profileComplete) {
+          router.replace('/(tabs)');
+        } else {
+          router.replace('/auth/create-profile');
+        }
+      } catch (error) {
+        console.error('Error checking profile:', error);
+        router.replace('/auth/create-profile');
+      }
+      
+      setCheckingProfile(false);
+    };
+
+    checkUserState();
   }, [user, loading]);
 
   return (

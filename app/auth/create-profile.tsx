@@ -1,24 +1,28 @@
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { db } from '@/config/firebase';
+import { db, storage } from '@/config/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { getAirlineFromEmail } from '@/data/airlines';
 import { cities } from '@/data/cities';
+import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { doc, setDoc } from 'firebase/firestore';
+import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { useMemo, useState } from 'react';
 import {
-    Alert,
-    FlatList,
-    KeyboardAvoidingView,
-    Modal,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Image,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
 export default function CreateProfileScreen() {
@@ -29,6 +33,7 @@ export default function CreateProfileScreen() {
   const [base, setBase] = useState('');
   const [bio, setBio] = useState('');
   const [loading, setLoading] = useState(false);
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
 
   // Base picker modal
   const [baseModalVisible, setBaseModalVisible] = useState(false);
@@ -46,8 +51,45 @@ export default function CreateProfileScreen() {
       .slice(0, 30);
   }, [searchQuery]);
 
+  const pickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    
+    if (status !== 'granted') {
+      Alert.alert('Permission Needed', 'Please allow access to your photo library to add a profile photo.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.5,
+    });
+
+    if (!result.canceled) {
+      setPhotoUri(result.assets[0].uri);
+    }
+  };
+
+  const uploadPhoto = async (): Promise<string | null> => {
+    if (!photoUri || !user) return null;
+
+    try {
+      const response = await fetch(photoUri);
+      const blob = await response.blob();
+      
+      const photoRef = ref(storage, `profilePhotos/${user.uid}.jpg`);
+      await uploadBytes(photoRef, blob);
+      
+      const downloadURL = await getDownloadURL(photoRef);
+      return downloadURL;
+    } catch (error) {
+      console.error('Error uploading photo:', error);
+      return null;
+    }
+  };
+
   const handleCreateProfile = async () => {
-    // Validation
     if (!firstName.trim()) {
       Alert.alert('Error', 'Please enter your first name');
       return;
@@ -70,6 +112,9 @@ export default function CreateProfileScreen() {
 
     setLoading(true);
     try {
+      // Upload photo if selected
+      const photoURL = await uploadPhoto();
+
       // Create user profile in Firestore
       await setDoc(doc(db, 'users', user.uid), {
         firstName: firstName.trim(),
@@ -79,6 +124,7 @@ export default function CreateProfileScreen() {
         airline: airline,
         base: base,
         bio: bio.trim() || '',
+        photoURL: photoURL,
         createdAt: new Date().toISOString(),
         emailVerified: user.emailVerified,
         profileComplete: true,
@@ -121,12 +167,25 @@ export default function CreateProfileScreen() {
             Let's set up your CrewMate profile
           </ThemedText>
 
+          {/* Photo Picker */}
+          <TouchableOpacity style={styles.photoContainer} onPress={pickImage}>
+            {photoUri ? (
+              <Image source={{ uri: photoUri }} style={styles.photo} />
+            ) : (
+              <View style={styles.photoPlaceholder}>
+                <ThemedText style={styles.photoPlaceholderText}>📷</ThemedText>
+                <ThemedText style={styles.photoPlaceholderLabel}>Add Photo</ThemedText>
+              </View>
+            )}
+          </TouchableOpacity>
+
           <View style={styles.form}>
             <View style={styles.inputContainer}>
               <ThemedText style={styles.label}>First Name</ThemedText>
               <TextInput
                 style={styles.input}
                 placeholder="Sarah"
+                placeholderTextColor="#888"
                 value={firstName}
                 onChangeText={setFirstName}
                 autoCapitalize="words"
@@ -139,6 +198,7 @@ export default function CreateProfileScreen() {
               <TextInput
                 style={styles.input}
                 placeholder="M"
+                placeholderTextColor="#888"
                 value={lastInitial}
                 onChangeText={(text) => setLastInitial(text.slice(0, 1))}
                 autoCapitalize="characters"
@@ -154,13 +214,11 @@ export default function CreateProfileScreen() {
               <TextInput
                 style={styles.input}
                 placeholder="Delta Air Lines"
+                placeholderTextColor="#888"
                 value={airline}
                 onChangeText={setAirline}
                 autoCapitalize="words"
               />
-              <ThemedText style={styles.hint}>
-                Auto-filled from your email domain
-              </ThemedText>
             </View>
 
             <View style={styles.inputContainer}>
@@ -180,6 +238,7 @@ export default function CreateProfileScreen() {
               <TextInput
                 style={[styles.input, styles.textArea]}
                 placeholder="Looking for coffee spots and local recommendations..."
+                placeholderTextColor="#888"
                 value={bio}
                 onChangeText={setBio}
                 multiline
@@ -196,15 +255,17 @@ export default function CreateProfileScreen() {
               onPress={handleCreateProfile}
               disabled={loading}
             >
-              <ThemedText style={styles.buttonText}>
-                {loading ? 'Creating Profile...' : 'Complete Profile'}
-              </ThemedText>
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <ThemedText style={styles.buttonText}>Complete Profile</ThemedText>
+              )}
             </TouchableOpacity>
           </View>
 
           <View style={styles.notice}>
             <ThemedText style={styles.noticeText}>
-              🔒 Your email address is private and will never be shown to other crew members. Only your first name and last initial will be visible.
+              🔒 Your email address is private and will never be shown to other crew members.
             </ThemedText>
           </View>
 
@@ -275,8 +336,33 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 16,
     textAlign: 'center',
-    marginBottom: 40,
+    marginBottom: 20,
     opacity: 0.7,
+  },
+  photoContainer: {
+    alignSelf: 'center',
+    marginBottom: 20,
+  },
+  photo: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+  },
+  photoPlaceholder: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: '#2196F3',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoPlaceholderText: {
+    fontSize: 32,
+  },
+  photoPlaceholderLabel: {
+    color: '#fff',
+    fontSize: 14,
+    marginTop: 5,
   },
   form: {
     gap: 20,
@@ -295,6 +381,7 @@ const styles = StyleSheet.create({
     padding: 15,
     fontSize: 16,
     backgroundColor: '#fff',
+    color: '#000',
   },
   textArea: {
     height: 80,
@@ -313,10 +400,11 @@ const styles = StyleSheet.create({
   },
   pickerText: {
     fontSize: 16,
+    color: '#000',
   },
   pickerPlaceholder: {
     fontSize: 16,
-    opacity: 0.5,
+    color: '#888',
   },
   button: {
     backgroundColor: '#2196F3',
@@ -349,6 +437,7 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
     paddingTop: 60,
+    backgroundColor: '#fff',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -369,6 +458,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 12,
     marginBottom: 12,
+    color: '#000',
   },
   listItem: {
     padding: 14,
