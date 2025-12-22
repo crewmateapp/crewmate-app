@@ -5,6 +5,7 @@ import {
   mockIncomingRequests,
   type Connection
 } from '@/data/mockConnections';
+import { router } from 'expo-router';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 
@@ -100,12 +101,19 @@ export default function ConnectionsScreen() {
         {/* Connections Section */}
         <View style={styles.section}>
           <ThemedText style={styles.sectionTitle}>
-            ✈️ Your Connections ({connections.length})
+            ✈️ Your Crew ({connections.length})
           </ThemedText>
           
           {connections.length > 0 ? (
             connections.map((connection) => (
-              <TouchableOpacity key={connection.id} style={styles.connectionCard}>
+              <TouchableOpacity 
+                key={connection.id} 
+                style={styles.connectionCard}
+                onPress={() => router.push({
+                pathname: '/chat/[id]',
+                params: { id: connection.userId, name: connection.displayName }
+               })}
+>
                 <View style={styles.avatarFallback}>
                   <ThemedText style={styles.avatarText}>
                     {connection.displayName.split(' ').map(n => n[0]).join('')}
