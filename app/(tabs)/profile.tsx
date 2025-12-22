@@ -2,11 +2,11 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { StyleSheet } from 'react-native';
 
-export default function ExploreScreen() {
+export default function ProfileScreen() {
   return (
     <ThemedView style={styles.container}>
-      <ThemedText type="title" style={styles.title}>🌍 Explore</ThemedText>
-      <ThemedText style={styles.subtitle}>Browse cities and plan your next layover</ThemedText>
+      <ThemedText type="title" style={styles.title}>👤 Profile</ThemedText>
+      <ThemedText style={styles.subtitle}>Your profile and settings will appear here</ThemedText>
     </ThemedView>
   );
 }
