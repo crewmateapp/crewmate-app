@@ -1,20 +1,29 @@
+import { CrewCard } from '@/components/CrewCard';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { useMemo, useState } from 'react';
+import { db } from '@/config/firebase';
+import { useAuth } from '@/contexts/AuthContext';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   FlatList,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 
-import { auth, db } from '../../config/firebase';
-import { cities, type City } from '../../data/cities';
+import { cities, type City } from '@/data/cities';
+import { mockCrew, type CrewMember } from '@/data/mockCrew';
 
 export default function MyLayoverScreen() {
+  const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
   const [hasLocation, setHasLocation] = useState(false);
   const [currentCity, setCurrentCity] = useState('');
   const [currentArea, setCurrentArea] = useState('');
@@ -25,8 +34,58 @@ export default function MyLayoverScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCity, setSelectedCity] = useState<City | null>(null);
 
-  console.log('Firebase Auth initialized:', !!auth);
-  console.log('Firestore DB initialized:', !!db);
+  // Load saved location on mount
+  useEffect(() => {
+    const loadLocation = async () => {
+      if (!user) return;
+      
+      try {
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (userDoc.exists()) {
+          const data = userDoc.data();
+          if (data.currentLocation?.city && data.currentLocation?.area) {
+            const setAt = data.currentLocation.setAt?.toDate?.() || new Date(data.currentLocation.setAt);
+            const hoursSinceSet = (Date.now() - setAt.getTime()) / (1000 * 60 * 60);
+            
+            if (hoursSinceSet < 24) {
+              setCurrentCity(data.currentLocation.city);
+              setCurrentArea(data.currentLocation.area);
+              setHasLocation(true);
+            } else {
+              await clearLocationInFirestore();
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error loading location:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadLocation();
+  }, [user]);
+
+  // Filter crew by current location
+  const nearbyCrew = useMemo(() => {
+    if (!currentCity || !currentArea) return [];
+    
+    // Same area = show them
+    return mockCrew.filter(
+      crew => crew.currentLocation.city === currentCity && 
+              crew.currentLocation.area === currentArea
+    );
+  }, [currentCity, currentArea]);
+
+  // Crew in same city but different area
+  const cityWideCrew = useMemo(() => {
+    if (!currentCity || !currentArea) return [];
+    
+    return mockCrew.filter(
+      crew => crew.currentLocation.city === currentCity && 
+              crew.currentLocation.area !== currentArea
+    );
+  }, [currentCity, currentArea]);
 
   const filteredCities = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -35,13 +94,39 @@ export default function MyLayoverScreen() {
     return cities
       .filter((c) => {
         const name = c.name.toLowerCase();
-        const airportCode = (c.areas?.[0] ?? '')
-          .slice(0, 3)
-          .toLowerCase();
+        const airportCode = (c.areas?.[0] ?? '').slice(0, 3).toLowerCase();
         return name.includes(q) || airportCode.startsWith(q);
       })
       .slice(0, 30);
   }, [searchQuery]);
+
+  const saveLocationToFirestore = async (city: string, area: string) => {
+    if (!user) return;
+
+    try {
+      await updateDoc(doc(db, 'users', user.uid), {
+        currentLocation: {
+          city: city,
+          area: area,
+          setAt: new Date().toISOString(),
+        }
+      });
+    } catch (error) {
+      console.error('Error saving location:', error);
+    }
+  };
+
+  const clearLocationInFirestore = async () => {
+    if (!user) return;
+
+    try {
+      await updateDoc(doc(db, 'users', user.uid), {
+        currentLocation: null
+      });
+    } catch (error) {
+      console.error('Error clearing location:', error);
+    }
+  };
 
   const openCityPicker = () => {
     setSearchQuery('');
@@ -55,8 +140,11 @@ export default function MyLayoverScreen() {
     setAreaModalVisible(true);
   };
 
-  const chooseArea = (area: string) => {
+  const chooseArea = async (area: string) => {
     if (!selectedCity) return;
+    
+    await saveLocationToFirestore(selectedCity.name, area);
+    
     setCurrentCity(selectedCity.name);
     setCurrentArea(area);
     setHasLocation(true);
@@ -64,11 +152,34 @@ export default function MyLayoverScreen() {
     setSelectedCity(null);
   };
 
-  const handleChangeLocation = () => {
+  const handleChangeLocation = async () => {
+    await clearLocationInFirestore();
     setHasLocation(false);
     setCurrentCity('');
     setCurrentArea('');
   };
+
+  const handleConnectPress = (crew: CrewMember) => {
+    Alert.alert(
+      `Connect with ${crew.displayName}?`,
+      `Send a connection request to ${crew.firstName}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Send Request', 
+          onPress: () => Alert.alert('Request Sent!', `${crew.firstName} will be notified.`)
+        }
+      ]
+    );
+  };
+
+  if (loading) {
+    return (
+      <ThemedView style={styles.container}>
+        <ActivityIndicator size="large" color="#2196F3" style={{ marginTop: 100 }} />
+      </ThemedView>
+    );
+  }
 
   if (!hasLocation) {
     return (
@@ -97,10 +208,6 @@ export default function MyLayoverScreen() {
             to other crew.
           </ThemedText>
         </View>
-
-        <ThemedText style={styles.status}>
-          ✅ Firebase Connected!
-        </ThemedText>
 
         {/* CITY SEARCH MODAL */}
         <Modal
@@ -190,55 +297,83 @@ export default function MyLayoverScreen() {
     );
   }
 
+  // Has location - show crew
   return (
-    <ThemedView style={styles.container}>
-      <View style={styles.locationHeader}>
-        <View>
-          <ThemedText style={styles.currentlyIn}>
-            Currently in
-          </ThemedText>
-          <ThemedText type="title" style={styles.cityName}>
-            {currentCity}
-          </ThemedText>
-          <ThemedText style={styles.areaName}>
-            {currentArea}
-          </ThemedText>
+    <ScrollView style={styles.scrollContainer}>
+      <ThemedView style={styles.container}>
+        <View style={styles.locationHeader}>
+          <View>
+            <ThemedText style={styles.currentlyIn}>Currently in</ThemedText>
+            <ThemedText type="title" style={styles.cityName}>
+              {currentCity}
+            </ThemedText>
+            <ThemedText style={styles.areaName}>{currentArea}</ThemedText>
+          </View>
+
+          <TouchableOpacity
+            style={styles.changeButton}
+            onPress={handleChangeLocation}
+          >
+            <ThemedText style={styles.changeButtonText}>Change</ThemedText>
+          </TouchableOpacity>
         </View>
 
-        <TouchableOpacity
-          style={styles.changeButton}
-          onPress={handleChangeLocation}
-        >
-          <ThemedText style={styles.changeButtonText}>
-            Change
-          </ThemedText>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.statsContainer}>
-        <View style={styles.statBox}>
-          <ThemedText style={styles.statNumber}>0</ThemedText>
-          <ThemedText style={styles.statLabel}>
-            Crew Here
-          </ThemedText>
+        <View style={styles.statsContainer}>
+          <View style={styles.statBox}>
+            <ThemedText style={styles.statNumber}>{nearbyCrew.length}</ThemedText>
+            <ThemedText style={styles.statLabel}>Crew Nearby</ThemedText>
+          </View>
+          <View style={styles.statBox}>
+            <ThemedText style={styles.statNumber}>{cityWideCrew.length}</ThemedText>
+            <ThemedText style={styles.statLabel}>In {currentCity}</ThemedText>
+          </View>
         </View>
-        <View style={styles.statBox}>
-          <ThemedText style={styles.statNumber}>0</ThemedText>
-          <ThemedText style={styles.statLabel}>
-            Local Spots
-          </ThemedText>
-        </View>
-      </View>
 
-      <ThemedText style={styles.comingSoon}>
-        👥 Nearby crew and 📍 local spots coming soon!
-      </ThemedText>
-    </ThemedView>
+        {/* Nearby Crew Section */}
+        {nearbyCrew.length > 0 ? (
+          <View style={styles.section}>
+            <ThemedText style={styles.sectionTitle}>
+              ✈️ Crew in {currentArea}
+            </ThemedText>
+            {nearbyCrew.map((crew) => (
+              <CrewCard 
+                key={crew.id} 
+                crew={crew} 
+                onPress={() => handleConnectPress(crew)} 
+              />
+            ))}
+          </View>
+        ) : (
+          <View style={styles.emptySection}>
+            <ThemedText style={styles.emptyText}>
+              No crew in your area yet. Check back soon!
+            </ThemedText>
+          </View>
+        )}
+
+        {/* City-wide Crew Section */}
+        {cityWideCrew.length > 0 ? (
+          <View style={styles.section}>
+            <ThemedText style={styles.sectionTitle}>
+              🌆 Others in {currentCity}
+            </ThemedText>
+            {cityWideCrew.map((crew) => (
+              <CrewCard 
+                key={crew.id} 
+                crew={crew} 
+                onPress={() => handleConnectPress(crew)} 
+              />
+            ))}
+          </View>
+        ) : null}
+      </ThemedView>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20 },
+  scrollContainer: { flex: 1 },
+  container: { flex: 1, padding: 20, paddingBottom: 40 },
   title: {
     fontSize: 32,
     fontWeight: 'bold',
@@ -269,17 +404,11 @@ const styles = StyleSheet.create({
     borderLeftColor: '#2196F3',
   },
   privacyText: { fontSize: 13, lineHeight: 20 },
-  status: {
-    fontSize: 14,
-    color: '#4CAF50',
-    textAlign: 'center',
-    marginTop: 20,
-  },
   locationHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 60,
-    marginBottom: 30,
+    marginBottom: 20,
     padding: 20,
     backgroundColor: '#2196F3',
     borderRadius: 16,
@@ -292,20 +421,39 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 8,
+    alignSelf: 'flex-start',
   },
   changeButtonText: { color: '#fff', fontWeight: '600' },
-  statsContainer: { flexDirection: 'row', gap: 15 },
+  statsContainer: { flexDirection: 'row', gap: 15, marginBottom: 20 },
   statBox: {
     flex: 1,
     padding: 20,
+    paddingTop: 25,
     backgroundColor: '#f5f5f5',
     borderRadius: 12,
     alignItems: 'center',
   },
-  statNumber: { fontSize: 32, fontWeight: 'bold', color: '#2196F3' },
-  statLabel: { fontSize: 12, opacity: 0.7 },
-  comingSoon: { textAlign: 'center', fontSize: 16, opacity: 0.6 },
-  modalContainer: { flex: 1, padding: 20, paddingTop: 60 },
+  statNumber: { fontSize: 28, fontWeight: 'bold', color: '#2196F3', lineHeight: 36,  },
+  statLabel: { fontSize: 12, color: '#666' },
+  section: { marginBottom: 20 },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 12,
+    color: '#fff',
+  },
+  emptySection: {
+    padding: 30,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  emptyText: {
+    fontSize: 16,
+     color: '#666',
+    textAlign: 'center',
+  },
+  modalContainer: { flex: 1, padding: 20, paddingTop: 60, backgroundColor: '#fff' },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -319,6 +467,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 12,
     marginBottom: 12,
+    color: '#000',
   },
   listItem: {
     padding: 14,
