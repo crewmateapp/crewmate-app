@@ -160,18 +160,36 @@ export default function MyLayoverScreen() {
   };
 
   const handleConnectPress = (crew: CrewMember) => {
-    Alert.alert(
-      `Connect with ${crew.displayName}?`,
-      `Send a connection request to ${crew.firstName}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Send Request', 
-          onPress: () => Alert.alert('Request Sent!', `${crew.firstName} will be notified.`)
+  Alert.alert(
+    `Connect with ${crew.displayName}?`,
+    `Send a connection request to ${crew.firstName}?`,
+    [
+      { text: 'Cancel', style: 'cancel' },
+      { 
+        text: 'Send Request', 
+        onPress: async () => {
+          try {
+            const { addDoc, collection, serverTimestamp } = await import('firebase/firestore');
+            
+            await addDoc(collection(db, 'connectionRequests'), {
+              fromUserId: user?.uid,
+              fromUserName: user?.email?.split('@')[0] || 'Unknown',
+              toUserId: crew.id,
+              toUserName: crew.displayName,
+              status: 'pending',
+              createdAt: serverTimestamp(),
+            });
+            
+            Alert.alert('Request Sent! ✈️', `${crew.firstName} will be notified.`);
+          } catch (error) {
+            console.error('Error sending request:', error);
+            Alert.alert('Error', 'Failed to send request. Try again.');
+          }
         }
-      ]
-    );
-  };
+      }
+    ]
+  );
+};
 
   if (loading) {
     return (

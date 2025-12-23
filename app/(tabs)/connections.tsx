@@ -1,51 +1,141 @@
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import {
-  mockConnections,
-  mockIncomingRequests,
-  type Connection
-} from '@/data/mockConnections';
+import { db } from '@/config/firebase';
+import { useAuth } from '@/contexts/AuthContext';
 import { router } from 'expo-router';
-import { useState } from 'react';
-import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  onSnapshot,
+  query,
+  serverTimestamp,
+  where
+} from 'firebase/firestore';
+import { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  TouchableOpacity,
+  View
+} from 'react-native';
+
+type ConnectionRequest = {
+  id: string;
+  fromUserId: string;
+  fromUserName: string;
+  toUserId: string;
+  toUserName: string;
+  status: 'pending' | 'accepted' | 'declined';
+};
+
+type Connection = {
+  id: string;
+  userId: string;
+  displayName: string;
+};
 
 export default function ConnectionsScreen() {
-  const [requests, setRequests] = useState(mockIncomingRequests);
-  const [connections, setConnections] = useState(mockConnections);
+  const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [incomingRequests, setIncomingRequests] = useState<ConnectionRequest[]>([]);
+  const [outgoingRequests, setOutgoingRequests] = useState<ConnectionRequest[]>([]);
+  const [connections, setConnections] = useState<Connection[]>([]);
 
-  const handleAccept = (requestId: string) => {
-    const request = requests.find(r => r.id === requestId);
-    if (request) {
-      // Add to connections
-      const newConnection: Connection = {
-        id: `conn-${Date.now()}`,
-        userId: request.fromUserId,
-        displayName: request.fromUser.displayName,
-        airline: request.fromUser.airline,
-        base: 'Unknown',
-        photoURL: request.fromUser.photoURL,
-      };
-      setConnections([newConnection, ...connections]);
-      
-      // Remove from requests
-      setRequests(requests.filter(r => r.id !== requestId));
+  useEffect(() => {
+    if (!user) return;
+
+    // Listen for incoming requests (where I'm the recipient)
+    const incomingQuery = query(
+      collection(db, 'connectionRequests'),
+      where('toUserId', '==', user.uid),
+      where('status', '==', 'pending')
+    );
+
+    const unsubIncoming = onSnapshot(incomingQuery, (snapshot) => {
+      const requests = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as ConnectionRequest[];
+      setIncomingRequests(requests);
+      setLoading(false);
+    });
+
+    // Listen for outgoing requests (where I'm the sender)
+    const outgoingQuery = query(
+      collection(db, 'connectionRequests'),
+      where('fromUserId', '==', user.uid),
+      where('status', '==', 'pending')
+    );
+
+    const unsubOutgoing = onSnapshot(outgoingQuery, (snapshot) => {
+      const requests = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as ConnectionRequest[];
+      setOutgoingRequests(requests);
+    });
+
+    // Listen for accepted connections (I'm either sender or recipient)
+    const connectionsQuery = query(
+      collection(db, 'connections'),
+      where('userIds', 'array-contains', user.uid)
+    );
+
+    const unsubConnections = onSnapshot(connectionsQuery, (snapshot) => {
+      const conns = snapshot.docs.map(doc => {
+        const data = doc.data();
+        const otherUserId = data.userIds.find((id: string) => id !== user.uid);
+        const otherUserName = data.userNames[otherUserId] || 'Unknown';
+        return {
+          id: doc.id,
+          userId: otherUserId,
+          displayName: otherUserName,
+        };
+      }) as Connection[];
+      setConnections(conns);
+    });
+
+    return () => {
+      unsubIncoming();
+      unsubOutgoing();
+      unsubConnections();
+    };
+  }, [user]);
+
+  const handleAccept = async (request: ConnectionRequest) => {
+    try {
+      await addDoc(collection(db, 'connections'), {
+        userIds: [request.fromUserId, request.toUserId],
+        userNames: {
+          [request.fromUserId]: request.fromUserName,
+          [request.toUserId]: request.toUserName,
+        },
+        createdAt: serverTimestamp(),
+      });
+      await deleteDoc(doc(db, 'connectionRequests', request.id));
+    } catch (error) {
+      console.error('Error accepting request:', error);
     }
   };
 
-  const handleDecline = (requestId: string) => {
-    setRequests(requests.filter(r => r.id !== requestId));
+  const handleDecline = async (requestId: string) => {
+    try {
+      await deleteDoc(doc(db, 'connectionRequests', requestId));
+    } catch (error) {
+      console.error('Error declining request:', error);
+    }
   };
 
-  const formatTimeAgo = (dateString?: string) => {
-    if (!dateString) return '';
-    const diff = Date.now() - new Date(dateString).getTime();
-    const minutes = Math.floor(diff / (1000 * 60));
-    const hours = Math.floor(diff / (1000 * 60 * 60));
-    
-    if (minutes < 60) return `${minutes}m ago`;
-    if (hours < 24) return `${hours}h ago`;
-    return `${Math.floor(hours / 24)}d ago`;
-  };
+  if (loading) {
+    return (
+      <ThemedView style={styles.container}>
+        <ActivityIndicator size="large" color="#2196F3" style={{ marginTop: 100 }} />
+      </ThemedView>
+    );
+  }
 
   return (
     <ScrollView style={styles.scrollContainer}>
@@ -54,27 +144,27 @@ export default function ConnectionsScreen() {
           💬 Connections
         </ThemedText>
 
-        {/* Pending Requests Section */}
-        {requests.length > 0 && (
+        {/* Incoming Requests */}
+        {incomingRequests.length > 0 && (
           <View style={styles.section}>
             <ThemedText style={styles.sectionTitle}>
-              📥 Pending Requests ({requests.length})
+              📥 Requests for You ({incomingRequests.length})
             </ThemedText>
             
-            {requests.map((request) => (
+            {incomingRequests.map((request) => (
               <View key={request.id} style={styles.requestCard}>
                 <View style={styles.requestInfo}>
                   <View style={styles.avatarFallback}>
                     <ThemedText style={styles.avatarText}>
-                      {request.fromUser.displayName.split(' ').map(n => n[0]).join('')}
+                      {request.fromUserName.slice(0, 2).toUpperCase()}
                     </ThemedText>
                   </View>
                   <View style={styles.requestDetails}>
                     <ThemedText style={styles.requestName}>
-                      {request.fromUser.displayName}
+                      {request.fromUserName}
                     </ThemedText>
                     <ThemedText style={styles.requestAirline}>
-                      {request.fromUser.airline}
+                      Wants to connect
                     </ThemedText>
                   </View>
                 </View>
@@ -82,7 +172,7 @@ export default function ConnectionsScreen() {
                 <View style={styles.requestActions}>
                   <TouchableOpacity 
                     style={styles.acceptButton}
-                    onPress={() => handleAccept(request.id)}
+                    onPress={() => handleAccept(request)}
                   >
                     <ThemedText style={styles.acceptButtonText}>Accept</ThemedText>
                   </TouchableOpacity>
@@ -98,10 +188,43 @@ export default function ConnectionsScreen() {
           </View>
         )}
 
-        {/* Connections Section */}
+        {/* Outgoing Requests */}
+        {outgoingRequests.length > 0 && (
+          <View style={styles.section}>
+            <ThemedText style={styles.sectionTitle}>
+              📤 Pending Requests ({outgoingRequests.length})
+            </ThemedText>
+            
+            {outgoingRequests.map((request) => (
+              <View key={request.id} style={styles.pendingCard}>
+                <View style={styles.avatarFallback}>
+                  <ThemedText style={styles.avatarText}>
+                    {request.toUserName.slice(0, 2).toUpperCase()}
+                  </ThemedText>
+                </View>
+                <View style={styles.requestDetails}>
+                  <ThemedText style={styles.pendingName}>
+                    {request.toUserName}
+                  </ThemedText>
+                  <ThemedText style={styles.pendingStatus}>
+                    ⏳ Waiting for response
+                  </ThemedText>
+                </View>
+                <TouchableOpacity 
+                  style={styles.cancelButton}
+                  onPress={() => handleDecline(request.id)}
+                >
+                  <ThemedText style={styles.cancelButtonText}>Cancel</ThemedText>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* Connections */}
         <View style={styles.section}>
           <ThemedText style={styles.sectionTitle}>
-            ✈️ Your Crew ({connections.length})
+            ✈️ Your Connections ({connections.length})
           </ThemedText>
           
           {connections.length > 0 ? (
@@ -110,35 +233,23 @@ export default function ConnectionsScreen() {
                 key={connection.id} 
                 style={styles.connectionCard}
                 onPress={() => router.push({
-                pathname: '/chat/[id]',
-                params: { id: connection.userId, name: connection.displayName }
-               })}
->
+                  pathname: '/chat/[id]',
+                  params: { id: connection.userId, name: connection.displayName }
+                })}
+              >
                 <View style={styles.avatarFallback}>
                   <ThemedText style={styles.avatarText}>
-                    {connection.displayName.split(' ').map(n => n[0]).join('')}
+                    {connection.displayName.slice(0, 2).toUpperCase()}
                   </ThemedText>
                 </View>
                 
                 <View style={styles.connectionInfo}>
-                  <View style={styles.connectionHeader}>
-                    <ThemedText style={styles.connectionName}>
-                      {connection.displayName}
-                    </ThemedText>
-                    {connection.lastMessageAt && (
-                      <ThemedText style={styles.timeAgo}>
-                        {formatTimeAgo(connection.lastMessageAt)}
-                      </ThemedText>
-                    )}
-                  </View>
-                  <ThemedText style={styles.connectionAirline}>
-                    {connection.airline} · {connection.base}
+                  <ThemedText style={styles.connectionName}>
+                    {connection.displayName}
                   </ThemedText>
-                  {connection.lastMessage && (
-                    <ThemedText style={styles.lastMessage} numberOfLines={1}>
-                      {connection.lastMessage}
-                    </ThemedText>
-                  )}
+                  <ThemedText style={styles.tapToChat}>
+                    Tap to chat
+                  </ThemedText>
                 </View>
               </TouchableOpacity>
             ))
@@ -184,6 +295,16 @@ const styles = StyleSheet.create({
     padding: 15,
     marginBottom: 10,
   },
+  pendingCard: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    padding: 15,
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#333',
+  },
   requestInfo: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -200,6 +321,15 @@ const styles = StyleSheet.create({
   requestAirline: {
     fontSize: 14,
     color: '#2196F3',
+  },
+  pendingName: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  pendingStatus: {
+    fontSize: 14,
+    color: '#888',
   },
   requestActions: {
     flexDirection: 'row',
@@ -227,6 +357,17 @@ const styles = StyleSheet.create({
     color: '#666',
     fontWeight: '600',
   },
+  cancelButton: {
+    backgroundColor: '#ff4444',
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  cancelButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+  },
   connectionCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
@@ -252,28 +393,14 @@ const styles = StyleSheet.create({
   connectionInfo: {
     flex: 1,
   },
-  connectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
   connectionName: {
     fontSize: 16,
     fontWeight: '700',
     color: '#000',
   },
-  timeAgo: {
-    fontSize: 12,
-    color: '#999',
-  },
-  connectionAirline: {
+  tapToChat: {
     fontSize: 13,
     color: '#2196F3',
-    marginBottom: 4,
-  },
-  lastMessage: {
-    fontSize: 14,
-    color: '#666',
   },
   emptyState: {
     padding: 30,
