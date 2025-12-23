@@ -1,3 +1,4 @@
+import { NotificationBadge } from '@/components/NotificationBadge';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { db } from '@/config/firebase';
@@ -140,9 +141,15 @@ export default function ConnectionsScreen() {
   return (
     <ScrollView style={styles.scrollContainer}>
       <ThemedView style={styles.container}>
-        <ThemedText type="title" style={styles.title}>
-          💬 Connections
-        </ThemedText>
+        {/* Title with Badge */}
+        <View style={styles.titleContainer}>
+          <ThemedText type="title" style={styles.title}>
+            💬 Connections
+          </ThemedText>
+          {incomingRequests.length > 0 && (
+            <NotificationBadge count={incomingRequests.length} />
+          )}
+        </View>
 
         {/* Incoming Requests */}
         {incomingRequests.length > 0 && (
@@ -237,10 +244,14 @@ export default function ConnectionsScreen() {
                   params: { id: connection.id, name: connection.displayName }
                 })}
               >
-                <View style={styles.avatarFallback}>
-                  <ThemedText style={styles.avatarText}>
-                    {connection.displayName.slice(0, 2).toUpperCase()}
-                  </ThemedText>
+                <View style={styles.avatarContainer}>
+                  <View style={styles.avatarFallback}>
+                    <ThemedText style={styles.avatarText}>
+                      {connection.displayName.slice(0, 2).toUpperCase()}
+                    </ThemedText>
+                  </View>
+                  {/* TODO: Add real unread count from messages */}
+                  {/* <View style={styles.unreadDot} /> */}
                 </View>
                 
                 <View style={styles.connectionInfo}>
@@ -274,11 +285,16 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     paddingBottom: 40,
   },
+  titleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    marginBottom: 20,
+  },
   title: {
     fontSize: 32,
     fontWeight: 'bold',
-    marginBottom: 20,
-    textAlign: 'center',
   },
   section: {
     marginBottom: 25,
@@ -376,6 +392,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  avatarContainer: {
+    position: 'relative',
+    marginRight: 12,
+  },
   avatarFallback: {
     width: 50,
     height: 50,
@@ -383,12 +403,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#2196F3',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
   },
   avatarText: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#fff',
+  },
+  unreadDot: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#f44336',
+    borderWidth: 2,
+    borderColor: '#fff',
   },
   connectionInfo: {
     flex: 1,

@@ -27,7 +27,7 @@ export default function TabLayout() {
         name="connections"
         options={{
           title: 'Connections',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="message.fill" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.2.fill" color={color} />,
         }}
       />
       <Tabs.Screen
