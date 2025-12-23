@@ -1,10 +1,10 @@
 import {
-    User,
-    createUserWithEmailAndPassword,
-    signOut as firebaseSignOut,
-    onAuthStateChanged,
-    sendEmailVerification,
-    signInWithEmailAndPassword,
+  User,
+  createUserWithEmailAndPassword,
+  signOut as firebaseSignOut,
+  onAuthStateChanged,
+  sendEmailVerification,
+  signInWithEmailAndPassword,
 } from 'firebase/auth';
 import { createContext, useContext, useEffect, useState } from 'react';
 import { auth } from '../config/firebase';
@@ -35,7 +35,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signUp = async (email: string, password: string) => {
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    await sendEmailVerification(userCredential.user);
+    
+    // Send verification email with proper settings
+    const actionCodeSettings = {
+      url: 'https://crewmate-4399c.firebaseapp.com', // Your Firebase project URL
+      handleCodeInApp: false, // Important: set to false for email verification
+    };
+    
+    await sendEmailVerification(userCredential.user, actionCodeSettings);
   };
 
   const signIn = async (email: string, password: string) => {
@@ -48,7 +55,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const sendVerificationEmail = async () => {
     if (auth.currentUser) {
-      await sendEmailVerification(auth.currentUser);
+      const actionCodeSettings = {
+        url: 'https://crewmate-4399c.firebaseapp.com',
+        handleCodeInApp: false,
+      };
+      
+      await sendEmailVerification(auth.currentUser, actionCodeSettings);
     }
   };
 

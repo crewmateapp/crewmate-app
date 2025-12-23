@@ -1,5 +1,6 @@
 import { ThemedText } from '@/components/themed-text';
 import { type CrewMember } from '@/data/mockCrew';
+import { router } from 'expo-router';
 import { Image, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 type CrewCardProps = {
@@ -8,8 +9,20 @@ type CrewCardProps = {
 };
 
 export function CrewCard({ crew, onPress }: CrewCardProps) {
+  const handleCardPress = () => {
+    // Navigate to user profile
+    router.push(`/profile/${crew.id}`);
+  };
+
+  const handleConnectPress = (e: any) => {
+    // Stop event from bubbling to card press
+    e?.stopPropagation?.();
+    // Call the onPress for connect action
+    onPress();
+  };
+
   return (
-    <TouchableOpacity style={styles.card} onPress={onPress}>
+    <TouchableOpacity style={styles.card} onPress={handleCardPress}>
       <View style={styles.row}>
         {crew.photoURL ? (
           <Image source={{ uri: crew.photoURL }} style={styles.avatar} />
@@ -34,7 +47,10 @@ export function CrewCard({ crew, onPress }: CrewCardProps) {
         </ThemedText>
       ) : null}
 
-      <TouchableOpacity style={styles.connectButton} onPress={onPress}>
+      <TouchableOpacity 
+        style={styles.connectButton} 
+        onPress={handleConnectPress}
+      >
         <ThemedText style={styles.connectButtonText}>👋 Connect</ThemedText>
       </TouchableOpacity>
     </TouchableOpacity>

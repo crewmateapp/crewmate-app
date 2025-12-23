@@ -1,86 +1,122 @@
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { db } from '@/config/firebase';
+import { useAuth } from '@/contexts/AuthContext';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
 import {
-    FlatList,
-    KeyboardAvoidingView,
-    Platform,
-    StyleSheet,
-    TextInput,
-    TouchableOpacity,
-    View
+  addDoc,
+  collection,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+} from 'firebase/firestore';
+import { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
 type Message = {
   id: string;
   text: string;
-  fromMe: boolean;
-  timestamp: Date;
+  senderId: string;
+  senderName: string;
+  createdAt: Date;
+  read: boolean;
 };
-
-// Mock initial messages
-const getMockMessages = (connectionName: string): Message[] => [
-  {
-    id: '1',
-    text: `Hey! Nice to connect with you!`,
-    fromMe: false,
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2), // 2 hours ago
-  },
-  {
-    id: '2',
-    text: `Same here! Are you on a layover in the city?`,
-    fromMe: true,
-    timestamp: new Date(Date.now() - 1000 * 60 * 60), // 1 hour ago
-  },
-  {
-    id: '3',
-    text: `Yes! Just got in. Know any good coffee spots nearby?`,
-    fromMe: false,
-    timestamp: new Date(Date.now() - 1000 * 60 * 30), // 30 min ago
-  },
-];
 
 export default function ChatScreen() {
   const { id, name } = useLocalSearchParams<{ id: string; name: string }>();
-  const [messages, setMessages] = useState<Message[]>(getMockMessages(name || ''));
+  const { user } = useAuth();
+  const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
 
-  const sendMessage = () => {
-    if (!newMessage.trim()) return;
+  // Load messages from Firestore in real-time
+  useEffect(() => {
+    if (!id) return;
 
-    const message: Message = {
-      id: Date.now().toString(),
-      text: newMessage.trim(),
-      fromMe: true,
-      timestamp: new Date(),
-    };
+    const messagesRef = collection(db, 'messages', id, 'messages');
+    const q = query(messagesRef, orderBy('createdAt', 'asc'));
 
-    setMessages([...messages, message]);
-    setNewMessage('');
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const loadedMessages: Message[] = snapshot.docs.map((doc) => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            text: data.text,
+            senderId: data.senderId,
+            senderName: data.senderName,
+            createdAt: data.createdAt?.toDate() || new Date(),
+            read: data.read || false,
+          };
+        });
+        setMessages(loadedMessages);
+        setLoading(false);
+      },
+      (error) => {
+        console.error('Error loading messages:', error);
+        setLoading(false);
+      }
+    );
 
-    // Mock reply after 1 second
-    setTimeout(() => {
-      const replies = [
-        "That sounds great!",
-        "Awesome, let me know!",
-        "I'll check it out 👍",
-        "See you there!",
-        "Thanks for the tip!",
-      ];
-      const reply: Message = {
-        id: (Date.now() + 1).toString(),
-        text: replies[Math.floor(Math.random() * replies.length)],
-        fromMe: false,
-        timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, reply]);
-    }, 1000);
+    return () => unsubscribe();
+  }, [id]);
+
+  const sendMessage = async () => {
+    if (!newMessage.trim() || !id || !user) return;
+
+    setSending(true);
+    try {
+      const messagesRef = collection(db, 'messages', id, 'messages');
+      
+      await addDoc(messagesRef, {
+        text: newMessage.trim(),
+        senderId: user.uid,
+        senderName: user.email?.split('@')[0] || 'Unknown',
+        createdAt: serverTimestamp(),
+        read: false,
+      });
+
+      setNewMessage('');
+    } catch (error) {
+      console.error('Error sending message:', error);
+      alert('Failed to send message. Please try again.');
+    } finally {
+      setSending(false);
+    }
   };
 
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
+
+  if (loading) {
+    return (
+      <ThemedView style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <ThemedText style={styles.backText}>← Back</ThemedText>
+          </TouchableOpacity>
+          <ThemedText style={styles.headerName}>{name}</ThemedText>
+          <View style={styles.placeholder} />
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#2196F3" />
+        </View>
+      </ThemedView>
+    );
+  }
 
   return (
     <ThemedView style={styles.container}>
@@ -94,37 +130,48 @@ export default function ChatScreen() {
       </View>
 
       {/* Messages */}
-      <FlatList
-        data={messages}
-        keyExtractor={(item) => item.id}
-        style={styles.messageList}
-        contentContainerStyle={styles.messageListContent}
-        renderItem={({ item }) => (
-          <View
-            style={[
-              styles.messageBubble,
-              item.fromMe ? styles.myMessage : styles.theirMessage,
-            ]}
-          >
-            <ThemedText
-              style={[
-                styles.messageText,
-                item.fromMe ? styles.myMessageText : styles.theirMessageText,
-              ]}
-            >
-              {item.text}
-            </ThemedText>
-            <ThemedText
-              style={[
-                styles.timestamp,
-                item.fromMe ? styles.myTimestamp : styles.theirTimestamp,
-              ]}
-            >
-              {formatTime(item.timestamp)}
-            </ThemedText>
-          </View>
-        )}
-      />
+      {messages.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <ThemedText style={styles.emptyText}>
+            No messages yet. Say hi! 👋
+          </ThemedText>
+        </View>
+      ) : (
+        <FlatList
+          data={messages}
+          keyExtractor={(item) => item.id}
+          style={styles.messageList}
+          contentContainerStyle={styles.messageListContent}
+          renderItem={({ item }) => {
+            const isMyMessage = item.senderId === user?.uid;
+            return (
+              <View
+                style={[
+                  styles.messageBubble,
+                  isMyMessage ? styles.myMessage : styles.theirMessage,
+                ]}
+              >
+                <ThemedText
+                  style={[
+                    styles.messageText,
+                    isMyMessage ? styles.myMessageText : styles.theirMessageText,
+                  ]}
+                >
+                  {item.text}
+                </ThemedText>
+                <ThemedText
+                  style={[
+                    styles.timestamp,
+                    isMyMessage ? styles.myTimestamp : styles.theirTimestamp,
+                  ]}
+                >
+                  {formatTime(item.createdAt)}
+                </ThemedText>
+              </View>
+            );
+          }}
+        />
+      )}
 
       {/* Input */}
       <KeyboardAvoidingView
@@ -139,13 +186,21 @@ export default function ChatScreen() {
             placeholder="Type a message..."
             placeholderTextColor="#888"
             multiline
+            editable={!sending}
           />
           <TouchableOpacity
-            style={[styles.sendButton, !newMessage.trim() && styles.sendButtonDisabled]}
+            style={[
+              styles.sendButton,
+              (!newMessage.trim() || sending) && styles.sendButtonDisabled,
+            ]}
             onPress={sendMessage}
-            disabled={!newMessage.trim()}
+            disabled={!newMessage.trim() || sending}
           >
-            <ThemedText style={styles.sendButtonText}>Send</ThemedText>
+            {sending ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <ThemedText style={styles.sendButtonText}>Send</ThemedText>
+            )}
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -181,6 +236,22 @@ const styles = StyleSheet.create({
   },
   placeholder: {
     width: 60,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+  },
+  emptyText: {
+    fontSize: 16,
+    opacity: 0.5,
+    textAlign: 'center',
   },
   messageList: {
     flex: 1,
@@ -250,6 +321,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 20,
+    minWidth: 70,
+    alignItems: 'center',
   },
   sendButtonDisabled: {
     opacity: 0.5,

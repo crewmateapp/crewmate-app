@@ -28,11 +28,13 @@ function RootLayoutNav() {
         return;
       }
 
-      if (!user.emailVerified) {
-        router.replace('/auth/verify-email');
-        setCheckingProfile(false);
-        return;
-      }
+      // TODO: RE-ENABLE EMAIL VERIFICATION BEFORE PRODUCTION!
+      // TEMPORARILY BYPASSED FOR TESTING
+      // if (!user.emailVerified) {
+      //   router.replace('/auth/verify-email');
+      //   setCheckingProfile(false);
+      //   return;
+      // }
 
       // Check if profile exists in Firestore
       try {
