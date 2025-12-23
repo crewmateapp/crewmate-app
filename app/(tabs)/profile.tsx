@@ -147,6 +147,16 @@ useFocusEffect(
         <Ionicons name="pencil" size={20} color="#2196F3" />
         <ThemedText style={styles.editButtonText}>Edit</ThemedText>
       </TouchableOpacity>
+      {/* Admin Button (only for your email) */}
+{(user?.email === 'zachary.tillman@aa.com' || user?.email === 'johnny.guzman@aa.com') && (
+  <TouchableOpacity
+    style={styles.adminButton}
+    onPress={() => router.push('/admin')}
+  >
+    <Ionicons name="shield-checkmark" size={20} color="#fff" />
+    <ThemedText style={styles.adminButtonText}>Admin Panel</ThemedText>
+  </TouchableOpacity>
+)}
 
       <View style={styles.header}>
         <TouchableOpacity onPress={pickAndUploadPhoto} disabled={uploadingPhoto}>
@@ -326,4 +336,19 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
+  adminButton: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 8,
+  backgroundColor: '#9C27B0',
+  paddingVertical: 15,
+  borderRadius: 12,
+  marginTop: 10,
+},
+adminButtonText: {
+  color: '#fff',
+  fontSize: 16,
+  fontWeight: '600',
+},
 });
