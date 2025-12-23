@@ -2,11 +2,13 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { db, storage } from '@/config/firebase';
 import { useAuth } from '@/contexts/AuthContext';
+import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 type UserProfile = {
@@ -44,6 +46,26 @@ export default function ProfileScreen() {
 
     fetchProfile();
   }, [user]);
+
+  // Refetch profile when screen comes into focus (after editing)
+useFocusEffect(
+  useCallback(() => {
+    const refreshProfile = async () => {
+      if (!user) return;
+      
+      try {
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (userDoc.exists()) {
+          setProfile(userDoc.data() as UserProfile);
+        }
+      } catch (error) {
+        console.error('Error refreshing profile:', error);
+      }
+    };
+
+    refreshProfile();
+  }, [user])
+);
 
   const pickAndUploadPhoto = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -117,6 +139,15 @@ export default function ProfileScreen() {
 
   return (
     <ThemedView style={styles.container}>
+      {/* Edit Profile Button */}
+      <TouchableOpacity 
+        style={styles.editButton}
+        onPress={() => router.push('/edit-profile')}
+      >
+        <Ionicons name="pencil" size={20} color="#2196F3" />
+        <ThemedText style={styles.editButtonText}>Edit</ThemedText>
+      </TouchableOpacity>
+
       <View style={styles.header}>
         <TouchableOpacity onPress={pickAndUploadPhoto} disabled={uploadingPhoto}>
           {uploadingPhoto ? (
@@ -174,6 +205,21 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
     paddingTop: 80,
+  },
+  editButton: {
+    position: 'absolute',
+    top: 60,
+    right: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    padding: 10,
+    zIndex: 10,
+  },
+  editButtonText: {
+    color: '#2196F3',
+    fontSize: 16,
+    fontWeight: '600',
   },
   header: {
     alignItems: 'center',
