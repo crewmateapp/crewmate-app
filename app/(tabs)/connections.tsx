@@ -148,7 +148,7 @@ export default function ConnectionsScreen() {
         {incomingRequests.length > 0 && (
           <View style={styles.section}>
             <ThemedText style={styles.sectionTitle}>
-              📥 Requests for You ({incomingRequests.length})
+              🔥 Requests for You ({incomingRequests.length})
             </ThemedText>
             
             {incomingRequests.map((request) => (
@@ -234,7 +234,7 @@ export default function ConnectionsScreen() {
                 style={styles.connectionCard}
                 onPress={() => router.push({
                   pathname: '/chat/[id]',
-                  params: { id: connection.userId, name: connection.displayName }
+                  params: { id: connection.id, name: connection.displayName }
                 })}
               >
                 <View style={styles.avatarFallback}>

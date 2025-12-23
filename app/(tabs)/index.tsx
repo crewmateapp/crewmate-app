@@ -3,7 +3,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { db } from '@/config/firebase';
 import { useAuth } from '@/contexts/AuthContext';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -19,7 +19,20 @@ import {
 } from 'react-native';
 
 import { cities, type City } from '@/data/cities';
-import { mockCrew, type CrewMember } from '@/data/mockCrew';
+
+type CrewMember = {
+  id: string;
+  displayName: string;
+  firstName: string;
+  airline: string;
+  base: string;
+  photoURL?: string;
+  currentLocation: {
+    city: string;
+    area: string;
+    setAt: Date;
+  };
+};
 
 export default function MyLayoverScreen() {
   const { user } = useAuth();
@@ -27,6 +40,7 @@ export default function MyLayoverScreen() {
   const [hasLocation, setHasLocation] = useState(false);
   const [currentCity, setCurrentCity] = useState('');
   const [currentArea, setCurrentArea] = useState('');
+  const [crew, setCrew] = useState<CrewMember[]>([]);
 
   // Modal state
   const [cityModalVisible, setCityModalVisible] = useState(false);
@@ -66,26 +80,75 @@ export default function MyLayoverScreen() {
     loadLocation();
   }, [user]);
 
+  // Load real crew from Firestore when location is set
+  useEffect(() => {
+    if (!currentCity || !user) {
+      setCrew([]);
+      return;
+    }
+
+    const usersRef = collection(db, 'users');
+    const q = query(
+      usersRef,
+      where('currentLocation.city', '==', currentCity)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const loadedCrew: CrewMember[] = [];
+      
+      snapshot.forEach((doc) => {
+        // Don't show yourself
+        if (doc.id === user.uid) return;
+        
+        const data = doc.data();
+        
+        // Check if location is still valid (within 24 hours)
+        if (data.currentLocation?.setAt) {
+          const setAt = data.currentLocation.setAt?.toDate?.() || new Date(data.currentLocation.setAt);
+          const hoursSinceSet = (Date.now() - setAt.getTime()) / (1000 * 60 * 60);
+          
+          if (hoursSinceSet < 24) {
+            loadedCrew.push({
+              id: doc.id,
+              displayName: data.displayName || 'Crew Member',
+              firstName: data.firstName || 'Crew',
+              airline: data.airline || 'Airline',
+              base: data.base || 'Base',
+              photoURL: data.photoURL,
+              currentLocation: {
+                city: data.currentLocation.city,
+                area: data.currentLocation.area || '',
+                setAt: setAt,
+              },
+            });
+          }
+        }
+      });
+      
+      setCrew(loadedCrew);
+    });
+
+    return () => unsubscribe();
+  }, [currentCity, user]);
+
   // Filter crew by current location
   const nearbyCrew = useMemo(() => {
-    if (!currentCity || !currentArea) return [];
+    if (!currentArea) return [];
     
     // Same area = show them
-    return mockCrew.filter(
-      crew => crew.currentLocation.city === currentCity && 
-              crew.currentLocation.area === currentArea
+    return crew.filter(
+      member => member.currentLocation.area === currentArea
     );
-  }, [currentCity, currentArea]);
+  }, [crew, currentArea]);
 
   // Crew in same city but different area
   const cityWideCrew = useMemo(() => {
-    if (!currentCity || !currentArea) return [];
+    if (!currentArea) return [];
     
-    return mockCrew.filter(
-      crew => crew.currentLocation.city === currentCity && 
-              crew.currentLocation.area !== currentArea
+    return crew.filter(
+      member => member.currentLocation.area !== currentArea
     );
-  }, [currentCity, currentArea]);
+  }, [crew, currentArea]);
 
   const filteredCities = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -159,37 +222,41 @@ export default function MyLayoverScreen() {
     setCurrentArea('');
   };
 
-  const handleConnectPress = (crew: CrewMember) => {
-  Alert.alert(
-    `Connect with ${crew.displayName}?`,
-    `Send a connection request to ${crew.firstName}?`,
-    [
-      { text: 'Cancel', style: 'cancel' },
-      { 
-        text: 'Send Request', 
-        onPress: async () => {
-          try {
-            const { addDoc, collection, serverTimestamp } = await import('firebase/firestore');
-            
-            await addDoc(collection(db, 'connectionRequests'), {
-              fromUserId: user?.uid,
-              fromUserName: user?.email?.split('@')[0] || 'Unknown',
-              toUserId: crew.id,
-              toUserName: crew.displayName,
-              status: 'pending',
-              createdAt: serverTimestamp(),
-            });
-            
-            Alert.alert('Request Sent! ✈️', `${crew.firstName} will be notified.`);
-          } catch (error) {
-            console.error('Error sending request:', error);
-            Alert.alert('Error', 'Failed to send request. Try again.');
+  const handleConnectPress = (crewMember: CrewMember) => {
+    Alert.alert(
+      `Connect with ${crewMember.displayName}?`,
+      `Send a connection request to ${crewMember.firstName}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Send Request', 
+          onPress: async () => {
+            try {
+              const { addDoc, serverTimestamp } = await import('firebase/firestore');
+              
+              // Get current user's display name
+              const userDoc = await getDoc(doc(db, 'users', user!.uid));
+              const userData = userDoc.data();
+              
+              await addDoc(collection(db, 'connectionRequests'), {
+                fromUserId: user?.uid,
+                fromUserName: userData?.displayName || user?.email?.split('@')[0] || 'Unknown',
+                toUserId: crewMember.id,
+                toUserName: crewMember.displayName,
+                status: 'pending',
+                createdAt: serverTimestamp(),
+              });
+              
+              Alert.alert('Request Sent! ✈️', `${crewMember.firstName} will be notified.`);
+            } catch (error) {
+              console.error('Error sending request:', error);
+              Alert.alert('Error', 'Failed to send request. Try again.');
+            }
           }
         }
-      }
-    ]
-  );
-};
+      ]
+    );
+  };
 
   if (loading) {
     return (
@@ -353,11 +420,11 @@ export default function MyLayoverScreen() {
             <ThemedText style={styles.sectionTitle}>
               ✈️ Crew in {currentArea}
             </ThemedText>
-            {nearbyCrew.map((crew) => (
+            {nearbyCrew.map((crewMember) => (
               <CrewCard 
-                key={crew.id} 
-                crew={crew} 
-                onPress={() => handleConnectPress(crew)} 
+                key={crewMember.id} 
+                crew={crewMember} 
+                onPress={() => handleConnectPress(crewMember)} 
               />
             ))}
           </View>
@@ -375,11 +442,11 @@ export default function MyLayoverScreen() {
             <ThemedText style={styles.sectionTitle}>
               🌆 Others in {currentCity}
             </ThemedText>
-            {cityWideCrew.map((crew) => (
+            {cityWideCrew.map((crewMember) => (
               <CrewCard 
-                key={crew.id} 
-                crew={crew} 
-                onPress={() => handleConnectPress(crew)} 
+                key={crewMember.id} 
+                crew={crewMember} 
+                onPress={() => handleConnectPress(crewMember)} 
               />
             ))}
           </View>
@@ -451,7 +518,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
   },
-  statNumber: { fontSize: 28, fontWeight: 'bold', color: '#2196F3', lineHeight: 36,  },
+  statNumber: { fontSize: 28, fontWeight: 'bold', color: '#2196F3', lineHeight: 36 },
   statLabel: { fontSize: 12, color: '#666' },
   section: { marginBottom: 20 },
   sectionTitle: {
@@ -468,7 +535,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 16,
-     color: '#666',
+    color: '#666',
     textAlign: 'center',
   },
   modalContainer: { flex: 1, padding: 20, paddingTop: 60, backgroundColor: '#fff' },
