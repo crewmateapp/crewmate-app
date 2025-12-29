@@ -1,5 +1,6 @@
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { Colors } from '@/constants/Colors';
 import { cities } from '@/data/cities';
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
@@ -47,7 +48,7 @@ export default function ExploreScreen() {
         value={searchQuery}
         onChangeText={setSearchQuery}
         placeholder="Search cities or airport codes..."
-        placeholderTextColor="#888"
+        placeholderTextColor={Colors.text.disabled}
         autoCapitalize="none"
         autoCorrect={false}
       />
@@ -82,13 +83,13 @@ const getCityEmoji = (cityName: string): string => {
     'New York': '🗽',
     'Los Angeles': '🌴',
     'Chicago': '🌆',
-    'Miami': '🏖️',
+    'Miami': '�️',
     'San Francisco': '🌉',
     'Las Vegas': '🎰',
     'Seattle': '☕',
     'Denver': '🏔️',
     'Atlanta': '🍑',
-    'Dallas–Fort Worth': '🤠',
+    'Dallas—Fort Worth': '🤠',
     'Boston': '🦞',
     'Phoenix': '🌵',
     'Orlando': '🏰',
@@ -125,15 +126,17 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'center',
     marginBottom: 20,
-    color: '#888',
+    color: Colors.text.secondary,
   },
   searchInput: {
-    backgroundColor: '#333',
+    backgroundColor: Colors.card,
     borderRadius: 12,
     padding: 15,
     fontSize: 16,
-    color: '#fff',
+    color: Colors.text.primary,
     marginBottom: 20,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
   row: {
     justifyContent: 'space-between',
@@ -141,12 +144,12 @@ const styles = StyleSheet.create({
   },
   cityCard: {
     width: '48%',
-    backgroundColor: '#1a1a1a',
+    backgroundColor: Colors.card,
     borderRadius: 16,
     padding: 20,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: Colors.border,
   },
   cityEmoji: {
     fontSize: 36,
@@ -160,7 +163,7 @@ const styles = StyleSheet.create({
   },
   cityAirport: {
     fontSize: 12,
-    color: '#2196F3',
+    color: Colors.accent,
     fontWeight: '600',
   },
 });

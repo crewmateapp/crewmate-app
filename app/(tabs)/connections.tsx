@@ -2,6 +2,7 @@ import { NotificationBadge } from '@/components/NotificationBadge';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { db } from '@/config/firebase';
+import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { router } from 'expo-router';
 import {
@@ -48,7 +49,6 @@ export default function ConnectionsScreen() {
   useEffect(() => {
     if (!user) return;
 
-    // Listen for incoming requests (where I'm the recipient)
     const incomingQuery = query(
       collection(db, 'connectionRequests'),
       where('toUserId', '==', user.uid),
@@ -64,7 +64,6 @@ export default function ConnectionsScreen() {
       setLoading(false);
     });
 
-    // Listen for outgoing requests (where I'm the sender)
     const outgoingQuery = query(
       collection(db, 'connectionRequests'),
       where('fromUserId', '==', user.uid),
@@ -79,7 +78,6 @@ export default function ConnectionsScreen() {
       setOutgoingRequests(requests);
     });
 
-    // Listen for accepted connections (I'm either sender or recipient)
     const connectionsQuery = query(
       collection(db, 'connections'),
       where('userIds', 'array-contains', user.uid)
@@ -133,7 +131,7 @@ export default function ConnectionsScreen() {
   if (loading) {
     return (
       <ThemedView style={styles.container}>
-        <ActivityIndicator size="large" color="#2196F3" style={{ marginTop: 100 }} />
+        <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: 100 }} />
       </ThemedView>
     );
   }
@@ -141,7 +139,6 @@ export default function ConnectionsScreen() {
   return (
     <ScrollView style={styles.scrollContainer}>
       <ThemedView style={styles.container}>
-        {/* Title with Badge */}
         <View style={styles.titleContainer}>
           <ThemedText type="title" style={styles.title}>
             💬 Connections
@@ -151,7 +148,6 @@ export default function ConnectionsScreen() {
           )}
         </View>
 
-        {/* Incoming Requests */}
         {incomingRequests.length > 0 && (
           <View style={styles.section}>
             <ThemedText style={styles.sectionTitle}>
@@ -195,7 +191,6 @@ export default function ConnectionsScreen() {
           </View>
         )}
 
-        {/* Outgoing Requests */}
         {outgoingRequests.length > 0 && (
           <View style={styles.section}>
             <ThemedText style={styles.sectionTitle}>
@@ -228,7 +223,6 @@ export default function ConnectionsScreen() {
           </View>
         )}
 
-        {/* Connections */}
         <View style={styles.section}>
           <ThemedText style={styles.sectionTitle}>
             ✈️ Your Connections ({connections.length})
@@ -250,8 +244,6 @@ export default function ConnectionsScreen() {
                       {connection.displayName.slice(0, 2).toUpperCase()}
                     </ThemedText>
                   </View>
-                  {/* TODO: Add real unread count from messages */}
-                  {/* <View style={styles.unreadDot} /> */}
                 </View>
                 
                 <View style={styles.connectionInfo}>
@@ -303,23 +295,25 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     marginBottom: 12,
-    color: '#fff',
+    color: Colors.text.primary,
   },
   requestCard: {
-    backgroundColor: '#fff',
+    backgroundColor: Colors.card,
     borderRadius: 12,
     padding: 15,
     marginBottom: 10,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
   pendingCard: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: Colors.card,
     borderRadius: 12,
     padding: 15,
     marginBottom: 10,
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: Colors.border,
   },
   requestInfo: {
     flexDirection: 'row',
@@ -332,20 +326,20 @@ const styles = StyleSheet.create({
   requestName: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#000',
+    color: Colors.text.primary,
   },
   requestAirline: {
     fontSize: 14,
-    color: '#2196F3',
+    color: Colors.primary,
   },
   pendingName: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#fff',
+    color: Colors.text.primary,
   },
   pendingStatus: {
     fontSize: 14,
-    color: '#888',
+    color: Colors.text.secondary,
   },
   requestActions: {
     flexDirection: 'row',
@@ -353,44 +347,48 @@ const styles = StyleSheet.create({
   },
   acceptButton: {
     flex: 1,
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.success,
     paddingVertical: 10,
     borderRadius: 8,
     alignItems: 'center',
   },
   acceptButtonText: {
-    color: '#fff',
+    color: Colors.white,
     fontWeight: '600',
   },
   declineButton: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: Colors.background,
     paddingVertical: 10,
     borderRadius: 8,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
   declineButtonText: {
-    color: '#666',
+    color: Colors.text.secondary,
     fontWeight: '600',
   },
   cancelButton: {
-    backgroundColor: '#ff4444',
+    backgroundColor: Colors.error,
     paddingHorizontal: 15,
     paddingVertical: 8,
     borderRadius: 8,
   },
   cancelButtonText: {
-    color: '#fff',
+    color: Colors.white,
     fontWeight: '600',
     fontSize: 14,
   },
   connectionCard: {
-    backgroundColor: '#fff',
+    backgroundColor: Colors.card,
     borderRadius: 12,
     padding: 15,
     marginBottom: 10,
     flexDirection: 'row',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
   avatarContainer: {
     position: 'relative',
@@ -400,25 +398,14 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarText: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#fff',
-  },
-  unreadDot: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#f44336',
-    borderWidth: 2,
-    borderColor: '#fff',
+    color: Colors.white,
   },
   connectionInfo: {
     flex: 1,
@@ -426,21 +413,21 @@ const styles = StyleSheet.create({
   connectionName: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#000',
+    color: Colors.text.primary,
   },
   tapToChat: {
     fontSize: 13,
-    color: '#2196F3',
+    color: Colors.primary,
   },
   emptyState: {
     padding: 30,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: Colors.background,
     borderRadius: 12,
     alignItems: 'center',
   },
   emptyText: {
     fontSize: 16,
-    color: '#666',
+    color: Colors.text.secondary,
     textAlign: 'center',
   },
 });

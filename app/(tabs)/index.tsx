@@ -1,456 +1,334 @@
-import { CrewCard } from '@/components/CrewCard';
+import CrewCard from '@/components/CrewCard';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { db } from '@/config/firebase';
+import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
-import { collection, doc, getDoc, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
-import { useEffect, useMemo, useState } from 'react';
+import { cities } from '@/data/cities';
+import { Picker } from '@react-native-picker/picker';
+import { router } from 'expo-router';
+import {
+  addDoc,
+  collection,
+  doc,
+  getDoc,
+  onSnapshot,
+  query,
+  serverTimestamp,
+  updateDoc,
+  where
+} from 'firebase/firestore';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  FlatList,
-  Modal,
-  Pressable,
   ScrollView,
   StyleSheet,
-  TextInput,
+  Switch,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
-
-import { cities, type City } from '@/data/cities';
 
 type CrewMember = {
   id: string;
   displayName: string;
-  firstName: string;
   airline: string;
-  base: string;
+  bio: string;
   photoURL?: string;
-  currentLocation: {
-    city: string;
-    area: string;
-    setAt: Date;
-  };
 };
 
-export default function MyLayoverScreen() {
+type UserLayover = {
+  city: string;
+  area: string;
+  discoverable: boolean;
+};
+
+export default function HomeScreen() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [hasLocation, setHasLocation] = useState(false);
-  const [currentCity, setCurrentCity] = useState('');
-  const [currentArea, setCurrentArea] = useState('');
-  const [crew, setCrew] = useState<CrewMember[]>([]);
+  const [myLayover, setMyLayover] = useState<UserLayover | null>(null);
+  const [crewMembers, setCrewMembers] = useState<CrewMember[]>([]);
+  const [selectedCity, setSelectedCity] = useState('');
+  const [selectedArea, setSelectedArea] = useState('');
+  const [isDiscoverable, setIsDiscoverable] = useState(false);
 
-  // Modal state
-  const [cityModalVisible, setCityModalVisible] = useState(false);
-  const [areaModalVisible, setAreaModalVisible] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCity, setSelectedCity] = useState<City | null>(null);
-
-  // Load saved location on mount
   useEffect(() => {
-    const loadLocation = async () => {
-      if (!user) return;
-      
-      try {
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        if (userDoc.exists()) {
-          const data = userDoc.data();
-          if (data.currentLocation?.city && data.currentLocation?.area) {
-            const setAt = data.currentLocation.setAt?.toDate?.() || new Date(data.currentLocation.setAt);
-            const hoursSinceSet = (Date.now() - setAt.getTime()) / (1000 * 60 * 60);
-            
-            if (hoursSinceSet < 24) {
-              setCurrentCity(data.currentLocation.city);
-              setCurrentArea(data.currentLocation.area);
-              setHasLocation(true);
-            } else {
-              await clearLocationInFirestore();
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Error loading location:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
+    if (!user) return;
 
-    loadLocation();
+    const userDocRef = doc(db, 'users', user.uid);
+    const unsubUser = onSnapshot(userDocRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        const layover = data.currentLayover as UserLayover | undefined;
+        if (layover) {
+          setMyLayover(layover);
+          setSelectedCity(layover.city);
+          setSelectedArea(layover.area);
+          setIsDiscoverable(layover.discoverable);
+        }
+      }
+      setLoading(false);
+    });
+
+    return () => unsubUser();
   }, [user]);
 
-  // Load real crew from Firestore when location is set
   useEffect(() => {
-    if (!currentCity || !user) {
-      setCrew([]);
+    if (!user || !myLayover || !myLayover.discoverable) {
+      setCrewMembers([]);
       return;
     }
 
-    const usersRef = collection(db, 'users');
     const q = query(
-      usersRef,
-      where('currentLocation.city', '==', currentCity)
+      collection(db, 'users'),
+      where('currentLayover.city', '==', myLayover.city),
+      where('currentLayover.area', '==', myLayover.area),
+      where('currentLayover.discoverable', '==', true)
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const loadedCrew: CrewMember[] = [];
-      
-      snapshot.forEach((doc) => {
-        // Don't show yourself
-        if (doc.id === user.uid) return;
-        
-        const data = doc.data();
-        
-        // Check if location is still valid (within 24 hours)
-        if (data.currentLocation?.setAt) {
-          const setAt = data.currentLocation.setAt?.toDate?.() || new Date(data.currentLocation.setAt);
-          const hoursSinceSet = (Date.now() - setAt.getTime()) / (1000 * 60 * 60);
-          
-          if (hoursSinceSet < 24) {
-            loadedCrew.push({
-              id: doc.id,
-              displayName: data.displayName || 'Crew Member',
-              firstName: data.firstName || 'Crew',
-              airline: data.airline || 'Airline',
-              base: data.base || 'Base',
-              photoURL: data.photoURL,
-              currentLocation: {
-                city: data.currentLocation.city,
-                area: data.currentLocation.area || '',
-                setAt: setAt,
-              },
-            });
-          }
-        }
-      });
-      
-      setCrew(loadedCrew);
+    const unsubCrew = onSnapshot(q, async (snapshot) => {
+      const members: CrewMember[] = [];
+      for (const docSnap of snapshot.docs) {
+        if (docSnap.id === user.uid) continue;
+
+        const data = docSnap.data();
+        members.push({
+          id: docSnap.id,
+          displayName: data.displayName || 'Unknown',
+          airline: data.airline || 'Unknown',
+          bio: data.bio || '',
+          photoURL: data.photoURL,
+        });
+      }
+      setCrewMembers(members);
     });
 
-    return () => unsubscribe();
-  }, [currentCity, user]);
+    return () => unsubCrew();
+  }, [user, myLayover]);
 
-  // Filter crew by current location
-  const nearbyCrew = useMemo(() => {
-    if (!currentArea) return [];
-    
-    // Same area = show them
-    return crew.filter(
-      member => member.currentLocation.area === currentArea
-    );
-  }, [crew, currentArea]);
+  const handleSetLayover = async () => {
+    if (!user || !selectedCity || !selectedArea) {
+      Alert.alert('Missing Info', 'Please select both a city and area.');
+      return;
+    }
 
-  // Crew in same city but different area
-  const cityWideCrew = useMemo(() => {
-    if (!currentArea) return [];
-    
-    return crew.filter(
-      member => member.currentLocation.area !== currentArea
-    );
-  }, [crew, currentArea]);
+    try {
+      await updateDoc(doc(db, 'users', user.uid), {
+        currentLayover: {
+          city: selectedCity,
+          area: selectedArea,
+          discoverable: isDiscoverable,
+          updatedAt: serverTimestamp(),
+        },
+      });
+      Alert.alert('Success', 'Your layover has been set!');
+    } catch (error) {
+      console.error('Error setting layover:', error);
+      Alert.alert('Error', 'Failed to set layover. Please try again.');
+    }
+  };
 
-  const filteredCities = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return cities.slice(0, 25);
-
-    return cities
-      .filter((c) => {
-        const name = c.name.toLowerCase();
-        const airportCode = (c.areas?.[0] ?? '').slice(0, 3).toLowerCase();
-        return name.includes(q) || airportCode.startsWith(q);
-      })
-      .slice(0, 30);
-  }, [searchQuery]);
-
-  const saveLocationToFirestore = async (city: string, area: string) => {
+  const handleClearLayover = async () => {
     if (!user) return;
 
     try {
       await updateDoc(doc(db, 'users', user.uid), {
-        currentLocation: {
-          city: city,
-          area: area,
-          setAt: new Date().toISOString(),
-        }
+        currentLayover: null,
       });
+      setMyLayover(null);
+      setSelectedCity('');
+      setSelectedArea('');
+      setIsDiscoverable(false);
+      Alert.alert('Cleared', 'Your layover has been cleared.');
     } catch (error) {
-      console.error('Error saving location:', error);
+      console.error('Error clearing layover:', error);
+      Alert.alert('Error', 'Failed to clear layover.');
     }
   };
 
-  const clearLocationInFirestore = async () => {
+  const handleConnect = async (crewMemberId: string) => {
     if (!user) return;
 
     try {
-      await updateDoc(doc(db, 'users', user.uid), {
-        currentLocation: null
+      const existingQuery = query(
+        collection(db, 'connectionRequests'),
+        where('fromUserId', '==', user.uid),
+        where('toUserId', '==', crewMemberId),
+        where('status', '==', 'pending')
+      );
+      const existingSnap = await getDoc(doc(db, 'connectionRequests', `${user.uid}_${crewMemberId}`));
+      
+      if (existingSnap.exists()) {
+        Alert.alert('Already Sent', 'You already sent a connection request to this crew member.');
+        return;
+      }
+
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      const userData = userDoc.data();
+      const crewDoc = await getDoc(doc(db, 'users', crewMemberId));
+      const crewData = crewDoc.data();
+
+      await addDoc(collection(db, 'connectionRequests'), {
+        fromUserId: user.uid,
+        fromUserName: userData?.displayName || 'Unknown',
+        toUserId: crewMemberId,
+        toUserName: crewData?.displayName || 'Unknown',
+        status: 'pending',
+        createdAt: serverTimestamp(),
       });
+
+      Alert.alert('Request Sent', 'Your connection request has been sent!');
     } catch (error) {
-      console.error('Error clearing location:', error);
+      console.error('Error sending connection request:', error);
+      Alert.alert('Error', 'Failed to send connection request.');
     }
-  };
-
-  const openCityPicker = () => {
-    setSearchQuery('');
-    setSelectedCity(null);
-    setCityModalVisible(true);
-  };
-
-  const chooseCity = (city: City) => {
-    setSelectedCity(city);
-    setCityModalVisible(false);
-    setAreaModalVisible(true);
-  };
-
-  const chooseArea = async (area: string) => {
-    if (!selectedCity) return;
-    
-    await saveLocationToFirestore(selectedCity.name, area);
-    
-    setCurrentCity(selectedCity.name);
-    setCurrentArea(area);
-    setHasLocation(true);
-    setAreaModalVisible(false);
-    setSelectedCity(null);
-  };
-
-  const handleChangeLocation = async () => {
-    await clearLocationInFirestore();
-    setHasLocation(false);
-    setCurrentCity('');
-    setCurrentArea('');
-  };
-
-  const handleConnectPress = (crewMember: CrewMember) => {
-    Alert.alert(
-      `Connect with ${crewMember.displayName}?`,
-      `Send a connection request to ${crewMember.firstName}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Send Request', 
-          onPress: async () => {
-            try {
-              const { addDoc, serverTimestamp } = await import('firebase/firestore');
-              
-              // Get current user's display name
-              const userDoc = await getDoc(doc(db, 'users', user!.uid));
-              const userData = userDoc.data();
-              
-              await addDoc(collection(db, 'connectionRequests'), {
-                fromUserId: user?.uid,
-                fromUserName: userData?.displayName || user?.email?.split('@')[0] || 'Unknown',
-                toUserId: crewMember.id,
-                toUserName: crewMember.displayName,
-                status: 'pending',
-                createdAt: serverTimestamp(),
-              });
-              
-              Alert.alert('Request Sent! ✈️', `${crewMember.firstName} will be notified.`);
-            } catch (error) {
-              console.error('Error sending request:', error);
-              Alert.alert('Error', 'Failed to send request. Try again.');
-            }
-          }
-        }
-      ]
-    );
   };
 
   if (loading) {
     return (
       <ThemedView style={styles.container}>
-        <ActivityIndicator size="large" color="#2196F3" style={{ marginTop: 100 }} />
+        <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: 100 }} />
       </ThemedView>
     );
   }
 
-  if (!hasLocation) {
-    return (
-      <ThemedView style={styles.container}>
-        <ThemedText type="title" style={styles.title}>
-          🗺️ My Layover
-        </ThemedText>
-        <ThemedText style={styles.subtitle}>
-          Set your location to see nearby crew and spots
-        </ThemedText>
+  const selectedCityData = cities.find((c) => c.name === selectedCity);
+  const areas = selectedCityData?.areas || [];
 
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity
-            style={styles.primaryButton}
-            onPress={openCityPicker}
-          >
-            <ThemedText style={styles.buttonText}>
-              📍 Set My Location
-            </ThemedText>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.privacyNotice}>
-          <ThemedText style={styles.privacyText}>
-            🔒 Your exact hotel is never shared. Only general areas are visible
-            to other crew.
-          </ThemedText>
-        </View>
-
-        {/* CITY SEARCH MODAL */}
-        <Modal
-          visible={cityModalVisible}
-          animationType="slide"
-          onRequestClose={() => setCityModalVisible(false)}
-        >
-          <View style={styles.modalContainer}>
-            <View style={styles.modalHeader}>
-              <ThemedText type="title" style={styles.modalTitle}>
-                Choose Your City
-              </ThemedText>
-              <Pressable onPress={() => setCityModalVisible(false)}>
-                <ThemedText style={styles.modalClose}>Close</ThemedText>
-              </Pressable>
-            </View>
-
-            <TextInput
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              placeholder="Type a city or airport code (e.g. San or SFO)"
-              placeholderTextColor="#888"
-              style={styles.searchInput}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-
-            <FlatList
-              data={filteredCities}
-              keyExtractor={(item, index) => `${item.name}-${index}`}
-              keyboardShouldPersistTaps="handled"
-              renderItem={({ item }) => (
-                <Pressable
-                  style={styles.listItem}
-                  onPress={() => chooseCity(item)}
-                >
-                  <ThemedText style={styles.listItemTitle}>
-                    {item.name}
-                  </ThemedText>
-                  <ThemedText style={styles.listItemSub}>
-                    {item.areas[0]}
-                  </ThemedText>
-                </Pressable>
-              )}
-            />
-          </View>
-        </Modal>
-
-        {/* AREA MODAL */}
-        <Modal
-          visible={areaModalVisible}
-          animationType="slide"
-          onRequestClose={() => setAreaModalVisible(false)}
-        >
-          <View style={styles.modalContainer}>
-            <View style={styles.modalHeader}>
-              <ThemedText type="title" style={styles.modalTitle}>
-                Choose Area in {selectedCity?.name}
-              </ThemedText>
-              <Pressable
-                onPress={() => {
-                  setAreaModalVisible(false);
-                  setCityModalVisible(true);
-                }}
-              >
-                <ThemedText style={styles.modalClose}>Back</ThemedText>
-              </Pressable>
-            </View>
-
-            <FlatList
-              data={selectedCity?.areas ?? []}
-              keyExtractor={(item) => item}
-              renderItem={({ item }) => (
-                <Pressable
-                  style={styles.listItem}
-                  onPress={() => chooseArea(item)}
-                >
-                  <ThemedText style={styles.listItemTitle}>
-                    {item}
-                  </ThemedText>
-                </Pressable>
-              )}
-            />
-          </View>
-        </Modal>
-      </ThemedView>
-    );
-  }
-
-  // Has location - show crew
   return (
     <ScrollView style={styles.scrollContainer}>
       <ThemedView style={styles.container}>
-        <View style={styles.locationHeader}>
-          <View>
-            <ThemedText style={styles.currentlyIn}>Currently in</ThemedText>
-            <ThemedText type="title" style={styles.cityName}>
-              {currentCity}
+        <ThemedText type="title" style={styles.title}>
+          📍 My Layover
+        </ThemedText>
+
+        {!myLayover ? (
+          <View style={styles.setupCard}>
+            <ThemedText style={styles.setupTitle}>Set Your Layover</ThemedText>
+            <ThemedText style={styles.setupSubtitle}>
+              Let other crew know where you are
             </ThemedText>
-            <ThemedText style={styles.areaName}>{currentArea}</ThemedText>
-          </View>
 
-          <TouchableOpacity
-            style={styles.changeButton}
-            onPress={handleChangeLocation}
-          >
-            <ThemedText style={styles.changeButtonText}>Change</ThemedText>
-          </TouchableOpacity>
-        </View>
+            <View style={styles.pickerContainer}>
+              <ThemedText style={styles.label}>City</ThemedText>
+              <View style={styles.pickerWrapper}>
+                <Picker
+                  selectedValue={selectedCity}
+                  onValueChange={(val) => {
+                    setSelectedCity(val);
+                    setSelectedArea('');
+                  }}
+                  style={styles.picker}
+                >
+                  <Picker.Item label="Select a city..." value="" />
+                  {cities.map((city) => (
+                    <Picker.Item key={city.name} label={city.name} value={city.name} />
+                  ))}
+                </Picker>
+              </View>
+            </View>
 
-        <View style={styles.statsContainer}>
-          <View style={styles.statBox}>
-            <ThemedText style={styles.statNumber}>{nearbyCrew.length}</ThemedText>
-            <ThemedText style={styles.statLabel}>Crew Nearby</ThemedText>
-          </View>
-          <View style={styles.statBox}>
-            <ThemedText style={styles.statNumber}>{cityWideCrew.length}</ThemedText>
-            <ThemedText style={styles.statLabel}>In {currentCity}</ThemedText>
-          </View>
-        </View>
+            {selectedCity && areas.length > 0 && (
+              <View style={styles.pickerContainer}>
+                <ThemedText style={styles.label}>Area</ThemedText>
+                <View style={styles.pickerWrapper}>
+                  <Picker
+                    selectedValue={selectedArea}
+                    onValueChange={setSelectedArea}
+                    style={styles.picker}
+                  >
+                    <Picker.Item label="Select an area..." value="" />
+                    {areas.map((area) => (
+                      <Picker.Item key={area} label={area} value={area} />
+                    ))}
+                  </Picker>
+                </View>
+              </View>
+            )}
 
-        {/* Nearby Crew Section */}
-        {nearbyCrew.length > 0 ? (
-          <View style={styles.section}>
-            <ThemedText style={styles.sectionTitle}>
-              ✈️ Crew in {currentArea}
-            </ThemedText>
-            {nearbyCrew.map((crewMember) => (
-              <CrewCard 
-                key={crewMember.id} 
-                crew={crewMember} 
-                onPress={() => handleConnectPress(crewMember)} 
+            <View style={styles.switchContainer}>
+              <View style={styles.switchLabelContainer}>
+                <ThemedText style={styles.switchLabel}>Make me discoverable</ThemedText>
+                <ThemedText style={styles.switchHint}>
+                  Other crew in this area can find you
+                </ThemedText>
+              </View>
+              <Switch
+                value={isDiscoverable}
+                onValueChange={setIsDiscoverable}
+                trackColor={{ false: Colors.border, true: Colors.primary }}
+                thumbColor={Colors.white}
               />
-            ))}
+            </View>
+
+            <TouchableOpacity
+              style={[styles.button, (!selectedCity || !selectedArea) && styles.buttonDisabled]}
+              onPress={handleSetLayover}
+              disabled={!selectedCity || !selectedArea}
+            >
+              <ThemedText style={styles.buttonText}>Set Layover</ThemedText>
+            </TouchableOpacity>
           </View>
         ) : (
-          <View style={styles.emptySection}>
-            <ThemedText style={styles.emptyText}>
-              No crew in your area yet. Check back soon!
-            </ThemedText>
-          </View>
+          <>
+            <View style={styles.currentLayoverCard}>
+              <View style={styles.layoverHeader}>
+                <View>
+                  <ThemedText style={styles.layoverCity}>{myLayover.city}</ThemedText>
+                  <ThemedText style={styles.layoverArea}>{myLayover.area}</ThemedText>
+                </View>
+                <TouchableOpacity onPress={handleClearLayover} style={styles.clearButton}>
+                  <ThemedText style={styles.clearButtonText}>Clear</ThemedText>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.discoverableStatus}>
+                <ThemedText style={styles.discoverableLabel}>
+                  {myLayover.discoverable ? '✅ Discoverable' : '🔒 Private'}
+                </ThemedText>
+              </View>
+            </View>
+
+            {myLayover.discoverable ? (
+              <View style={styles.crewSection}>
+                <ThemedText style={styles.sectionTitle}>
+                  ✈️ Crew in {myLayover.area} ({crewMembers.length})
+                </ThemedText>
+
+                {crewMembers.length > 0 ? (
+                  crewMembers.map((member) => (
+                    <CrewCard
+                      key={member.id}
+                      crewMember={member}
+                      onConnect={() => handleConnect(member.id)}
+                    />
+                  ))
+                ) : (
+                  <View style={styles.emptyState}>
+                    <ThemedText style={styles.emptyText}>
+                      No other crew members are currently discoverable in this area.
+                    </ThemedText>
+                  </View>
+                )}
+              </View>
+            ) : (
+              <View style={styles.privateNotice}>
+                <ThemedText style={styles.privateText}>
+                  🔒 You're in private mode. Enable discoverable mode to see other crew members.
+                </ThemedText>
+              </View>
+            )}
+          </>
         )}
 
-        {/* City-wide Crew Section */}
-        {cityWideCrew.length > 0 ? (
-          <View style={styles.section}>
-            <ThemedText style={styles.sectionTitle}>
-              🌆 Others in {currentCity}
-            </ThemedText>
-            {cityWideCrew.map((crewMember) => (
-              <CrewCard 
-                key={crewMember.id} 
-                crew={crewMember} 
-                onPress={() => handleConnectPress(crewMember)} 
-              />
-            ))}
-          </View>
-        ) : null}
+        <TouchableOpacity
+          style={styles.exploreButton}
+          onPress={() => router.push('/explore')}
+        >
+          <ThemedText style={styles.exploreButtonText}>
+            🌍 Explore Cities & Crew Spots
+          </ThemedText>
+        </TouchableOpacity>
       </ThemedView>
     </ScrollView>
   );
@@ -458,109 +336,180 @@ export default function MyLayoverScreen() {
 
 const styles = StyleSheet.create({
   scrollContainer: { flex: 1 },
-  container: { flex: 1, padding: 20, paddingBottom: 40 },
+  container: {
+    flex: 1,
+    padding: 20,
+    paddingTop: 60,
+    paddingBottom: 40,
+  },
   title: {
     fontSize: 32,
     fontWeight: 'bold',
-    marginBottom: 10,
-    marginTop: 60,
     textAlign: 'center',
+    marginBottom: 20,
   },
-  subtitle: {
+  setupCard: {
+    backgroundColor: Colors.card,
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  setupTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 5,
+    color: Colors.text.primary,
+  },
+  setupSubtitle: {
     fontSize: 16,
-    textAlign: 'center',
-    marginBottom: 40,
-    opacity: 0.7,
+    marginBottom: 20,
+    color: Colors.text.secondary,
   },
-  buttonContainer: { gap: 15 },
-  primaryButton: {
-    backgroundColor: '#2196F3',
-    padding: 18,
+  pickerContainer: {
+    marginBottom: 20,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 8,
+    color: Colors.text.primary,
+  },
+  pickerWrapper: {
+    borderWidth: 1,
+    borderColor: Colors.border,
     borderRadius: 12,
-    alignItems: 'center',
+    backgroundColor: Colors.white,
+    overflow: 'hidden',
   },
-  buttonText: { color: '#fff', fontSize: 18, fontWeight: '600' },
-  privacyNotice: {
-    marginTop: 30,
-    padding: 15,
-    backgroundColor: 'rgba(33,150,243,0.1)',
-    borderRadius: 8,
-    borderLeftWidth: 3,
-    borderLeftColor: '#2196F3',
+  picker: {
+    height: 50,
   },
-  privacyText: { fontSize: 13, lineHeight: 20 },
-  locationHeader: {
+  switchContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 60,
+    alignItems: 'center',
+    paddingVertical: 15,
     marginBottom: 20,
-    padding: 20,
-    backgroundColor: '#2196F3',
-    borderRadius: 16,
   },
-  currentlyIn: { color: '#fff', opacity: 0.9 },
-  cityName: { fontSize: 28, fontWeight: 'bold', color: '#fff' },
-  areaName: { fontSize: 16, color: '#fff', opacity: 0.9 },
-  changeButton: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    alignSelf: 'flex-start',
-  },
-  changeButtonText: { color: '#fff', fontWeight: '600' },
-  statsContainer: { flexDirection: 'row', gap: 15, marginBottom: 20 },
-  statBox: {
+  switchLabelContainer: {
     flex: 1,
-    padding: 20,
-    paddingTop: 25,
-    backgroundColor: '#f5f5f5',
+  },
+  switchLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+    color: Colors.text.primary,
+  },
+  switchHint: {
+    fontSize: 14,
+    color: Colors.text.secondary,
+  },
+  button: {
+    backgroundColor: Colors.primary,
+    paddingVertical: 15,
     borderRadius: 12,
     alignItems: 'center',
   },
-  statNumber: { fontSize: 28, fontWeight: 'bold', color: '#2196F3', lineHeight: 36 },
-  statLabel: { fontSize: 12, color: '#666' },
-  section: { marginBottom: 20 },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    marginBottom: 12,
-    color: '#fff',
+  buttonDisabled: {
+    opacity: 0.5,
   },
-  emptySection: {
+  buttonText: {
+    color: Colors.white,
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  currentLayoverCard: {
+    backgroundColor: Colors.card,
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 20,
+    borderWidth: 2,
+    borderColor: Colors.primary,
+  },
+  layoverHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 15,
+  },
+  layoverCity: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: Colors.text.primary,
+  },
+  layoverArea: {
+    fontSize: 16,
+    color: Colors.text.secondary,
+    marginTop: 4,
+  },
+  clearButton: {
+    backgroundColor: Colors.background,
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  clearButtonText: {
+    color: Colors.error,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  discoverableStatus: {
+    paddingTop: 15,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  discoverableLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.text.primary,
+  },
+  crewSection: {
+    marginBottom: 20,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 15,
+    color: Colors.text.primary,
+  },
+  emptyState: {
     padding: 30,
-    backgroundColor: '#f5f5f5',
+    backgroundColor: Colors.background,
     borderRadius: 12,
     alignItems: 'center',
   },
   emptyText: {
     fontSize: 16,
-    color: '#666',
+    color: Colors.text.secondary,
     textAlign: 'center',
   },
-  modalContainer: { flex: 1, padding: 20, paddingTop: 60, backgroundColor: '#fff' },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  modalTitle: { fontSize: 22, fontWeight: 'bold' },
-  modalClose: { color: '#2196F3', fontWeight: '600' },
-  searchInput: {
-    borderWidth: 1,
-    borderColor: '#ddd',
+  privateNotice: {
+    backgroundColor: Colors.background,
+    padding: 20,
     borderRadius: 12,
-    padding: 12,
-    marginBottom: 12,
-    color: '#000',
-  },
-  listItem: {
-    padding: 14,
-    borderRadius: 12,
+    marginBottom: 20,
     borderWidth: 1,
-    borderColor: '#eee',
-    marginBottom: 10,
+    borderColor: Colors.border,
   },
-  listItemTitle: { fontSize: 16, fontWeight: '700' },
-  listItemSub: { fontSize: 12, opacity: 0.7 },
+  privateText: {
+    fontSize: 16,
+    color: Colors.text.secondary,
+    textAlign: 'center',
+  },
+  exploreButton: {
+    backgroundColor: Colors.accent,
+    paddingVertical: 15,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  exploreButtonText: {
+    color: Colors.text.primary,
+    fontSize: 16,
+    fontWeight: '600',
+  },
 });

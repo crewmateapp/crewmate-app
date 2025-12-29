@@ -1,9 +1,11 @@
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { db, storage } from '@/config/firebase';
+import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { getAirlineFromEmail } from '@/data/airlines';
 import { cities } from '@/data/cities';
+import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { doc, setDoc } from 'firebase/firestore';
@@ -25,10 +27,16 @@ import {
   View,
 } from 'react-native';
 
+const POSITIONS = [
+  { value: 'Flight Attendant', label: 'Flight Attendant', icon: 'airplane' },
+  { value: 'Pilot', label: 'Pilot', icon: 'navigate' },
+];
+
 export default function CreateProfileScreen() {
   const { user } = useAuth();
   const [firstName, setFirstName] = useState('');
   const [lastInitial, setLastInitial] = useState('');
+  const [position, setPosition] = useState('');
   const [airline, setAirline] = useState(getAirlineFromEmail(user?.email || ''));
   const [base, setBase] = useState('');
   const [bio, setBio] = useState('');
@@ -100,6 +108,11 @@ export default function CreateProfileScreen() {
       return;
     }
 
+    if (!position) {
+      Alert.alert('Error', 'Please select your position');
+      return;
+    }
+
     if (!base) {
       Alert.alert('Error', 'Please select your home base');
       return;
@@ -120,6 +133,7 @@ export default function CreateProfileScreen() {
         firstName: firstName.trim(),
         lastInitial: lastInitial.trim().toUpperCase(),
         displayName: `${firstName.trim()} ${lastInitial.trim().toUpperCase()}.`,
+        position: position,
         email: user.email,
         airline: airline,
         base: base,
@@ -185,7 +199,7 @@ export default function CreateProfileScreen() {
               <TextInput
                 style={styles.input}
                 placeholder="Sarah"
-                placeholderTextColor="#888"
+                placeholderTextColor={Colors.text.disabled}
                 value={firstName}
                 onChangeText={setFirstName}
                 autoCapitalize="words"
@@ -198,7 +212,7 @@ export default function CreateProfileScreen() {
               <TextInput
                 style={styles.input}
                 placeholder="M"
-                placeholderTextColor="#888"
+                placeholderTextColor={Colors.text.disabled}
                 value={lastInitial}
                 onChangeText={(text) => setLastInitial(text.slice(0, 1))}
                 autoCapitalize="characters"
@@ -210,11 +224,41 @@ export default function CreateProfileScreen() {
             </View>
 
             <View style={styles.inputContainer}>
+              <ThemedText style={styles.label}>Position</ThemedText>
+              <View style={styles.positionContainer}>
+                {POSITIONS.map((pos) => (
+                  <TouchableOpacity
+                    key={pos.value}
+                    style={[
+                      styles.positionButton,
+                      position === pos.value && styles.positionButtonActive,
+                    ]}
+                    onPress={() => setPosition(pos.value)}
+                  >
+                    <Ionicons 
+                      name={pos.icon as any} 
+                      size={24} 
+                      color={position === pos.value ? Colors.white : Colors.text.primary} 
+                    />
+                    <ThemedText
+                      style={[
+                        styles.positionText,
+                        position === pos.value && styles.positionTextActive,
+                      ]}
+                    >
+                      {pos.label}
+                    </ThemedText>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            <View style={styles.inputContainer}>
               <ThemedText style={styles.label}>Airline</ThemedText>
               <TextInput
                 style={styles.input}
                 placeholder="Delta Air Lines"
-                placeholderTextColor="#888"
+                placeholderTextColor={Colors.text.disabled}
                 value={airline}
                 onChangeText={setAirline}
                 autoCapitalize="words"
@@ -238,7 +282,7 @@ export default function CreateProfileScreen() {
               <TextInput
                 style={[styles.input, styles.textArea]}
                 placeholder="Looking for coffee spots and local recommendations..."
-                placeholderTextColor="#888"
+                placeholderTextColor={Colors.text.disabled}
                 value={bio}
                 onChangeText={setBio}
                 multiline
@@ -256,7 +300,7 @@ export default function CreateProfileScreen() {
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator color="#fff" />
+                <ActivityIndicator color={Colors.white} />
               ) : (
                 <ThemedText style={styles.buttonText}>Complete Profile</ThemedText>
               )}
@@ -289,7 +333,7 @@ export default function CreateProfileScreen() {
                 value={searchQuery}
                 onChangeText={setSearchQuery}
                 placeholder="Search by city or airport code"
-                placeholderTextColor="#888"
+                placeholderTextColor={Colors.text.disabled}
                 style={styles.searchInput}
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -326,6 +370,7 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
     paddingTop: 60,
+    backgroundColor: Colors.background,
   },
   title: {
     fontSize: 32,
@@ -337,7 +382,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'center',
     marginBottom: 20,
-    opacity: 0.7,
+    color: Colors.text.secondary,
   },
   photoContainer: {
     alignSelf: 'center',
@@ -352,7 +397,7 @@ const styles = StyleSheet.create({
     width: 120,
     height: 120,
     borderRadius: 60,
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -360,7 +405,7 @@ const styles = StyleSheet.create({
     fontSize: 32,
   },
   photoPlaceholderLabel: {
-    color: '#fff',
+    color: Colors.white,
     fontSize: 14,
     marginTop: 5,
   },
@@ -373,15 +418,16 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontWeight: '600',
+    color: Colors.text.primary,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: Colors.border,
     borderRadius: 12,
     padding: 15,
     fontSize: 16,
-    backgroundColor: '#fff',
-    color: '#000',
+    backgroundColor: Colors.white,
+    color: Colors.text.primary,
   },
   textArea: {
     height: 80,
@@ -389,25 +435,54 @@ const styles = StyleSheet.create({
   },
   hint: {
     fontSize: 12,
-    opacity: 0.6,
+    color: Colors.text.secondary,
+  },
+  positionContainer: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  positionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: Colors.border,
+    backgroundColor: Colors.white,
+  },
+  positionButtonActive: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primary,
+  },
+  positionText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.text.primary,
+  },
+  positionTextActive: {
+    color: Colors.white,
   },
   pickerButton: {
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: Colors.border,
     borderRadius: 12,
     padding: 15,
-    backgroundColor: '#fff',
+    backgroundColor: Colors.white,
   },
   pickerText: {
     fontSize: 16,
-    color: '#000',
+    color: Colors.text.primary,
   },
   pickerPlaceholder: {
     fontSize: 16,
-    color: '#888',
+    color: Colors.text.disabled,
   },
   button: {
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     padding: 18,
     borderRadius: 12,
     alignItems: 'center',
@@ -417,27 +492,28 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   buttonText: {
-    color: '#fff',
+    color: Colors.white,
     fontSize: 18,
     fontWeight: '600',
   },
   notice: {
     marginTop: 30,
     padding: 15,
-    backgroundColor: 'rgba(33, 150, 243, 0.1)',
+    backgroundColor: Colors.background,
     borderRadius: 8,
     borderLeftWidth: 3,
-    borderLeftColor: '#2196F3',
+    borderLeftColor: Colors.primary,
   },
   noticeText: {
     fontSize: 13,
     lineHeight: 20,
+    color: Colors.text.secondary,
   },
   modalContainer: {
     flex: 1,
     padding: 20,
     paddingTop: 60,
-    backgroundColor: '#fff',
+    backgroundColor: Colors.white,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -449,30 +525,31 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   modalClose: {
-    color: '#2196F3',
+    color: Colors.primary,
     fontWeight: '600',
   },
   searchInput: {
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: Colors.border,
     borderRadius: 12,
     padding: 12,
     marginBottom: 12,
-    color: '#000',
+    color: Colors.text.primary,
   },
   listItem: {
     padding: 14,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#eee',
+    borderColor: Colors.border,
     marginBottom: 10,
   },
   listItemTitle: {
     fontSize: 16,
     fontWeight: '700',
+    color: Colors.text.primary,
   },
   listItemSub: {
     fontSize: 12,
-    opacity: 0.7,
+    color: Colors.text.secondary,
   },
 });

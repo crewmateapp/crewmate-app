@@ -1,6 +1,7 @@
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { db, storage } from '@/config/firebase';
+import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -47,25 +48,24 @@ export default function ProfileScreen() {
     fetchProfile();
   }, [user]);
 
-  // Refetch profile when screen comes into focus (after editing)
-useFocusEffect(
-  useCallback(() => {
-    const refreshProfile = async () => {
-      if (!user) return;
-      
-      try {
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        if (userDoc.exists()) {
-          setProfile(userDoc.data() as UserProfile);
+  useFocusEffect(
+    useCallback(() => {
+      const refreshProfile = async () => {
+        if (!user) return;
+        
+        try {
+          const userDoc = await getDoc(doc(db, 'users', user.uid));
+          if (userDoc.exists()) {
+            setProfile(userDoc.data() as UserProfile);
+          }
+        } catch (error) {
+          console.error('Error refreshing profile:', error);
         }
-      } catch (error) {
-        console.error('Error refreshing profile:', error);
-      }
-    };
+      };
 
-    refreshProfile();
-  }, [user])
-);
+      refreshProfile();
+    }, [user])
+  );
 
   const pickAndUploadPhoto = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -94,12 +94,10 @@ useFocusEffect(
       
       const downloadURL = await getDownloadURL(photoRef);
       
-      // Update Firestore
       await updateDoc(doc(db, 'users', user.uid), {
         photoURL: downloadURL
       });
 
-      // Update local state
       setProfile(prev => prev ? { ...prev, photoURL: downloadURL } : null);
       
       Alert.alert('Success', 'Profile photo updated!');
@@ -132,37 +130,36 @@ useFocusEffect(
   if (loading) {
     return (
       <ThemedView style={styles.container}>
-        <ActivityIndicator size="large" color="#2196F3" />
+        <ActivityIndicator size="large" color={Colors.primary} />
       </ThemedView>
     );
   }
 
   return (
     <ThemedView style={styles.container}>
-      {/* Edit Profile Button */}
       <TouchableOpacity 
         style={styles.editButton}
         onPress={() => router.push('/edit-profile')}
       >
-        <Ionicons name="pencil" size={20} color="#2196F3" />
+        <Ionicons name="pencil" size={20} color={Colors.primary} />
         <ThemedText style={styles.editButtonText}>Edit</ThemedText>
       </TouchableOpacity>
-      {/* Admin Button (only for your email) */}
-{(user?.email === 'zachary.tillman@aa.com' || user?.email === 'johnny.guzman@aa.com') && (
-  <TouchableOpacity
-    style={styles.adminButton}
-    onPress={() => router.push('/admin')}
-  >
-    <Ionicons name="shield-checkmark" size={20} color="#fff" />
-    <ThemedText style={styles.adminButtonText}>Admin Panel</ThemedText>
-  </TouchableOpacity>
-)}
+
+      {(user?.email === 'zachary.tillman@aa.com' || user?.email === 'johnny.guzman@aa.com') && (
+        <TouchableOpacity
+          style={styles.adminButton}
+          onPress={() => router.push('/admin')}
+        >
+          <Ionicons name="shield-checkmark" size={20} color={Colors.white} />
+          <ThemedText style={styles.adminButtonText}>Admin Panel</ThemedText>
+        </TouchableOpacity>
+      )}
 
       <View style={styles.header}>
         <TouchableOpacity onPress={pickAndUploadPhoto} disabled={uploadingPhoto}>
           {uploadingPhoto ? (
             <View style={styles.avatarFallback}>
-              <ActivityIndicator color="#fff" />
+              <ActivityIndicator color={Colors.white} />
             </View>
           ) : profile?.photoURL ? (
             <Image source={{ uri: profile.photoURL }} style={styles.avatar} />
@@ -227,7 +224,22 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   editButtonText: {
-    color: '#2196F3',
+    color: Colors.primary,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  adminButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#9C27B0',
+    paddingVertical: 15,
+    borderRadius: 12,
+    marginTop: 10,
+  },
+  adminButtonText: {
+    color: Colors.white,
     fontSize: 16,
     fontWeight: '600',
   },
@@ -245,7 +257,7 @@ const styles = StyleSheet.create({
     width: 100,
     height: 100,
     borderRadius: 50,
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 15,
@@ -253,13 +265,13 @@ const styles = StyleSheet.create({
   avatarText: {
     fontSize: 32,
     fontWeight: 'bold',
-    color: '#fff',
+    color: Colors.white,
   },
   editBadge: {
     position: 'absolute',
     bottom: 10,
     right: -5,
-    backgroundColor: '#fff',
+    backgroundColor: Colors.white,
     borderRadius: 15,
     width: 30,
     height: 30,
@@ -281,23 +293,26 @@ const styles = StyleSheet.create({
   },
   airline: {
     fontSize: 18,
-    color: '#2196F3',
+    color: Colors.primary,
     marginBottom: 5,
   },
   base: {
     fontSize: 16,
-    opacity: 0.7,
+    color: Colors.text.secondary,
   },
   bioContainer: {
-    backgroundColor: 'rgba(33, 150, 243, 0.1)',
+    backgroundColor: Colors.background,
     padding: 15,
     borderRadius: 12,
     marginBottom: 30,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
   bio: {
     fontSize: 16,
     fontStyle: 'italic',
     textAlign: 'center',
+    color: Colors.text.primary,
   },
   infoSection: {
     marginBottom: 30,
@@ -305,7 +320,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 14,
     fontWeight: '600',
-    opacity: 0.5,
+    color: Colors.text.secondary,
     marginBottom: 10,
     textTransform: 'uppercase',
   },
@@ -314,17 +329,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: Colors.border,
   },
   infoLabel: {
     fontSize: 16,
-    opacity: 0.7,
+    color: Colors.text.secondary,
   },
   infoValue: {
     fontSize: 16,
+    color: Colors.text.primary,
   },
   signOutButton: {
-    backgroundColor: '#f44336',
+    backgroundColor: Colors.error,
     paddingHorizontal: 30,
     paddingVertical: 15,
     borderRadius: 12,
@@ -332,23 +348,8 @@ const styles = StyleSheet.create({
     marginTop: 'auto',
   },
   signOutText: {
-    color: '#fff',
+    color: Colors.white,
     fontSize: 16,
     fontWeight: '600',
   },
-  adminButton: {
-  flexDirection: 'row',
-  alignItems: 'center',
-  justifyContent: 'center',
-  gap: 8,
-  backgroundColor: '#9C27B0',
-  paddingVertical: 15,
-  borderRadius: 12,
-  marginTop: 10,
-},
-adminButtonText: {
-  color: '#fff',
-  fontSize: 16,
-  fontWeight: '600',
-},
 });
