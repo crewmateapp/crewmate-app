@@ -7,7 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, StyleSheet, TouchableOpacity, View } from 'react-native';
@@ -28,6 +28,7 @@ export default function ProfileScreen() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [friendCount, setFriendCount] = useState(0);
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -46,6 +47,22 @@ export default function ProfileScreen() {
     };
 
     fetchProfile();
+  }, [user]);
+
+  // Listen to friend count
+  useEffect(() => {
+    if (!user) return;
+
+    const connectionsQuery = query(
+      collection(db, 'connections'),
+      where('userIds', 'array-contains', user.uid)
+    );
+
+    const unsubscribe = onSnapshot(connectionsQuery, (snapshot) => {
+      setFriendCount(snapshot.size);
+    });
+
+    return () => unsubscribe();
   }, [user]);
 
   useFocusEffect(
@@ -138,6 +155,13 @@ export default function ProfileScreen() {
   return (
     <ThemedView style={styles.container}>
       <TouchableOpacity 
+        style={styles.qrButton}
+        onPress={() => router.push('/qr-code')}
+      >
+        <Ionicons name="qr-code" size={24} color={Colors.primary} />
+      </TouchableOpacity>
+
+      <TouchableOpacity 
         style={styles.editButton}
         onPress={() => router.push('/edit-profile')}
       >
@@ -192,6 +216,21 @@ export default function ProfileScreen() {
         </View>
       ) : null}
 
+      {/* Friends Section */}
+      <TouchableOpacity 
+        style={styles.friendsSection}
+        onPress={() => router.push('/friends')}
+      >
+        <View style={styles.friendsHeader}>
+          <Ionicons name="people" size={20} color={Colors.primary} />
+          <ThemedText style={styles.friendsTitle}>Friends</ThemedText>
+          <View style={styles.friendsBadge}>
+            <ThemedText style={styles.friendsCount}>{friendCount}</ThemedText>
+          </View>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color={Colors.text.secondary} />
+      </TouchableOpacity>
+
       <View style={styles.infoSection}>
         <ThemedText style={styles.sectionTitle}>Account</ThemedText>
         <View style={styles.infoRow}>
@@ -212,6 +251,13 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
     paddingTop: 80,
+  },
+  qrButton: {
+    position: 'absolute',
+    top: 60,
+    right: 85,
+    padding: 10,
+    zIndex: 10,
   },
   editButton: {
     position: 'absolute',
@@ -304,7 +350,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
     padding: 15,
     borderRadius: 12,
-    marginBottom: 30,
+    marginBottom: 20,
     borderWidth: 1,
     borderColor: Colors.border,
   },
@@ -313,6 +359,38 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     textAlign: 'center',
     color: Colors.text.primary,
+  },
+  friendsSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.card,
+    padding: 15,
+    borderRadius: 12,
+    marginBottom: 30,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  friendsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  friendsTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.text.primary,
+  },
+  friendsBadge: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  friendsCount: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Colors.white,
   },
   infoSection: {
     marginBottom: 30,
