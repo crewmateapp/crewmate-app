@@ -7,10 +7,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
-import { collection, doc, getDoc, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
+import { collection, doc, getDoc, limit, onSnapshot, orderBy, query, updateDoc, where } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 type UserProfile = {
   firstName: string;
@@ -23,12 +23,23 @@ type UserProfile = {
   photoURL?: string;
 };
 
+type Activity = {
+  id: string;
+  type: 'spot_added' | 'review_left' | 'photo_posted';
+  spotId?: string;
+  spotName?: string;
+  city?: string;
+  rating?: number;
+  createdAt: any;
+};
+
 export default function ProfileScreen() {
   const { user, signOut } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [friendCount, setFriendCount] = useState(0);
+  const [recentActivities, setRecentActivities] = useState<Activity[]>([]);
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -60,6 +71,31 @@ export default function ProfileScreen() {
 
     const unsubscribe = onSnapshot(connectionsQuery, (snapshot) => {
       setFriendCount(snapshot.size);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // Listen to recent activities
+  useEffect(() => {
+    if (!user) return;
+
+    const activitiesQuery = query(
+      collection(db, 'activities'),
+      where('userId', '==', user.uid),
+      orderBy('createdAt', 'desc'),
+      limit(5)
+    );
+
+    const unsubscribe = onSnapshot(activitiesQuery, (snapshot) => {
+      const activities: Activity[] = [];
+      snapshot.docs.forEach(doc => {
+        activities.push({
+          id: doc.id,
+          ...doc.data(),
+        } as Activity);
+      });
+      setRecentActivities(activities);
     });
 
     return () => unsubscribe();
@@ -144,6 +180,86 @@ export default function ProfileScreen() {
     );
   };
 
+  const handleSpotPress = (spotId: string) => {
+    router.push({
+      pathname: '/spot/[id]',
+      params: { id: spotId }
+    });
+  };
+
+  const renderStars = (rating: number) => {
+    return '⭐'.repeat(rating);
+  };
+
+  const renderActivity = (activity: Activity) => {
+    let activityText;
+    let icon;
+    let iconColor;
+
+    switch (activity.type) {
+      case 'spot_added':
+        icon = 'add-circle';
+        iconColor = Colors.success;
+        activityText = (
+          <Text style={styles.activityText}>
+            {'Added '}
+            <Text 
+              style={styles.clickableText}
+              onPress={() => activity.spotId && handleSpotPress(activity.spotId)}
+            >
+              {activity.spotName}
+            </Text>
+            {' in '}
+            <Text style={styles.clickableText}>{activity.city}</Text>
+          </Text>
+        );
+        break;
+      
+      case 'review_left':
+        icon = 'star';
+        iconColor = Colors.accent;
+        activityText = (
+          <Text style={styles.activityText}>
+            {'Left a '}
+            <Text style={styles.stars}>{renderStars(activity.rating || 0)}</Text>
+            {' review on '}
+            <Text 
+              style={styles.clickableText}
+              onPress={() => activity.spotId && handleSpotPress(activity.spotId)}
+            >
+              {activity.spotName}
+            </Text>
+          </Text>
+        );
+        break;
+      
+      case 'photo_posted':
+        icon = 'camera';
+        iconColor = Colors.primary;
+        activityText = (
+          <Text style={styles.activityText}>
+            {'Posted a photo at '}
+            <Text 
+              style={styles.clickableText}
+              onPress={() => activity.spotId && handleSpotPress(activity.spotId)}
+            >
+              {activity.spotName}
+            </Text>
+          </Text>
+        );
+        break;
+    }
+
+    return (
+      <View key={activity.id} style={styles.activityItem}>
+        <Ionicons name={icon as any} size={18} color={iconColor} />
+        <View style={styles.activityTextContainer}>
+          {activityText}
+        </View>
+      </View>
+    );
+  };
+
   if (loading) {
     return (
       <ThemedView style={styles.container}>
@@ -153,104 +269,120 @@ export default function ProfileScreen() {
   }
 
   return (
-    <ThemedView style={styles.container}>
-      <TouchableOpacity 
-        style={styles.qrButton}
-        onPress={() => router.push('/qr-code')}
-      >
-        <Ionicons name="qr-code" size={24} color={Colors.primary} />
-      </TouchableOpacity>
-
-      <TouchableOpacity 
-        style={styles.editButton}
-        onPress={() => router.push('/edit-profile')}
-      >
-        <Ionicons name="pencil" size={20} color={Colors.primary} />
-        <ThemedText style={styles.editButtonText}>Edit</ThemedText>
-      </TouchableOpacity>
-
-      {(user?.email === 'zachary.tillman@aa.com' || user?.email === 'johnny.guzman@aa.com') && (
-        <TouchableOpacity
-          style={styles.adminButton}
-          onPress={() => router.push('/admin')}
+    <ScrollView style={styles.scrollContainer}>
+      <ThemedView style={styles.container}>
+        <TouchableOpacity 
+          style={styles.qrButton}
+          onPress={() => router.push('/qr-code')}
         >
-          <Ionicons name="shield-checkmark" size={20} color={Colors.white} />
-          <ThemedText style={styles.adminButtonText}>Admin Panel</ThemedText>
-        </TouchableOpacity>
-      )}
-
-      <View style={styles.header}>
-        <TouchableOpacity onPress={pickAndUploadPhoto} disabled={uploadingPhoto}>
-          {uploadingPhoto ? (
-            <View style={styles.avatarFallback}>
-              <ActivityIndicator color={Colors.white} />
-            </View>
-          ) : profile?.photoURL ? (
-            <Image source={{ uri: profile.photoURL }} style={styles.avatar} />
-          ) : (
-            <View style={styles.avatarFallback}>
-              <ThemedText style={styles.avatarText}>
-                {profile?.firstName?.[0]}{profile?.lastInitial}
-              </ThemedText>
-            </View>
-          )}
-          <View style={styles.editBadge}>
-            <ThemedText style={styles.editBadgeText}>📷</ThemedText>
-          </View>
+          <Ionicons name="qr-code" size={24} color={Colors.primary} />
         </TouchableOpacity>
 
-        <ThemedText type="title" style={styles.name}>
-          {profile?.displayName}
-        </ThemedText>
-        <ThemedText style={styles.airline}>
-          {profile?.airline}
-        </ThemedText>
-        <ThemedText style={styles.base}>
-          📍 Based in {profile?.base}
-        </ThemedText>
-      </View>
+        <TouchableOpacity 
+          style={styles.editButton}
+          onPress={() => router.push('/edit-profile')}
+        >
+          <Ionicons name="pencil" size={20} color={Colors.primary} />
+          <ThemedText style={styles.editButtonText}>Edit</ThemedText>
+        </TouchableOpacity>
 
-      {profile?.bio ? (
-        <View style={styles.bioContainer}>
-          <ThemedText style={styles.bio}>"{profile.bio}"</ThemedText>
+        {(user?.email === 'zachary.tillman@aa.com' || user?.email === 'johnny.guzman@aa.com') && (
+          <TouchableOpacity
+            style={styles.adminButton}
+            onPress={() => router.push('/admin')}
+          >
+            <Ionicons name="shield-checkmark" size={20} color={Colors.white} />
+            <ThemedText style={styles.adminButtonText}>Admin Panel</ThemedText>
+          </TouchableOpacity>
+        )}
+
+        <View style={styles.header}>
+          <TouchableOpacity onPress={pickAndUploadPhoto} disabled={uploadingPhoto}>
+            {uploadingPhoto ? (
+              <View style={styles.avatarFallback}>
+                <ActivityIndicator color={Colors.white} />
+              </View>
+            ) : profile?.photoURL ? (
+              <Image source={{ uri: profile.photoURL }} style={styles.avatar} />
+            ) : (
+              <View style={styles.avatarFallback}>
+                <ThemedText style={styles.avatarText}>
+                  {profile?.firstName?.[0]}{profile?.lastInitial}
+                </ThemedText>
+              </View>
+            )}
+            <View style={styles.editBadge}>
+              <ThemedText style={styles.editBadgeText}>📷</ThemedText>
+            </View>
+          </TouchableOpacity>
+
+          <ThemedText type="title" style={styles.name}>
+            {profile?.displayName}
+          </ThemedText>
+          <ThemedText style={styles.airline}>
+            {profile?.airline}
+          </ThemedText>
+          <ThemedText style={styles.base}>
+            📍 Based in {profile?.base}
+          </ThemedText>
         </View>
-      ) : null}
 
-      {/* Friends Section */}
-      <TouchableOpacity 
-        style={styles.friendsSection}
-        onPress={() => router.push('/friends')}
-      >
-        <View style={styles.friendsHeader}>
-          <Ionicons name="people" size={20} color={Colors.primary} />
-          <ThemedText style={styles.friendsTitle}>Friends</ThemedText>
-          <View style={styles.friendsBadge}>
-            <ThemedText style={styles.friendsCount}>{friendCount}</ThemedText>
+        {profile?.bio ? (
+          <View style={styles.bioContainer}>
+            <ThemedText style={styles.bio}>"{profile.bio}"</ThemedText>
+          </View>
+        ) : null}
+
+        {/* Friends Section */}
+        <TouchableOpacity 
+          style={styles.friendsSection}
+          onPress={() => router.push('/friends')}
+        >
+          <View style={styles.friendsHeader}>
+            <Ionicons name="people" size={20} color={Colors.primary} />
+            <ThemedText style={styles.friendsTitle}>Friends</ThemedText>
+            <View style={styles.friendsBadge}>
+              <ThemedText style={styles.friendsCount}>{friendCount}</ThemedText>
+            </View>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={Colors.text.secondary} />
+        </TouchableOpacity>
+
+        {/* Recent Activity Section */}
+        {recentActivities.length > 0 && (
+          <View style={styles.activitySection}>
+            <ThemedText style={styles.sectionTitle}>Recent Activity</ThemedText>
+            <View style={styles.activityContainer}>
+              {recentActivities.map(activity => renderActivity(activity))}
+            </View>
+          </View>
+        )}
+
+        <View style={styles.infoSection}>
+          <ThemedText style={styles.sectionTitle}>Account</ThemedText>
+          <View style={styles.infoRow}>
+            <ThemedText style={styles.infoLabel}>Email</ThemedText>
+            <ThemedText style={styles.infoValue}>{profile?.email}</ThemedText>
           </View>
         </View>
-        <Ionicons name="chevron-forward" size={20} color={Colors.text.secondary} />
-      </TouchableOpacity>
 
-      <View style={styles.infoSection}>
-        <ThemedText style={styles.sectionTitle}>Account</ThemedText>
-        <View style={styles.infoRow}>
-          <ThemedText style={styles.infoLabel}>Email</ThemedText>
-          <ThemedText style={styles.infoValue}>{profile?.email}</ThemedText>
-        </View>
-      </View>
-
-      <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
-        <ThemedText style={styles.signOutText}>Sign Out</ThemedText>
-      </TouchableOpacity>
-    </ThemedView>
+        <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
+          <ThemedText style={styles.signOutText}>Sign Out</ThemedText>
+        </TouchableOpacity>
+      </ThemedView>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
+  scrollContainer: {
+    flex: 1,
+  },
   container: {
     flex: 1,
     padding: 20,
     paddingTop: 80,
+    paddingBottom: 40,
   },
   qrButton: {
     position: 'absolute',
@@ -367,7 +499,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.card,
     padding: 15,
     borderRadius: 12,
-    marginBottom: 30,
+    marginBottom: 20,
     borderWidth: 1,
     borderColor: Colors.border,
   },
@@ -391,6 +523,37 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: Colors.white,
+  },
+  activitySection: {
+    marginBottom: 30,
+  },
+  activityContainer: {
+    backgroundColor: Colors.card,
+    borderRadius: 12,
+    padding: 15,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  activityItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: 8,
+    gap: 10,
+  },
+  activityTextContainer: {
+    flex: 1,
+  },
+  activityText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: Colors.text.primary,
+  },
+  clickableText: {
+    fontWeight: '700',
+    color: Colors.primary,
+  },
+  stars: {
+    fontSize: 12,
   },
   infoSection: {
     marginBottom: 30,

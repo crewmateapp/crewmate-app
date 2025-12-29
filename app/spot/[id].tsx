@@ -1,210 +1,344 @@
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { db } from '@/config/firebase';
+import { db, storage } from '@/config/firebase';
+import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
-import { addDoc, collection, doc, getDoc, serverTimestamp } from 'firebase/firestore';
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  query,
+  serverTimestamp,
+  updateDoc,
+  where,
+} from 'firebase/firestore';
+import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    Linking,
-    Modal,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  Linking,
+  ScrollView,
+  StyleSheet,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
 type Spot = {
   id: string;
   name: string;
-  category: string;
-  city: string;
-  area: string;
-  description: string;
+  type: string;
   address: string;
-  latitude?: number;
-  longitude?: number;
-  phone?: string;
-  website?: string;
-  reservationUrl?: string;
-  photoURLs?: string[];
-  tips?: string;
+  city: string;
+  description: string;
+  status: string;
   addedBy: string;
   addedByName: string;
-  createdAt: Date;
+  photos?: string[];
+  website?: string;
 };
 
-const categoryEmojis: { [key: string]: string } = {
-  coffee: '☕',
-  food: '🍽️',
-  bar: '🍸',
-  gym: '💪',
-  activity: '🎯',
+type Vote = {
+  id: string;
+  userId: string;
+  vote: number;
 };
-
-const reportReasons = [
-  { id: 'spam', label: 'Spam or Fake' },
-  { id: 'inappropriate', label: 'Inappropriate Content' },
-  { id: 'closed', label: 'Closed or Doesn\'t Exist' },
-  { id: 'wrong_info', label: 'Wrong Information' },
-  { id: 'other', label: 'Other' },
-];
 
 export default function SpotDetailScreen() {
-  const { id } = useLocalSearchParams();
+  const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useAuth();
   const [spot, setSpot] = useState<Spot | null>(null);
+  const [votes, setVotes] = useState<Vote[]>([]);
+  const [myVote, setMyVote] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
-  const [reportModalVisible, setReportModalVisible] = useState(false);
-  const [selectedReason, setSelectedReason] = useState('');
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   useEffect(() => {
-    const loadSpot = async () => {
-      if (!id || typeof id !== 'string') return;
+    if (!id) return;
 
-      try {
-        const spotDoc = await getDoc(doc(db, 'spots', id));
-        if (spotDoc.exists()) {
-          const data = spotDoc.data();
-          setSpot({
-            id: spotDoc.id,
-            ...data,
-            createdAt: data.createdAt?.toDate() || new Date(),
-          } as Spot);
-        }
-      } catch (error) {
-        console.error('Error loading spot:', error);
-        Alert.alert('Error', 'Failed to load spot details');
-      } finally {
-        setLoading(false);
+    const spotDoc = doc(db, 'spots', id);
+    const unsubscribe = onSnapshot(spotDoc, (docSnap) => {
+      if (docSnap.exists()) {
+        setSpot({ id: docSnap.id, ...docSnap.data() } as Spot);
       }
-    };
+      setLoading(false);
+    });
 
-    loadSpot();
+    return () => unsubscribe();
   }, [id]);
 
-  const openMaps = () => {
-    if (!spot?.latitude || !spot?.longitude) {
-      Alert.alert('No Location', 'This spot doesn\'t have coordinates set.');
-      return;
-    }
+  useEffect(() => {
+    if (!id) return;
 
-    const label = encodeURIComponent(spot.name);
-    const coords = `${spot.latitude},${spot.longitude}`;
+    const votesQuery = query(collection(db, 'votes'), where('spotId', '==', id));
+    const unsubscribe = onSnapshot(votesQuery, (snapshot) => {
+      const fetchedVotes: Vote[] = [];
+      snapshot.docs.forEach((voteDoc) => {
+        const voteData = voteDoc.data();
+        fetchedVotes.push({
+          id: voteDoc.id,
+          userId: voteData.userId,
+          vote: voteData.vote,
+        });
+      });
+      setVotes(fetchedVotes);
 
-    const url = Platform.select({
-      ios: `maps://app?daddr=${coords}&q=${label}`,
-      android: `geo:0,0?q=${coords}(${label})`,
-    }) || `https://www.google.com/maps/search/?api=1&query=${coords}`;
-
-    Linking.openURL(url).catch(() => {
-      // Fallback to Google Maps web
-      Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${coords}`);
+      const userVote = fetchedVotes.find((v) => v.userId === user?.uid);
+      setMyVote(userVote ? userVote.vote : null);
     });
-  };
 
-  const openPhone = (phone: string) => {
-    Linking.openURL(`tel:${phone}`);
-  };
+    return () => unsubscribe();
+  }, [id, user]);
 
-  const openWebsite = (url: string) => {
-    // Add https:// if not present
-    const formattedUrl = url.startsWith('http') ? url : `https://${url}`;
-    Linking.openURL(formattedUrl).catch(() => {
-      Alert.alert('Error', 'Could not open website');
-    });
-  };
-
-  const handleReport = async () => {
-    if (!selectedReason) {
-      Alert.alert('Select Reason', 'Please select a reason for reporting this spot');
-      return;
-    }
-
-    if (!user || !spot) return;
+  const handleVote = async (rating: number) => {
+    if (!user || !id || !spot) return;
 
     try {
-      await addDoc(collection(db, 'spotReports'), {
-        spotId: spot.id,
+      // Get user profile for activity
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      const userData = userDoc.data();
+
+      if (myVote !== null) {
+        const voteQuery = query(
+          collection(db, 'votes'),
+          where('spotId', '==', id),
+          where('userId', '==', user.uid)
+        );
+        const voteSnapshot = await getDocs(voteQuery);
+
+        if (!voteSnapshot.empty) {
+          const voteDoc = voteSnapshot.docs[0];
+          await updateDoc(doc(db, 'votes', voteDoc.id), {
+            vote: rating,
+            updatedAt: serverTimestamp(),
+          });
+
+          // Update activity (delete old, create new)
+          const activityQuery = query(
+            collection(db, 'activities'),
+            where('type', '==', 'review_left'),
+            where('userId', '==', user.uid),
+            where('spotId', '==', id)
+          );
+          const activitySnapshot = await getDocs(activityQuery);
+          
+          // Delete old activities
+          activitySnapshot.docs.forEach(async (activityDoc) => {
+            await deleteDoc(doc(db, 'activities', activityDoc.id));
+          });
+
+          // Create new activity
+          await addDoc(collection(db, 'activities'), {
+            type: 'review_left',
+            userId: user.uid,
+            userName: userData?.displayName || 'Unknown',
+            userPhoto: userData?.photoURL || null,
+            spotId: id,
+            spotName: spot.name,
+            city: spot.city,
+            rating: rating,
+            createdAt: serverTimestamp(),
+          });
+        }
+      } else {
+        await addDoc(collection(db, 'votes'), {
+          spotId: id,
+          userId: user.uid,
+          vote: rating,
+          createdAt: serverTimestamp(),
+        });
+
+        // Create activity for new review
+        await addDoc(collection(db, 'activities'), {
+          type: 'review_left',
+          userId: user.uid,
+          userName: userData?.displayName || 'Unknown',
+          userPhoto: userData?.photoURL || null,
+          spotId: id,
+          spotName: spot.name,
+          city: spot.city,
+          rating: rating,
+          createdAt: serverTimestamp(),
+        });
+      }
+
+      Alert.alert('Thanks!', 'Your rating has been saved.');
+    } catch (error) {
+      console.error('Error voting:', error);
+      Alert.alert('Error', 'Failed to save rating.');
+    }
+  };
+
+  const handleAddPhoto = async () => {
+    if (!user || !id || !spot) return;
+
+    Alert.alert(
+      'Add Photo',
+      'Choose where to get your photo from',
+      [
+        {
+          text: 'Take Photo',
+          onPress: async () => {
+            const { status } = await ImagePicker.requestCameraPermissionsAsync();
+            
+            if (status !== 'granted') {
+              Alert.alert('Permission Needed', 'Please allow access to your camera.');
+              return;
+            }
+
+            const result = await ImagePicker.launchCameraAsync({
+              allowsEditing: true,
+              aspect: [16, 9],
+              quality: 0.7,
+            });
+
+            if (!result.canceled) {
+              await uploadPhoto(result.assets[0].uri);
+            }
+          }
+        },
+        {
+          text: 'Choose from Library',
+          onPress: async () => {
+            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            
+            if (status !== 'granted') {
+              Alert.alert('Permission Needed', 'Please allow access to your photo library.');
+              return;
+            }
+
+            const result = await ImagePicker.launchImageLibraryAsync({
+              mediaTypes: ImagePicker.MediaTypeOptions.Images,
+              allowsEditing: true,
+              aspect: [16, 9],
+              quality: 0.7,
+            });
+
+            if (!result.canceled) {
+              await uploadPhoto(result.assets[0].uri);
+            }
+          }
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        }
+      ]
+    );
+  };
+
+  const uploadPhoto = async (uri: string) => {
+    if (!user || !id || !spot) return;
+
+    setUploadingPhoto(true);
+
+    try {
+      const response = await fetch(uri);
+      const blob = await response.blob();
+
+      const photoRef = ref(storage, `spots/${id}/${Date.now()}.jpg`);
+      await uploadBytes(photoRef, blob);
+
+      const downloadURL = await getDownloadURL(photoRef);
+
+      const currentPhotos = spot.photos || [];
+      await updateDoc(doc(db, 'spots', id), {
+        photos: [...currentPhotos, downloadURL],
+      });
+
+      // Get user profile for activity
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      const userData = userDoc.data();
+
+      // Create activity for photo
+      await addDoc(collection(db, 'activities'), {
+        type: 'photo_posted',
+        userId: user.uid,
+        userName: userData?.displayName || 'Unknown',
+        userPhoto: userData?.photoURL || null,
+        spotId: id,
         spotName: spot.name,
-        reportedBy: user.uid,
-        reportedByName: user.email?.split('@')[0] || 'Unknown',
-        reason: selectedReason,
+        city: spot.city,
+        photoURL: downloadURL,
         createdAt: serverTimestamp(),
       });
 
-      setReportModalVisible(false);
-      setSelectedReason('');
-      Alert.alert(
-        'Report Submitted',
-        'Thank you for helping keep CrewMate safe. We\'ll review this report.'
-      );
+      Alert.alert('Success', 'Photo added!');
     } catch (error) {
-      console.error('Error reporting spot:', error);
-      Alert.alert('Error', 'Failed to submit report. Please try again.');
+      console.error('Error uploading photo:', error);
+      Alert.alert('Error', 'Failed to upload photo.');
+    } finally {
+      setUploadingPhoto(false);
     }
   };
 
-  const handleRequestDelete = () => {
-  if (!spot || !user) return;
+  const handleReport = async () => {
+    if (!user || !id || !spot) return;
 
-  Alert.prompt(
-    'Request Deletion',
-    'Please tell us why this spot should be removed:',
-    [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Submit Request',
-        onPress: async (reason) => {
-          if (!reason || !reason.trim()) {
-            Alert.alert('Reason Required', 'Please provide a reason for deletion.');
-            return;
-          }
-
-          try {
-            await addDoc(collection(db, 'deleteRequests'), {
-              spotId: spot.id,
-              spotName: spot.name,
-              requestedBy: user.uid,
-              requestedByName: user.email?.split('@')[0] || 'Unknown',
-              reason: reason.trim(),
-              createdAt: serverTimestamp(),
-            });
-
-            Alert.alert(
-              'Request Submitted',
-              'We\'ll review your deletion request. Thank you!'
-            );
-          } catch (error) {
-            console.error('Error submitting delete request:', error);
-            Alert.alert('Error', 'Failed to submit request. Please try again.');
-          }
+    Alert.alert(
+      'Report Spot',
+      'Why are you reporting this spot?',
+      [
+        {
+          text: 'Incorrect Information',
+          onPress: () => submitReport('incorrect_info'),
         },
-      },
-    ],
-    'plain-text'
-  );
-};
+        {
+          text: 'Inappropriate Content',
+          onPress: () => submitReport('inappropriate'),
+        },
+        {
+          text: 'Closed/Doesn\'t Exist',
+          onPress: () => submitReport('closed'),
+        },
+        {
+          text: 'Other',
+          onPress: () => submitReport('other'),
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+      ]
+    );
+  };
+
+  const submitReport = async (reason: string) => {
+    if (!user || !id || !spot) return;
+
+    try {
+      await addDoc(collection(db, 'spotReports'), {
+        spotId: id,
+        spotName: spot.name,
+        reportedBy: user.uid,
+        reportedByEmail: user.email,
+        reason: reason,
+        createdAt: serverTimestamp(),
+      });
+
+      Alert.alert('Reported', 'Thank you for reporting this spot. We\'ll review it soon.');
+    } catch (error) {
+      console.error('Error reporting spot:', error);
+      Alert.alert('Error', 'Failed to submit report.');
+    }
+  };
+
+  const averageRating = votes.length > 0
+    ? votes.reduce((sum, v) => sum + v.vote, 0) / votes.length
+    : 0;
 
   if (loading) {
     return (
       <ThemedView style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#000" />
-          </TouchableOpacity>
-          <ThemedText style={styles.headerTitle}>Spot Details</ThemedText>
-          <View style={{ width: 40 }} />
-        </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#2196F3" />
-        </View>
+        <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: 100 }} />
       </ThemedView>
     );
   }
@@ -212,457 +346,287 @@ export default function SpotDetailScreen() {
   if (!spot) {
     return (
       <ThemedView style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#000" />
-          </TouchableOpacity>
-          <ThemedText style={styles.headerTitle}>Spot Details</ThemedText>
-          <View style={{ width: 40 }} />
-        </View>
-        <View style={styles.emptyContainer}>
-          <ThemedText style={styles.emptyText}>Spot not found</ThemedText>
-        </View>
+        <ThemedText style={styles.errorText}>Spot not found</ThemedText>
       </ThemedView>
     );
   }
 
   return (
-    <ScrollView style={styles.scrollView}>
+    <ScrollView style={styles.scrollContainer}>
       <ThemedView style={styles.container}>
-        {/* Header with Action Buttons */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#000" />
-          </TouchableOpacity>
-          <ThemedText style={styles.headerTitle}>Spot Details</ThemedText>
-          
-          {/* Action Menu */}
-          <View style={styles.headerActions}>
-            {/* Delete if you added it */}
-            {spot.addedBy === user?.uid && (
-              <TouchableOpacity onPress={handleRequestDelete} style={styles.headerActionButton}>
-                <Ionicons name="trash-outline" size={22} color="#f44336" />
-              </TouchableOpacity>
-            )}
-            
-            {/* Report button (everyone can report) */}
-            <TouchableOpacity 
-              onPress={() => setReportModalVisible(true)} 
-              style={styles.headerActionButton}
-            >
-              <Ionicons name="flag-outline" size={22} color="#fff" />
-            </TouchableOpacity>
+        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+          <Ionicons name="arrow-back" size={24} color={Colors.text.primary} />
+        </TouchableOpacity>
+
+        <ThemedText type="title" style={styles.title}>
+          {spot.name}
+        </ThemedText>
+
+        <View style={styles.metaContainer}>
+          <View style={styles.typeTag}>
+            <ThemedText style={styles.typeText}>{spot.type}</ThemedText>
           </View>
+          <ThemedText style={styles.cityText}>📍 {spot.city}</ThemedText>
         </View>
 
-        {/* Photos */}
-        {spot.photoURLs && spot.photoURLs.length > 0 && (
-          <ScrollView
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            style={styles.photoScroll}
-          >
-            {spot.photoURLs.map((url, index) => (
-              <Image key={index} source={{ uri: url }} style={styles.photo} />
-            ))}
-          </ScrollView>
-        )}
-
-        {/* Main Info */}
-        <View style={styles.mainInfo}>
-          <View style={styles.categoryBadge}>
-            <ThemedText style={styles.categoryEmoji}>
-              {categoryEmojis[spot.category] || '📍'}
-            </ThemedText>
-            <ThemedText style={styles.categoryText}>
-              {spot.category.charAt(0).toUpperCase() + spot.category.slice(1)}
-            </ThemedText>
-          </View>
-
-          <ThemedText type="title" style={styles.name}>
-            {spot.name}
-          </ThemedText>
-
-          <ThemedText style={styles.area}>
-            {spot.area}, {spot.city}
-          </ThemedText>
-        </View>
-
-        {/* Quick Actions */}
-        <View style={styles.actionsRow}>
-          {(spot.latitude && spot.longitude) && (
-            <TouchableOpacity style={styles.actionButton} onPress={openMaps}>
-              <Ionicons name="navigate" size={20} color="#2196F3" />
-              <ThemedText style={styles.actionText}>Directions</ThemedText>
-            </TouchableOpacity>
-          )}
-
-          {spot.phone && (
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => openPhone(spot.phone!)}
-            >
-              <Ionicons name="call" size={20} color="#2196F3" />
-              <ThemedText style={styles.actionText}>Call</ThemedText>
-            </TouchableOpacity>
-          )}
-
-          {spot.website && (
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => openWebsite(spot.website!)}
-            >
-              <Ionicons name="globe" size={20} color="#2196F3" />
-              <ThemedText style={styles.actionText}>Website</ThemedText>
-            </TouchableOpacity>
-          )}
-
-          {spot.reservationUrl && (
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => openWebsite(spot.reservationUrl!)}
-            >
-              <Ionicons name="calendar" size={20} color="#2196F3" />
-              <ThemedText style={styles.actionText}>Reserve</ThemedText>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {/* Description */}
         {spot.description && (
-          <View style={styles.section}>
-            <ThemedText style={styles.sectionTitle}>About</ThemedText>
+          <View style={styles.descriptionCard}>
             <ThemedText style={styles.description}>{spot.description}</ThemedText>
           </View>
         )}
 
-        {/* Address */}
-        {spot.address && (
-          <View style={styles.section}>
-            <ThemedText style={styles.sectionTitle}>Address</ThemedText>
-            <Pressable onPress={openMaps}>
-              <ThemedText style={styles.address}>{spot.address}</ThemedText>
-            </Pressable>
+        <View style={styles.ratingCard}>
+          <ThemedText style={styles.sectionTitle}>Rating</ThemedText>
+          <View style={styles.ratingContainer}>
+            <ThemedText style={styles.averageRating}>
+              {averageRating > 0 ? averageRating.toFixed(1) : 'No ratings yet'}
+            </ThemedText>
+            {votes.length > 0 && (
+              <ThemedText style={styles.voteCount}>({votes.length} reviews)</ThemedText>
+            )}
           </View>
-        )}
 
-        {/* Crew Tips */}
-        {spot.tips && (
-          <View style={styles.section}>
-            <ThemedText style={styles.sectionTitle}>✈️ Crew Tips</ThemedText>
-            <View style={styles.tipsBox}>
-              <ThemedText style={styles.tips}>{spot.tips}</ThemedText>
-            </View>
+          <ThemedText style={styles.ratePrompt}>Your Rating:</ThemedText>
+          <View style={styles.starsContainer}>
+            {[1, 2, 3, 4, 5].map((star) => (
+              <TouchableOpacity key={star} onPress={() => handleVote(star)}>
+                <Ionicons
+                  name={myVote && myVote >= star ? 'star' : 'star-outline'}
+                  size={40}
+                  color={myVote && myVote >= star ? Colors.accent : Colors.text.secondary}
+                />
+              </TouchableOpacity>
+            ))}
           </View>
-        )}
-
-        {/* Added By */}
-        <View style={styles.footer}>
-          <ThemedText style={styles.addedBy}>
-            Recommended by {spot.addedByName}
-          </ThemedText>
         </View>
 
-        {/* Report Modal */}
-        <Modal
-          visible={reportModalVisible}
-          animationType="slide"
-          transparent={true}
-          onRequestClose={() => setReportModalVisible(false)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={styles.reportModal}>
-              <ThemedText style={styles.reportModalTitle}>Report Spot</ThemedText>
-              <ThemedText style={styles.reportModalSubtitle}>
-                Why are you reporting "{spot.name}"?
-              </ThemedText>
-
-              <View style={styles.reasonsList}>
-                {reportReasons.map((reason) => (
-                  <TouchableOpacity
-                    key={reason.id}
-                    style={[
-                      styles.reasonButton,
-                      selectedReason === reason.id && styles.reasonButtonActive,
-                    ]}
-                    onPress={() => setSelectedReason(reason.id)}
-                  >
-                    <View style={styles.reasonRadio}>
-                      {selectedReason === reason.id && (
-                        <View style={styles.reasonRadioInner} />
-                      )}
-                    </View>
-                    <ThemedText style={styles.reasonLabel}>{reason.label}</ThemedText>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              <View style={styles.reportModalActions}>
-                <TouchableOpacity
-                  style={[styles.reportModalButton, styles.reportModalButtonCancel]}
-                  onPress={() => {
-                    setReportModalVisible(false);
-                    setSelectedReason('');
-                  }}
-                >
-                  <ThemedText style={styles.reportModalButtonTextCancel}>Cancel</ThemedText>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.reportModalButton, styles.reportModalButtonSubmit]}
-                  onPress={handleReport}
-                >
-                  <ThemedText style={styles.reportModalButtonTextSubmit}>Submit Report</ThemedText>
-                </TouchableOpacity>
-              </View>
-            </View>
+        {spot.photos && spot.photos.length > 0 && (
+          <View style={styles.photosSection}>
+            <ThemedText style={styles.sectionTitle}>Photos</ThemedText>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {spot.photos.map((photoUrl, index) => (
+                <Image key={index} source={{ uri: photoUrl }} style={styles.photo} />
+              ))}
+            </ScrollView>
           </View>
-        </Modal>
+        )}
+
+        <TouchableOpacity
+          style={[styles.addPhotoButton, uploadingPhoto && styles.buttonDisabled]}
+          onPress={handleAddPhoto}
+          disabled={uploadingPhoto}
+        >
+          {uploadingPhoto ? (
+            <ActivityIndicator color={Colors.white} />
+          ) : (
+            <>
+              <Ionicons name="camera" size={20} color={Colors.white} />
+              <ThemedText style={styles.buttonText}>Add Photo</ThemedText>
+            </>
+          )}
+        </TouchableOpacity>
+
+        <View style={styles.infoCard}>
+          <ThemedText style={styles.sectionTitle}>Details</ThemedText>
+          <View style={styles.infoRow}>
+            <Ionicons name="location" size={20} color={Colors.text.secondary} />
+            <ThemedText style={styles.infoText}>{spot.address}</ThemedText>
+          </View>
+          {spot.website && (
+            <TouchableOpacity
+              style={styles.infoRow}
+              onPress={() => Linking.openURL(spot.website!)}
+            >
+              <Ionicons name="globe" size={20} color={Colors.primary} />
+              <ThemedText style={[styles.infoText, styles.linkText]}>Visit Website</ThemedText>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        <TouchableOpacity style={styles.reportButton} onPress={handleReport}>
+          <Ionicons name="flag-outline" size={18} color={Colors.error} />
+          <ThemedText style={styles.reportButtonText}>Report Issue</ThemedText>
+        </TouchableOpacity>
+
+        <View style={styles.addedByContainer}>
+          <ThemedText style={styles.addedByText}>
+            Added by {spot.addedByName}
+          </ThemedText>
+        </View>
       </ThemedView>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  scrollView: {
+  scrollContainer: {
     flex: 1,
   },
   container: {
     flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    padding: 20,
     paddingTop: 60,
-    paddingBottom: 15,
-    paddingHorizontal: 20,
   },
   backButton: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  headerActions: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  headerActionButton: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 100,
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 100,
-  },
-  emptyText: {
-    fontSize: 18,
-    opacity: 0.5,
-  },
-  photoScroll: {
-    height: 250,
-  },
-  photo: {
-    width: 400,
-    height: 250,
-    resizeMode: 'cover',
-  },
-  mainInfo: {
-    padding: 20,
-  },
-  categoryBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(33, 150, 243, 0.1)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
+    marginBottom: 20,
+    padding: 8,
     alignSelf: 'flex-start',
-    marginBottom: 12,
-    gap: 6,
   },
-  categoryEmoji: {
-    fontSize: 16,
-  },
-  categoryText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#2196F3',
-  },
-  name: {
-    fontSize: 28,
+  title: {
+    fontSize: 32,
     fontWeight: 'bold',
-    marginBottom: 8,
+    marginBottom: 12,
   },
-  area: {
-    fontSize: 16,
-    opacity: 0.7,
-  },
-  actionsRow: {
+  metaContainer: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: 20,
-    gap: 10,
+    alignItems: 'center',
+    gap: 12,
     marginBottom: 20,
   },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(33, 150, 243, 0.1)',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#2196F3',
+  typeTag: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
   },
-  actionText: {
-    color: '#2196F3',
-    fontSize: 16,
+  typeText: {
+    color: Colors.white,
+    fontSize: 14,
     fontWeight: '600',
   },
-  section: {
-    paddingHorizontal: 20,
-    marginBottom: 24,
+  cityText: {
+    fontSize: 16,
+    color: Colors.text.secondary,
+  },
+  descriptionCard: {
+    backgroundColor: Colors.card,
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  description: {
+    fontSize: 16,
+    lineHeight: 24,
+    color: Colors.text.primary,
+  },
+  ratingCard: {
+    backgroundColor: Colors.card,
+    padding: 20,
+    borderRadius: 12,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '700',
     marginBottom: 12,
+    color: Colors.text.primary,
   },
-  description: {
-    fontSize: 16,
-    lineHeight: 24,
-    opacity: 0.8,
-  },
-  address: {
-    fontSize: 16,
-    lineHeight: 24,
-    color: '#2196F3',
-    textDecorationLine: 'underline',
-  },
-  tipsBox: {
-    backgroundColor: 'rgba(33, 150, 243, 0.05)',
-    padding: 16,
-    borderRadius: 12,
-    borderLeftWidth: 3,
-    borderLeftColor: '#2196F3',
-  },
-  tips: {
-    fontSize: 16,
-    lineHeight: 24,
-    fontStyle: 'italic',
-  },
-  footer: {
-    paddingHorizontal: 20,
-    paddingBottom: 40,
-  },
-  addedBy: {
-    fontSize: 14,
-    opacity: 0.5,
-    textAlign: 'center',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  reportModal: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
-    paddingBottom: 40,
-  },
-  reportModalTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    marginBottom: 8,
-    color: '#000',
-  },
-  reportModalSubtitle: {
-    fontSize: 14,
-    opacity: 0.6,
-    marginBottom: 20,
-    color: '#000',
-  },
-  reasonsList: {
-    gap: 12,
-    marginBottom: 20,
-  },
-  reasonButton: {
+  ratingContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
-    padding: 15,
+    alignItems: 'baseline',
+    gap: 8,
+    marginBottom: 20,
+  },
+  averageRating: {
+    fontSize: 36,
+    fontWeight: 'bold',
+    color: Colors.accent,
+  },
+  voteCount: {
+    fontSize: 16,
+    color: Colors.text.secondary,
+  },
+  ratePrompt: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
+    color: Colors.text.primary,
+  },
+  starsContainer: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  photosSection: {
+    marginBottom: 20,
+  },
+  photo: {
+    width: 200,
+    height: 150,
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    backgroundColor: '#f9f9f9',
-  },
-  reasonButtonActive: {
-    borderColor: '#2196F3',
-    backgroundColor: 'rgba(33, 150, 243, 0.05)',
-  },
-  reasonRadio: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: '#2196F3',
-    alignItems: 'center',
-    justifyContent: 'center',
     marginRight: 12,
   },
-  reasonRadioInner: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#2196F3',
-  },
-  reasonLabel: {
-    fontSize: 16,
-    color: '#000',
-  },
-  reportModalActions: {
+  addPhotoButton: {
     flexDirection: 'row',
-    gap: 12,
-  },
-  reportModalButton: {
-    flex: 1,
-    padding: 15,
-    borderRadius: 12,
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: Colors.primary,
+    paddingVertical: 15,
+    borderRadius: 12,
+    marginBottom: 20,
   },
-  reportModalButtonCancel: {
-    backgroundColor: '#f5f5f5',
+  buttonDisabled: {
+    opacity: 0.6,
   },
-  reportModalButtonSubmit: {
-    backgroundColor: '#f44336',
-  },
-  reportModalButtonTextCancel: {
-    color: '#666',
+  buttonText: {
+    color: Colors.white,
     fontSize: 16,
     fontWeight: '600',
   },
-  reportModalButtonTextSubmit: {
-    color: '#fff',
+  infoCard: {
+    backgroundColor: Colors.card,
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 8,
+  },
+  infoText: {
     fontSize: 16,
+    color: Colors.text.primary,
+    flex: 1,
+  },
+  linkText: {
+    color: Colors.primary,
     fontWeight: '600',
+  },
+  reportButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    marginBottom: 20,
+  },
+  reportButtonText: {
+    color: Colors.error,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  addedByContainer: {
+    paddingTop: 20,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  addedByText: {
+    fontSize: 14,
+    color: Colors.text.secondary,
+    textAlign: 'center',
+  },
+  errorText: {
+    fontSize: 18,
+    textAlign: 'center',
+    marginTop: 100,
+    color: Colors.text.secondary,
   },
 });

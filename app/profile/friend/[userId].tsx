@@ -6,25 +6,28 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
-    addDoc,
-    collection,
-    deleteDoc,
-    doc,
-    getDoc,
-    getDocs,
-    query,
-    serverTimestamp,
-    where,
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  limit,
+  orderBy,
+  query,
+  serverTimestamp,
+  where,
 } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    ScrollView,
-    StyleSheet,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
 type UserProfile = {
@@ -43,6 +46,16 @@ type UserStats = {
   reviewsLeft: number;
 };
 
+type Activity = {
+  id: string;
+  type: 'spot_added' | 'review_left' | 'photo_posted';
+  spotId?: string;
+  spotName?: string;
+  city?: string;
+  rating?: number;
+  createdAt: any;
+};
+
 export default function FriendProfileScreen() {
   const { userId } = useLocalSearchParams<{ userId: string }>();
   const { user } = useAuth();
@@ -50,6 +63,7 @@ export default function FriendProfileScreen() {
   const [stats, setStats] = useState<UserStats>({ spotsAdded: 0, photosPosted: 0, reviewsLeft: 0 });
   const [loading, setLoading] = useState(true);
   const [connectionDocId, setConnectionDocId] = useState<string | null>(null);
+  const [recentActivities, setRecentActivities] = useState<Activity[]>([]);
 
   useEffect(() => {
     const loadProfileAndStats = async () => {
@@ -79,22 +93,18 @@ export default function FriendProfileScreen() {
         }
 
         // Get user stats
-        // Count spots added by this user
         const spotsQuery = query(
           collection(db, 'spots'),
           where('addedBy', '==', userId)
         );
         const spotsSnapshot = await getDocs(spotsQuery);
         
-        // Count votes (reviews) by this user
         const votesQuery = query(
           collection(db, 'votes'),
           where('userId', '==', userId)
         );
         const votesSnapshot = await getDocs(votesQuery);
 
-        // Count photos (you might have a photos collection or photos within spots)
-        // For now, let's count spots with photos
         const spotsWithPhotos = spotsSnapshot.docs.filter(doc => {
           const data = doc.data();
           return data.photoURL || (data.photos && data.photos.length > 0);
@@ -102,9 +112,27 @@ export default function FriendProfileScreen() {
 
         setStats({
           spotsAdded: spotsSnapshot.size,
-          photosPosted: spotsWithPhotos.length, // Adjust this based on your actual photo structure
+          photosPosted: spotsWithPhotos.length,
           reviewsLeft: votesSnapshot.size,
         });
+
+        // Get recent activities
+        const activitiesQuery = query(
+          collection(db, 'activities'),
+          where('userId', '==', userId),
+          orderBy('createdAt', 'desc'),
+          limit(5)
+        );
+        const activitiesSnapshot = await getDocs(activitiesQuery);
+        
+        const activities: Activity[] = [];
+        activitiesSnapshot.docs.forEach(doc => {
+          activities.push({
+            id: doc.id,
+            ...doc.data(),
+          } as Activity);
+        });
+        setRecentActivities(activities);
 
       } catch (error) {
         console.error('Error loading profile:', error);
@@ -162,7 +190,6 @@ export default function FriendProfileScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              // Add to blocked users
               await addDoc(collection(db, 'blockedUsers'), {
                 blockerId: user?.uid,
                 blockedUserId: userId,
@@ -170,7 +197,6 @@ export default function FriendProfileScreen() {
                 createdAt: serverTimestamp(),
               });
 
-              // Remove connection
               if (connectionDocId) {
                 await deleteDoc(doc(db, 'connections', connectionDocId));
               }
@@ -185,6 +211,86 @@ export default function FriendProfileScreen() {
           },
         },
       ]
+    );
+  };
+
+  const handleSpotPress = (spotId: string) => {
+    router.push({
+      pathname: '/spot/[id]',
+      params: { id: spotId }
+    });
+  };
+
+  const renderStars = (rating: number) => {
+    return '⭐'.repeat(rating);
+  };
+
+  const renderActivity = (activity: Activity) => {
+    let activityText;
+    let icon;
+    let iconColor;
+
+    switch (activity.type) {
+      case 'spot_added':
+        icon = 'add-circle';
+        iconColor = Colors.success;
+        activityText = (
+          <Text style={styles.activityText}>
+            {'Added '}
+            <Text 
+              style={styles.clickableText}
+              onPress={() => activity.spotId && handleSpotPress(activity.spotId)}
+            >
+              {activity.spotName}
+            </Text>
+            {' in '}
+            <Text style={styles.clickableText}>{activity.city}</Text>
+          </Text>
+        );
+        break;
+      
+      case 'review_left':
+        icon = 'star';
+        iconColor = Colors.accent;
+        activityText = (
+          <Text style={styles.activityText}>
+            {'Left a '}
+            <Text style={styles.stars}>{renderStars(activity.rating || 0)}</Text>
+            {' review on '}
+            <Text 
+              style={styles.clickableText}
+              onPress={() => activity.spotId && handleSpotPress(activity.spotId)}
+            >
+              {activity.spotName}
+            </Text>
+          </Text>
+        );
+        break;
+      
+      case 'photo_posted':
+        icon = 'camera';
+        iconColor = Colors.primary;
+        activityText = (
+          <Text style={styles.activityText}>
+            {'Posted a photo at '}
+            <Text 
+              style={styles.clickableText}
+              onPress={() => activity.spotId && handleSpotPress(activity.spotId)}
+            >
+              {activity.spotName}
+            </Text>
+          </Text>
+        );
+        break;
+    }
+
+    return (
+      <View key={activity.id} style={styles.activityItem}>
+        <Ionicons name={icon as any} size={18} color={iconColor} />
+        <View style={styles.activityTextContainer}>
+          {activityText}
+        </View>
+      </View>
     );
   };
 
@@ -269,6 +375,16 @@ export default function FriendProfileScreen() {
           </View>
         </View>
 
+        {/* Recent Activity Section */}
+        {recentActivities.length > 0 && (
+          <View style={styles.activitySection}>
+            <ThemedText style={styles.sectionTitle}>Recent Activity</ThemedText>
+            <View style={styles.activityContainer}>
+              {recentActivities.map(activity => renderActivity(activity))}
+            </View>
+          </View>
+        )}
+
         {/* Action Buttons */}
         <TouchableOpacity style={styles.messageButton} onPress={handleMessage}>
           <Ionicons name="chatbubble" size={20} color={Colors.white} />
@@ -297,6 +413,7 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
     paddingTop: 60,
+    paddingBottom: 40,
   },
   closeButton: {
     position: 'absolute',
@@ -363,7 +480,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.card,
     borderRadius: 12,
     padding: 20,
-    marginBottom: 30,
+    marginBottom: 20,
     borderWidth: 1,
     borderColor: Colors.border,
   },
@@ -386,6 +503,44 @@ const styles = StyleSheet.create({
     width: 1,
     backgroundColor: Colors.border,
     marginHorizontal: 10,
+  },
+  activitySection: {
+    marginBottom: 30,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.text.secondary,
+    marginBottom: 10,
+    textTransform: 'uppercase',
+  },
+  activityContainer: {
+    backgroundColor: Colors.card,
+    borderRadius: 12,
+    padding: 15,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  activityItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: 8,
+    gap: 10,
+  },
+  activityTextContainer: {
+    flex: 1,
+  },
+  activityText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: Colors.text.primary,
+  },
+  clickableText: {
+    fontWeight: '700',
+    color: Colors.primary,
+  },
+  stars: {
+    fontSize: 12,
   },
   messageButton: {
     flexDirection: 'row',

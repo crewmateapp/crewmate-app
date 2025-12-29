@@ -48,7 +48,7 @@ export default function TabLayout() {
           header: () => (
             <AppHeader
               onMenuPress={() => setDrawerVisible(true)}
-              onConnectionsPress={() => router.push('/(tabs)/connections')}
+              onConnectionsPress={() => router.push('/connections')}
               unreadCount={unreadCount}
             />
           ),
@@ -66,18 +66,10 @@ export default function TabLayout() {
           }}
         />
         <Tabs.Screen
-          name="connections"
+          name="feed"
           options={{
-            title: 'Connections',
-            tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.2.fill" color={color} />,
-            tabBarBadge: unreadCount > 0 ? unreadCount : undefined,
-          }}
-        />
-        <Tabs.Screen
-          name="explore"
-          options={{
-            title: 'Explore',
-            tabBarIcon: ({ color }) => <IconSymbol size={28} name="globe" color={color} />,
+            title: 'Feed',
+            tabBarIcon: ({ color }) => <IconSymbol size={28} name="square.grid.2x2.fill" color={color} />,
           }}
         />
         <Tabs.Screen
@@ -85,6 +77,19 @@ export default function TabLayout() {
           options={{
             title: 'Profile',
             tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.fill" color={color} />,
+          }}
+        />
+        {/* Hidden tabs - accessible via routes but not in tab bar */}
+        <Tabs.Screen
+          name="connections"
+          options={{
+            href: null, // Hides from tab bar
+          }}
+        />
+        <Tabs.Screen
+          name="explore"
+          options={{
+            href: null, // Hides from tab bar
           }}
         />
       </Tabs>
