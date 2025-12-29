@@ -114,31 +114,43 @@ export default function AdminScreen() {
   }, [user]);
 
   const handleApproveSpot = async (spotId: string, spotData: any) => {
+  try {
+    await updateDoc(doc(db, 'spots', spotId), {
+      status: 'approved',
+      approvedAt: serverTimestamp(),
+      approvedBy: user?.email,
+    });
+
+    // Get user's photo for activity
+    let userPhoto = null;
     try {
-      await updateDoc(doc(db, 'spots', spotId), {
-        status: 'approved',
-        approvedAt: serverTimestamp(),
-        approvedBy: user?.email,
-      });
-
-      // Create activity for approved spot
-      await addDoc(collection(db, 'activities'), {
-        type: 'spot_added',
-        userId: spotData.addedBy,
-        userName: spotData.addedByName,
-        userPhoto: null,
-        spotId: spotId,
-        spotName: spotData.name,
-        city: spotData.city,
-        createdAt: serverTimestamp(),
-      });
-
-      Alert.alert('Success', 'Spot approved and added to the guide!');
+      const userDoc = await getDoc(doc(db, 'users', spotData.addedBy));
+      if (userDoc.exists()) {
+        userPhoto = userDoc.data().photoURL || null;
+      }
     } catch (error) {
-      console.error('Error approving spot:', error);
-      Alert.alert('Error', 'Failed to approve spot.');
+      console.log('Could not fetch user photo');
     }
-  };
+
+    // Create activity for approved spot
+    await addDoc(collection(db, 'activities'), {
+      type: 'spot_added',
+      userId: spotData.addedBy,
+      userName: spotData.addedByName,
+      userPhoto: userPhoto,
+      spotId: spotId,
+      spotName: spotData.name,
+      city: spotData.city,
+      createdAt: serverTimestamp(),
+    });
+
+    Alert.alert('Success', 'Spot approved and added to the guide!');
+  } catch (error) {
+    console.error('Error approving spot:', error);
+    Alert.alert('Error', 'Failed to approve spot.');
+  }
+};
+  
 
   const handleRejectSpot = async (spotId: string) => {
     Alert.alert(

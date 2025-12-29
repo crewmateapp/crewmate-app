@@ -17,10 +17,12 @@ import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Image,
   RefreshControl,
   StyleSheet,
   Text,
-  View
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
 type Activity = {
@@ -208,17 +210,17 @@ export default function ActivityFeed() {
 
     return (
       <View style={styles.activityCard}>
-        <View style={styles.iconContainer}>
-          {item.type === 'spot_added' && (
-            <Ionicons name="add-circle" size={20} color={Colors.success} />
+        <TouchableOpacity onPress={() => handleUserPress(item.userId)}>
+          {item.userPhoto ? (
+            <Image source={{ uri: item.userPhoto }} style={styles.activityAvatar} />
+          ) : (
+            <View style={styles.activityAvatarFallback}>
+              <ThemedText style={styles.activityAvatarText}>
+                {item.userName.slice(0, 2).toUpperCase()}
+              </ThemedText>
+            </View>
           )}
-          {item.type === 'review_left' && (
-            <Ionicons name="star" size={20} color={Colors.accent} />
-          )}
-          {item.type === 'photo_posted' && (
-            <Ionicons name="camera" size={20} color={Colors.primary} />
-          )}
-        </View>
+        </TouchableOpacity>
         <View style={styles.activityContent}>
           {activityText}
         </View>
@@ -277,13 +279,29 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     borderWidth: 1,
     borderColor: Colors.border,
+    gap: 12,
   },
-  iconContainer: {
-    marginRight: 12,
-    paddingTop: 2,
+  activityAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  activityAvatarFallback: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activityAvatarText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: Colors.white,
   },
   activityContent: {
     flex: 1,
+    justifyContent: 'center',
   },
   activityText: {
     fontSize: 16,

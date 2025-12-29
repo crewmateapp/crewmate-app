@@ -1,27 +1,29 @@
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { db, storage } from '@/config/firebase';
+import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { cities } from '@/data/cities';
+import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { useEffect, useMemo, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    Image,
-    KeyboardAvoidingView,
-    Modal,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Image,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
 type UserProfile = {
@@ -29,10 +31,19 @@ type UserProfile = {
   lastInitial: string;
   displayName: string;
   airline: string;
+  position: string;
   base: string;
   bio: string;
   photoURL?: string;
 };
+
+const POSITIONS = [
+  'Flight Attendant',
+  'Purser',
+  'Captain',
+  'First Officer',
+  'Captain',
+];
 
 export default function EditProfileScreen() {
   const { user } = useAuth();
@@ -43,13 +54,15 @@ export default function EditProfileScreen() {
   const [firstName, setFirstName] = useState('');
   const [lastInitial, setLastInitial] = useState('');
   const [airline, setAirline] = useState('');
+  const [position, setPosition] = useState('');
   const [base, setBase] = useState('');
   const [bio, setBio] = useState('');
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [currentPhotoURL, setCurrentPhotoURL] = useState<string | null>(null);
 
-  // Base picker modal
+  // Modal states
   const [baseModalVisible, setBaseModalVisible] = useState(false);
+  const [positionModalVisible, setPositionModalVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
   const filteredCities = useMemo(() => {
@@ -76,6 +89,7 @@ export default function EditProfileScreen() {
           setFirstName(data.firstName);
           setLastInitial(data.lastInitial);
           setAirline(data.airline);
+          setPosition(data.position || '');
           setBase(data.base);
           setBio(data.bio || '');
           setCurrentPhotoURL(data.photoURL || null);
@@ -139,6 +153,11 @@ export default function EditProfileScreen() {
       return;
     }
 
+    if (!position) {
+      Alert.alert('Error', 'Please select your position');
+      return;
+    }
+
     if (!base) {
       Alert.alert('Error', 'Please select your home base');
       return;
@@ -162,6 +181,7 @@ export default function EditProfileScreen() {
         firstName: firstName.trim(),
         lastInitial: lastInitial.trim().toUpperCase(),
         displayName: `${firstName.trim()} ${lastInitial.trim().toUpperCase()}.`,
+        position: position,
         base: base,
         bio: bio.trim(),
         ...(photoURL && { photoURL }),
@@ -188,10 +208,15 @@ export default function EditProfileScreen() {
     setBaseModalVisible(false);
   };
 
+  const selectPosition = (pos: string) => {
+    setPosition(pos);
+    setPositionModalVisible(false);
+  };
+
   if (loading) {
     return (
       <ThemedView style={styles.container}>
-        <ActivityIndicator size="large" color="#2196F3" style={{ marginTop: 100 }} />
+        <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: 100 }} />
       </ThemedView>
     );
   }
@@ -237,7 +262,7 @@ export default function EditProfileScreen() {
               <TextInput
                 style={styles.input}
                 placeholder="Sarah"
-                placeholderTextColor="#888"
+                placeholderTextColor={Colors.text.secondary}
                 value={firstName}
                 onChangeText={setFirstName}
                 autoCapitalize="words"
@@ -250,7 +275,7 @@ export default function EditProfileScreen() {
               <TextInput
                 style={styles.input}
                 placeholder="M"
-                placeholderTextColor="#888"
+                placeholderTextColor={Colors.text.secondary}
                 value={lastInitial}
                 onChangeText={(text) => setLastInitial(text.slice(0, 1))}
                 autoCapitalize="characters"
@@ -259,13 +284,26 @@ export default function EditProfileScreen() {
             </View>
 
             <View style={styles.inputContainer}>
-            <ThemedText style={styles.label}>Airline</ThemedText>
-            <View style={[styles.input, styles.readOnlyInput]}>
-                <ThemedText style={styles.readOnlyText}>{airline}</ThemedText>
+              <ThemedText style={styles.label}>Position</ThemedText>
+              <TouchableOpacity
+                style={styles.pickerButton}
+                onPress={() => setPositionModalVisible(true)}
+              >
+                <ThemedText style={position ? styles.pickerText : styles.pickerPlaceholder}>
+                  {position || 'Select your position'}
+                </ThemedText>
+                <Ionicons name="chevron-down" size={20} color={Colors.text.secondary} />
+              </TouchableOpacity>
             </View>
-            <ThemedText style={styles.hint}>
+
+            <View style={styles.inputContainer}>
+              <ThemedText style={styles.label}>Airline</ThemedText>
+              <View style={[styles.input, styles.readOnlyInput]}>
+                <ThemedText style={styles.readOnlyText}>{airline}</ThemedText>
+              </View>
+              <ThemedText style={styles.hint}>
                 🔒 Airline is determined by your email and cannot be changed
-            </ThemedText>
+              </ThemedText>
             </View>
 
             <View style={styles.inputContainer}>
@@ -277,6 +315,7 @@ export default function EditProfileScreen() {
                 <ThemedText style={base ? styles.pickerText : styles.pickerPlaceholder}>
                   {base || 'Select your base airport'}
                 </ThemedText>
+                <Ionicons name="chevron-down" size={20} color={Colors.text.secondary} />
               </TouchableOpacity>
             </View>
 
@@ -285,7 +324,7 @@ export default function EditProfileScreen() {
               <TextInput
                 style={[styles.input, styles.textArea]}
                 placeholder="Looking for coffee spots and local recommendations..."
-                placeholderTextColor="#888"
+                placeholderTextColor={Colors.text.secondary}
                 value={bio}
                 onChangeText={setBio}
                 multiline
@@ -303,12 +342,54 @@ export default function EditProfileScreen() {
               disabled={saving}
             >
               {saving ? (
-                <ActivityIndicator color="#fff" />
+                <ActivityIndicator color={Colors.white} />
               ) : (
                 <ThemedText style={styles.saveButtonText}>Save Changes</ThemedText>
               )}
             </TouchableOpacity>
           </View>
+
+          {/* POSITION PICKER MODAL */}
+          <Modal
+            visible={positionModalVisible}
+            animationType="slide"
+            transparent
+            onRequestClose={() => setPositionModalVisible(false)}
+          >
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalContent}>
+                <View style={styles.modalHeader}>
+                  <ThemedText style={styles.modalTitle}>Select Position</ThemedText>
+                  <Pressable onPress={() => setPositionModalVisible(false)}>
+                    <Ionicons name="close" size={24} color={Colors.text.primary} />
+                  </Pressable>
+                </View>
+                
+                <ScrollView>
+                  {POSITIONS.map((pos) => (
+                    <Pressable
+                      key={pos}
+                      style={[
+                        styles.positionOption,
+                        position === pos && styles.positionOptionSelected
+                      ]}
+                      onPress={() => selectPosition(pos)}
+                    >
+                      <ThemedText style={[
+                        styles.positionOptionText,
+                        position === pos && styles.positionOptionTextSelected
+                      ]}>
+                        {pos}
+                      </ThemedText>
+                      {position === pos && (
+                        <Ionicons name="checkmark" size={20} color={Colors.primary} />
+                      )}
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            </View>
+          </Modal>
 
           {/* BASE PICKER MODAL */}
           <Modal
@@ -316,9 +397,9 @@ export default function EditProfileScreen() {
             animationType="slide"
             onRequestClose={() => setBaseModalVisible(false)}
           >
-            <View style={styles.modalContainer}>
-              <View style={styles.modalHeader}>
-                <ThemedText type="title" style={styles.modalTitle}>
+            <ThemedView style={styles.fullModalContainer}>
+              <View style={styles.fullModalHeader}>
+                <ThemedText type="title" style={styles.fullModalTitle}>
                   Select Home Base
                 </ThemedText>
                 <Pressable onPress={() => setBaseModalVisible(false)}>
@@ -330,7 +411,7 @@ export default function EditProfileScreen() {
                 value={searchQuery}
                 onChangeText={setSearchQuery}
                 placeholder="Search by city or airport code"
-                placeholderTextColor="#888"
+                placeholderTextColor={Colors.text.secondary}
                 style={styles.searchInput}
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -354,7 +435,7 @@ export default function EditProfileScreen() {
                   </Pressable>
                 )}
               />
-            </View>
+            </ThemedView>
           </Modal>
         </ThemedView>
       </ScrollView>
@@ -375,7 +456,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   cancelButton: {
-    color: '#2196F3',
+    color: Colors.primary,
     fontSize: 16,
     fontWeight: '600',
   },
@@ -396,20 +477,20 @@ const styles = StyleSheet.create({
     width: 100,
     height: 100,
     borderRadius: 50,
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
   photoPlaceholderText: {
     fontSize: 32,
     fontWeight: 'bold',
-    color: '#fff',
+    color: Colors.white,
   },
   editBadge: {
     position: 'absolute',
     bottom: 0,
     right: 0,
-    backgroundColor: '#fff',
+    backgroundColor: Colors.white,
     borderRadius: 15,
     width: 30,
     height: 30,
@@ -427,6 +508,7 @@ const styles = StyleSheet.create({
   form: {
     paddingHorizontal: 20,
     gap: 20,
+    paddingBottom: 40,
   },
   inputContainer: {
     gap: 8,
@@ -434,15 +516,16 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontWeight: '600',
+    color: Colors.text.primary,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: Colors.border,
     borderRadius: 12,
     padding: 15,
     fontSize: 16,
-    backgroundColor: '#fff',
-    color: '#000',
+    backgroundColor: Colors.card,
+    color: Colors.text.primary,
   },
   textArea: {
     height: 80,
@@ -450,25 +533,36 @@ const styles = StyleSheet.create({
   },
   hint: {
     fontSize: 12,
-    opacity: 0.6,
+    color: Colors.text.secondary,
   },
   pickerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: Colors.border,
     borderRadius: 12,
     padding: 15,
-    backgroundColor: '#fff',
+    backgroundColor: Colors.card,
   },
   pickerText: {
     fontSize: 16,
-    color: '#000',
+    color: Colors.text.primary,
   },
   pickerPlaceholder: {
     fontSize: 16,
-    color: '#888',
+    color: Colors.text.secondary,
+  },
+  readOnlyInput: {
+    backgroundColor: Colors.background,
+    justifyContent: 'center',
+  },
+  readOnlyText: {
+    fontSize: 16,
+    color: Colors.text.secondary,
   },
   saveButton: {
-    backgroundColor: '#2196F3',
+    backgroundColor: Colors.primary,
     padding: 18,
     borderRadius: 12,
     alignItems: 'center',
@@ -478,58 +572,100 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   saveButtonText: {
-    color: '#fff',
+    color: Colors.white,
     fontSize: 18,
     fontWeight: '600',
   },
-  modalContainer: {
+  modalOverlay: {
     flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: Colors.card,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     padding: 20,
-    paddingTop: 60,
-    backgroundColor: '#fff',
+    maxHeight: '50%',
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    alignItems: 'center',
+    marginBottom: 20,
   },
   modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: Colors.text.primary,
+  },
+  positionOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 15,
+    paddingHorizontal: 15,
+    borderRadius: 12,
+    marginBottom: 8,
+    backgroundColor: Colors.background,
+  },
+  positionOptionSelected: {
+    backgroundColor: Colors.primary + '20',
+    borderWidth: 1,
+    borderColor: Colors.primary,
+  },
+  positionOptionText: {
+    fontSize: 16,
+    color: Colors.text.primary,
+  },
+  positionOptionTextSelected: {
+    fontWeight: '600',
+    color: Colors.primary,
+  },
+  fullModalContainer: {
+    flex: 1,
+    padding: 20,
+    paddingTop: 60,
+  },
+  fullModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  fullModalTitle: {
     fontSize: 22,
     fontWeight: 'bold',
   },
   modalClose: {
-    color: '#2196F3',
+    color: Colors.primary,
     fontWeight: '600',
+    fontSize: 16,
   },
   searchInput: {
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: Colors.border,
     borderRadius: 12,
     padding: 12,
     marginBottom: 12,
-    color: '#000',
+    color: Colors.text.primary,
+    backgroundColor: Colors.card,
   },
   listItem: {
     padding: 14,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#eee',
+    borderColor: Colors.border,
     marginBottom: 10,
+    backgroundColor: Colors.card,
   },
   listItemTitle: {
     fontSize: 16,
     fontWeight: '700',
+    color: Colors.text.primary,
   },
   listItemSub: {
     fontSize: 12,
-    opacity: 0.7,
+    color: Colors.text.secondary,
   },
-  readOnlyInput: {
-  backgroundColor: '#f5f5f5',
-  justifyContent: 'center',
-},
-readOnlyText: {
-  fontSize: 16,
-  color: '#666',
-},
 });
