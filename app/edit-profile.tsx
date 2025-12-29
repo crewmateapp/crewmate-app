@@ -42,7 +42,6 @@ const POSITIONS = [
   'Purser',
   'Captain',
   'First Officer',
-  'Captain',
 ];
 
 export default function EditProfileScreen() {
