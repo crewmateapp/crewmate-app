@@ -2,8 +2,8 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Colors } from '@/constants/Colors';
 import { cities } from '@/data/cities';
-import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useMemo, useState } from 'react';
 import {
   FlatList,
   StyleSheet,
@@ -12,7 +12,15 @@ import {
 } from 'react-native';
 
 export default function ExploreScreen() {
+  const { city: initialCity } = useLocalSearchParams<{ city?: string }>();
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Pre-fill search if coming from My Layover with a city
+  useEffect(() => {
+    if (initialCity && typeof initialCity === 'string') {
+      setSearchQuery(initialCity);
+    }
+  }, [initialCity]);
 
   const filteredCities = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -83,7 +91,7 @@ const getCityEmoji = (cityName: string): string => {
     'New York': '🗽',
     'Los Angeles': '🌴',
     'Chicago': '🌆',
-    'Miami': '�️',
+    'Miami': '🏖️',
     'San Francisco': '🌉',
     'Las Vegas': '🎰',
     'Seattle': '☕',
@@ -100,7 +108,7 @@ const getCityEmoji = (cityName: string): string => {
     'Sydney': '🦘',
     'Dubai': '🏙️',
     'Amsterdam': '🚲',
-    'Rome': '🏛️',
+    'Rome': '🛕',
     'Barcelona': '⚽',
     'Toronto': '🍁',
     'Singapore': '🦁',

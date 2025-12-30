@@ -1,5 +1,5 @@
 // types/plan.ts
-export type PlanVisibility = 'public' | 'connections';
+export type PlanVisibility = 'public' | 'connections' | 'invite_only';
 export type RSVPStatus = 'going' | 'interested' | 'not_going';
 export type PlanStatus = 'active' | 'cancelled';
 

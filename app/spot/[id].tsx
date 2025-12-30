@@ -60,6 +60,7 @@ export default function SpotDetailScreen() {
   const [myVote, setMyVote] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [hasLayover, setHasLayover] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -97,6 +98,21 @@ export default function SpotDetailScreen() {
 
     return () => unsubscribe();
   }, [id, user]);
+
+  // Check if user has a layover set
+  useEffect(() => {
+    if (!user) return;
+
+    const userDoc = doc(db, 'users', user.uid);
+    const unsubscribe = onSnapshot(userDoc, (docSnap) => {
+      if (docSnap.exists()) {
+        const userData = docSnap.data();
+        setHasLayover(!!userData.currentLayover);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [user]);
 
   const handleVote = async (rating: number) => {
     if (!user || !id || !spot) return;
@@ -284,56 +300,84 @@ export default function SpotDetailScreen() {
     if (!user || !id || !spot) return;
 
     Alert.alert(
-      'Report Spot',
-      'Why are you reporting this spot?',
+      'Report Issue',
+      'What would you like to report?',
       [
         {
-          text: 'Incorrect Information',
-          onPress: () => submitReport('incorrect_info'),
+          text: 'Closed/Moved',
+          onPress: async () => {
+            try {
+              await addDoc(collection(db, 'reports'), {
+                spotId: id,
+                spotName: spot.name,
+                reportedBy: user.uid,
+                reason: 'Closed or Moved',
+                createdAt: serverTimestamp(),
+              });
+              Alert.alert('Thanks', 'We\'ll review this spot.');
+            } catch (error) {
+              console.error('Error reporting:', error);
+              Alert.alert('Error', 'Failed to submit report.');
+            }
+          }
         },
         {
-          text: 'Inappropriate Content',
-          onPress: () => submitReport('inappropriate'),
-        },
-        {
-          text: 'Closed/Doesn\'t Exist',
-          onPress: () => submitReport('closed'),
-        },
-        {
-          text: 'Other',
-          onPress: () => submitReport('other'),
+          text: 'Incorrect Info',
+          onPress: async () => {
+            try {
+              await addDoc(collection(db, 'reports'), {
+                spotId: id,
+                spotName: spot.name,
+                reportedBy: user.uid,
+                reason: 'Incorrect Information',
+                createdAt: serverTimestamp(),
+              });
+              Alert.alert('Thanks', 'We\'ll review this spot.');
+            } catch (error) {
+              console.error('Error reporting:', error);
+              Alert.alert('Error', 'Failed to submit report.');
+            }
+          }
         },
         {
           text: 'Cancel',
-          style: 'cancel',
-        },
+          style: 'cancel'
+        }
       ]
     );
   };
 
-  const submitReport = async (reason: string) => {
-    if (!user || !id || !spot) return;
-
-    try {
-      await addDoc(collection(db, 'spotReports'), {
-        spotId: id,
-        spotName: spot.name,
-        reportedBy: user.uid,
-        reportedByEmail: user.email,
-        reason: reason,
-        createdAt: serverTimestamp(),
-      });
-
-      Alert.alert('Reported', 'Thank you for reporting this spot. We\'ll review it soon.');
-    } catch (error) {
-      console.error('Error reporting spot:', error);
-      Alert.alert('Error', 'Failed to submit report.');
+  const handleCreatePlan = () => {
+    if (!hasLayover) {
+      Alert.alert(
+        'Set Your Layover First',
+        'You need to set your layover before creating a plan.',
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel'
+          },
+          {
+            text: 'Set Layover',
+            onPress: () => router.push('/(tabs)')
+          }
+        ]
+      );
+      return;
     }
+
+    // Navigate to create plan with spot pre-selected
+    router.push({
+      pathname: '/create-plan',
+      params: {
+        spotId: id,
+        spotName: spot?.name || ''
+      }
+    });
   };
 
-  const averageRating = votes.length > 0
-    ? votes.reduce((sum, v) => sum + v.vote, 0) / votes.length
-    : 0;
+  const averageRating =
+    votes.length > 0 ? votes.reduce((sum, v) => sum + v.vote, 0) / votes.length : 0;
 
   if (loading) {
     return (
@@ -368,6 +412,16 @@ export default function SpotDetailScreen() {
           </View>
           <ThemedText style={styles.cityText}>📍 {spot.city}</ThemedText>
         </View>
+
+        {/* CREATE PLAN BUTTON - NEW */}
+        <TouchableOpacity 
+          style={styles.createPlanButton}
+          onPress={handleCreatePlan}
+        >
+          <Ionicons name="calendar" size={20} color={Colors.white} />
+          <ThemedText style={styles.createPlanButtonText}>Create Plan Here</ThemedText>
+          <Ionicons name="arrow-forward" size={20} color={Colors.white} />
+        </TouchableOpacity>
 
         {spot.description && (
           <View style={styles.descriptionCard}>
@@ -497,6 +551,26 @@ const styles = StyleSheet.create({
   cityText: {
     fontSize: 16,
     color: Colors.text.secondary,
+  },
+  createPlanButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: Colors.primary,
+    paddingVertical: 16,
+    borderRadius: 12,
+    marginBottom: 20,
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  createPlanButtonText: {
+    color: Colors.white,
+    fontSize: 17,
+    fontWeight: '700',
   },
   descriptionCard: {
     backgroundColor: Colors.card,
