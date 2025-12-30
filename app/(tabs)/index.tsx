@@ -24,6 +24,7 @@ import {
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Modal,
   ScrollView,
   StyleSheet,
@@ -282,7 +283,10 @@ export default function MyLayoverScreen() {
             <View style={styles.actionsSection}>
               <TouchableOpacity 
                 style={styles.actionButton}
-                onPress={() => router.push('/explore')}
+                onPress={() => router.push({
+                  pathname: '/explore',
+                  params: { city: myLayover.city }
+                })}
               >
                 <Ionicons name="compass" size={24} color={Colors.white} />
                 <ThemedText style={styles.actionButtonText}>
