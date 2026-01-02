@@ -32,10 +32,14 @@ import {
   View,
 } from 'react-native';
 
+// Admin emails
+const ADMIN_EMAILS = ['zachary.tillman@aa.com', 'johnny.guzman@aa.com'];
+
 type Spot = {
   id: string;
   name: string;
   type: string;
+  category?: string;
   address: string;
   city: string;
   description: string;
@@ -43,7 +47,10 @@ type Spot = {
   addedBy: string;
   addedByName: string;
   photos?: string[];
+  photoURLs?: string[];
   website?: string;
+  tips?: string;
+  phone?: string;
 };
 
 type Vote = {
@@ -61,6 +68,9 @@ export default function SpotDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [hasLayover, setHasLayover] = useState(false);
+
+  // Check if user is admin
+  const isAdmin = user?.email && ADMIN_EMAILS.includes(user.email);
 
   useEffect(() => {
     if (!id) return;
@@ -265,9 +275,10 @@ export default function SpotDetailScreen() {
 
       const downloadURL = await getDownloadURL(photoRef);
 
-      const currentPhotos = spot.photos || [];
+      // Support both old 'photos' and new 'photoURLs' field
+      const currentPhotos = spot.photoURLs || spot.photos || [];
       await updateDoc(doc(db, 'spots', id), {
-        photos: [...currentPhotos, downloadURL],
+        photoURLs: [...currentPhotos, downloadURL],
       });
 
       // Get user profile for activity
@@ -376,8 +387,18 @@ export default function SpotDetailScreen() {
     });
   };
 
+  const handleEditSpot = () => {
+    router.push({
+      pathname: '/edit-spot',
+      params: { id }
+    });
+  };
+
   const averageRating =
     votes.length > 0 ? votes.reduce((sum, v) => sum + v.vote, 0) / votes.length : 0;
+
+  // Get photos from either field
+  const spotPhotos = spot?.photoURLs || spot?.photos || [];
 
   if (loading) {
     return (
@@ -398,9 +419,19 @@ export default function SpotDetailScreen() {
   return (
     <ScrollView style={styles.scrollContainer}>
       <ThemedView style={styles.container}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color={Colors.text.primary} />
-        </TouchableOpacity>
+        {/* Header with Back and Admin Edit */}
+        <View style={styles.headerRow}>
+          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+            <Ionicons name="arrow-back" size={24} color={Colors.text.primary} />
+          </TouchableOpacity>
+          
+          {isAdmin && (
+            <TouchableOpacity style={styles.adminEditButton} onPress={handleEditSpot}>
+              <Ionicons name="pencil" size={18} color="#fff" />
+              <ThemedText style={styles.adminEditText}>Edit</ThemedText>
+            </TouchableOpacity>
+          )}
+        </View>
 
         <ThemedText type="title" style={styles.title}>
           {spot.name}
@@ -408,12 +439,12 @@ export default function SpotDetailScreen() {
 
         <View style={styles.metaContainer}>
           <View style={styles.typeTag}>
-            <ThemedText style={styles.typeText}>{spot.type}</ThemedText>
+            <ThemedText style={styles.typeText}>{spot.category || spot.type}</ThemedText>
           </View>
           <ThemedText style={styles.cityText}>📍 {spot.city}</ThemedText>
         </View>
 
-        {/* CREATE PLAN BUTTON - NEW */}
+        {/* CREATE PLAN BUTTON */}
         <TouchableOpacity 
           style={styles.createPlanButton}
           onPress={handleCreatePlan}
@@ -426,6 +457,17 @@ export default function SpotDetailScreen() {
         {spot.description && (
           <View style={styles.descriptionCard}>
             <ThemedText style={styles.description}>{spot.description}</ThemedText>
+          </View>
+        )}
+
+        {/* Crew Tips */}
+        {spot.tips && (
+          <View style={styles.tipsCard}>
+            <View style={styles.tipsHeader}>
+              <Ionicons name="bulb" size={20} color={Colors.accent} />
+              <ThemedText style={styles.tipsTitle}>Crew Tips</ThemedText>
+            </View>
+            <ThemedText style={styles.tipsText}>{spot.tips}</ThemedText>
           </View>
         )}
 
@@ -454,11 +496,11 @@ export default function SpotDetailScreen() {
           </View>
         </View>
 
-        {spot.photos && spot.photos.length > 0 && (
+        {spotPhotos.length > 0 && (
           <View style={styles.photosSection}>
             <ThemedText style={styles.sectionTitle}>Photos</ThemedText>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              {spot.photos.map((photoUrl, index) => (
+              {spotPhotos.map((photoUrl, index) => (
                 <Image key={index} source={{ uri: photoUrl }} style={styles.photo} />
               ))}
             </ScrollView>
@@ -482,10 +524,21 @@ export default function SpotDetailScreen() {
 
         <View style={styles.infoCard}>
           <ThemedText style={styles.sectionTitle}>Details</ThemedText>
-          <View style={styles.infoRow}>
-            <Ionicons name="location" size={20} color={Colors.text.secondary} />
-            <ThemedText style={styles.infoText}>{spot.address}</ThemedText>
-          </View>
+          {spot.address && (
+            <View style={styles.infoRow}>
+              <Ionicons name="location" size={20} color={Colors.text.secondary} />
+              <ThemedText style={styles.infoText}>{spot.address}</ThemedText>
+            </View>
+          )}
+          {spot.phone && (
+            <TouchableOpacity
+              style={styles.infoRow}
+              onPress={() => Linking.openURL(`tel:${spot.phone}`)}
+            >
+              <Ionicons name="call" size={20} color={Colors.primary} />
+              <ThemedText style={[styles.infoText, styles.linkText]}>{spot.phone}</ThemedText>
+            </TouchableOpacity>
+          )}
           {spot.website && (
             <TouchableOpacity
               style={styles.infoRow}
@@ -521,10 +574,28 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingTop: 60,
   },
-  backButton: {
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 20,
+  },
+  backButton: {
     padding: 8,
-    alignSelf: 'flex-start',
+  },
+  adminEditButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#9C27B0',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  adminEditText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
   title: {
     fontSize: 32,
@@ -547,6 +618,7 @@ const styles = StyleSheet.create({
     color: Colors.white,
     fontSize: 14,
     fontWeight: '600',
+    textTransform: 'capitalize',
   },
   cityText: {
     fontSize: 16,
@@ -583,6 +655,30 @@ const styles = StyleSheet.create({
   description: {
     fontSize: 16,
     lineHeight: 24,
+    color: Colors.text.primary,
+  },
+  tipsCard: {
+    backgroundColor: Colors.accent + '15',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: Colors.accent + '30',
+  },
+  tipsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  tipsTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Colors.accent,
+  },
+  tipsText: {
+    fontSize: 15,
+    lineHeight: 22,
     color: Colors.text.primary,
   },
   ratingCard: {

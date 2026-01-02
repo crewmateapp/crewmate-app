@@ -8,7 +8,6 @@ import { useAuth } from '@/contexts/AuthContext';
 import { cities } from '@/data/cities';
 import { Plan } from '@/types/plan';
 import { Ionicons } from '@expo/vector-icons';
-import { Picker } from '@react-native-picker/picker';
 import { router } from 'expo-router';
 import {
   collection,
@@ -21,13 +20,16 @@ import {
   updateDoc,
   where
 } from 'firebase/firestore';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   Modal,
+  SafeAreaView,
   ScrollView,
   StyleSheet,
+  TextInput,
   TouchableOpacity,
   View
 } from 'react-native';
@@ -38,6 +40,8 @@ type UserLayover = {
   discoverable: boolean;
 };
 
+type PickerStep = 'closed' | 'city' | 'area';
+
 export default function MyLayoverScreen() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -45,9 +49,12 @@ export default function MyLayoverScreen() {
   const [crewLiveCount, setCrewLiveCount] = useState(0);
   const [crewNearbyCount, setCrewNearbyCount] = useState(0);
   const [myPlans, setMyPlans] = useState<Plan[]>([]);
-  const [showLocationModal, setShowLocationModal] = useState(false);
+  
+  // Location selection state - single step-based picker
+  const [pickerStep, setPickerStep] = useState<PickerStep>('closed');
   const [selectedCity, setSelectedCity] = useState('');
   const [selectedArea, setSelectedArea] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Fetch user's layover
   useEffect(() => {
@@ -80,14 +87,13 @@ export default function MyLayoverScreen() {
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      // Include self in count
       setCrewLiveCount(snapshot.size);
     });
 
     return () => unsubscribe();
   }, [user, myLayover]);
 
-  // Count crew members nearby (same city, different area or any area)
+  // Count crew members nearby (same city)
   useEffect(() => {
     if (!user || !myLayover) {
       setCrewNearbyCount(0);
@@ -101,7 +107,6 @@ export default function MyLayoverScreen() {
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      // Include self in count
       setCrewNearbyCount(snapshot.size);
     });
 
@@ -138,22 +143,47 @@ export default function MyLayoverScreen() {
     return () => unsubscribe();
   }, [user, myLayover]);
 
-  const handleSetLayover = async () => {
-    if (!user || !selectedCity || !selectedArea) {
-      Alert.alert('Missing Info', 'Please select both a city and area.');
-      return;
-    }
+  // Filter cities based on search
+  const filteredCities = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return cities;
+    return cities.filter((c) => {
+      const name = c.name.toLowerCase();
+      const code = c.code.toLowerCase();
+      return name.includes(q) || code.startsWith(q);
+    });
+  }, [searchQuery]);
+
+  // Get areas for selected city
+  const selectedCityData = cities.find((c) => c.name === selectedCity);
+  const areas = selectedCityData?.areas || [];
+
+  const openPicker = () => {
+    setSelectedCity('');
+    setSelectedArea('');
+    setSearchQuery('');
+    setPickerStep('city');
+  };
+
+  const selectCity = (cityName: string) => {
+    setSelectedCity(cityName);
+    setSearchQuery('');
+    setPickerStep('area');
+  };
+
+  const selectArea = async (areaName: string) => {
+    if (!user) return;
 
     try {
       await updateDoc(doc(db, 'users', user.uid), {
         currentLayover: {
           city: selectedCity,
-          area: selectedArea,
-          discoverable: true, // Default to discoverable
+          area: areaName,
+          discoverable: true,
           updatedAt: serverTimestamp(),
         },
       });
-      setShowLocationModal(false);
+      setPickerStep('closed');
       setSelectedCity('');
       setSelectedArea('');
     } catch (error) {
@@ -188,6 +218,19 @@ export default function MyLayoverScreen() {
     );
   };
 
+  const closePicker = () => {
+    setPickerStep('closed');
+    setSelectedCity('');
+    setSelectedArea('');
+    setSearchQuery('');
+  };
+
+  const goBackToCity = () => {
+    setSelectedCity('');
+    setSearchQuery('');
+    setPickerStep('city');
+  };
+
   if (loading) {
     return (
       <ThemedView style={styles.container}>
@@ -195,9 +238,6 @@ export default function MyLayoverScreen() {
       </ThemedView>
     );
   }
-
-  const selectedCityData = cities.find((c) => c.name === selectedCity);
-  const areas = selectedCityData?.areas || [];
 
   return (
     <ThemedView style={styles.container}>
@@ -211,7 +251,7 @@ export default function MyLayoverScreen() {
             {/* Current Location Card */}
             <TouchableOpacity 
               style={styles.locationCard}
-              onPress={() => setShowLocationModal(true)}
+              onPress={openPicker}
             >
               <View style={styles.locationContent}>
                 <ThemedText style={styles.locationLabel}>Current Location</ThemedText>
@@ -221,6 +261,7 @@ export default function MyLayoverScreen() {
                     {cities.find(c => c.name === myLayover.city)?.code || myLayover.city}
                   </ThemedText>
                 </View>
+                <ThemedText style={styles.locationArea}>{myLayover.area}</ThemedText>
               </View>
               <Ionicons name="chevron-forward" size={24} color={Colors.text.secondary} />
             </TouchableOpacity>
@@ -325,7 +366,7 @@ export default function MyLayoverScreen() {
             </ThemedText>
             <TouchableOpacity 
               style={styles.checkInButton}
-              onPress={() => setShowLocationModal(true)}
+              onPress={openPicker}
             >
               <Ionicons name="airplane" size={20} color={Colors.white} />
               <ThemedText style={styles.checkInButtonText}>Check In</ThemedText>
@@ -334,70 +375,96 @@ export default function MyLayoverScreen() {
         )}
       </ScrollView>
 
-      {/* Location Selection Modal */}
+      {/* Single Full-Screen Picker Modal */}
       <Modal
-        visible={showLocationModal}
+        visible={pickerStep !== 'closed'}
         animationType="slide"
-        transparent={true}
-        onRequestClose={() => setShowLocationModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <ThemedText style={styles.modalTitle}>Set Layover Location</ThemedText>
-              <TouchableOpacity onPress={() => setShowLocationModal(false)}>
-                <Ionicons name="close" size={28} color={Colors.text.primary} />
+        <SafeAreaView style={styles.pickerModal}>
+          {/* Header */}
+          <View style={styles.pickerHeader}>
+            {pickerStep === 'area' ? (
+              <TouchableOpacity onPress={goBackToCity} style={styles.backButton}>
+                <Ionicons name="arrow-back" size={24} color={Colors.primary} />
               </TouchableOpacity>
-            </View>
-
-            <View style={styles.modalBody}>
-              <View style={styles.pickerContainer}>
-                <ThemedText style={styles.pickerLabel}>City</ThemedText>
-                <View style={styles.pickerWrapper}>
-                  <Picker
-                    selectedValue={selectedCity}
-                    onValueChange={(val) => {
-                      setSelectedCity(val);
-                      setSelectedArea('');
-                    }}
-                    style={styles.picker}
-                  >
-                    <Picker.Item label="Select a city..." value="" />
-                    {cities.map((city) => (
-                      <Picker.Item key={city.name} label={`${city.name} (${city.code})`} value={city.name} />
-                    ))}
-                  </Picker>
-                </View>
-              </View>
-
-              {selectedCity && areas.length > 0 && (
-                <View style={styles.pickerContainer}>
-                  <ThemedText style={styles.pickerLabel}>Area</ThemedText>
-                  <View style={styles.pickerWrapper}>
-                    <Picker
-                      selectedValue={selectedArea}
-                      onValueChange={setSelectedArea}
-                      style={styles.picker}
-                    >
-                      <Picker.Item label="Select an area..." value="" />
-                      {areas.map((area) => (
-                        <Picker.Item key={area} label={area} value={area} />
-                      ))}
-                    </Picker>
-                  </View>
-                </View>
-              )}
-
-              <TouchableOpacity
-                style={[styles.modalButton, (!selectedCity || !selectedArea) && styles.modalButtonDisabled]}
-                onPress={handleSetLayover}
-                disabled={!selectedCity || !selectedArea}
-              >
-                <ThemedText style={styles.modalButtonText}>Set Layover</ThemedText>
-              </TouchableOpacity>
-            </View>
+            ) : (
+              <View style={styles.backButton} />
+            )}
+            
+            <ThemedText style={styles.pickerTitle}>
+              {pickerStep === 'city' ? 'Select City' : `${selectedCity}`}
+            </ThemedText>
+            
+            <TouchableOpacity onPress={closePicker} style={styles.closeButton}>
+              <ThemedText style={styles.closeButtonText}>Cancel</ThemedText>
+            </TouchableOpacity>
           </View>
-        </View>
+
+          {/* City Step */}
+          {pickerStep === 'city' && (
+            <>
+              <View style={styles.searchContainer}>
+                <Ionicons name="search" size={20} color={Colors.text.secondary} />
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Search cities or airport codes..."
+                  placeholderTextColor={Colors.text.secondary}
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  autoCorrect={false}
+                />
+                {searchQuery.length > 0 && (
+                  <TouchableOpacity onPress={() => setSearchQuery('')}>
+                    <Ionicons name="close-circle" size={20} color={Colors.text.secondary} />
+                  </TouchableOpacity>
+                )}
+              </View>
+              
+              <FlatList
+                data={filteredCities}
+                keyExtractor={(item) => item.code}
+                renderItem={({ item }) => (
+                  <TouchableOpacity 
+                    style={styles.listItem}
+                    onPress={() => selectCity(item.name)}
+                  >
+                    <View style={styles.listItemContent}>
+                      <ThemedText style={styles.listItemTitle}>{item.name}</ThemedText>
+                      <ThemedText style={styles.listItemCode}>{item.code}</ThemedText>
+                    </View>
+                    <Ionicons name="chevron-forward" size={20} color={Colors.text.secondary} />
+                  </TouchableOpacity>
+                )}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              />
+            </>
+          )}
+
+          {/* Area Step */}
+          {pickerStep === 'area' && (
+            <>
+              <View style={styles.areaHeader}>
+                <ThemedText style={styles.areaHeaderText}>Select your area in {selectedCity}</ThemedText>
+              </View>
+              
+              <FlatList
+                data={areas}
+                keyExtractor={(item) => item}
+                renderItem={({ item }) => (
+                  <TouchableOpacity 
+                    style={styles.listItem}
+                    onPress={() => selectArea(item)}
+                  >
+                    <ThemedText style={styles.listItemTitle}>{item}</ThemedText>
+                    <Ionicons name="chevron-forward" size={20} color={Colors.text.secondary} />
+                  </TouchableOpacity>
+                )}
+                showsVerticalScrollIndicator={false}
+              />
+            </>
+          )}
+        </SafeAreaView>
       </Modal>
     </ThemedView>
   );
@@ -444,6 +511,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Colors.text.primary,
   },
+  locationArea: {
+    fontSize: 14,
+    color: Colors.text.secondary,
+    marginTop: 4,
+  },
   statsRow: {
     flexDirection: 'row',
     gap: 12,
@@ -456,10 +528,10 @@ const styles = StyleSheet.create({
     minHeight: 140,
   },
   statCardNearby: {
-    backgroundColor: '#14B8A6', // Teal
+    backgroundColor: '#14B8A6',
   },
   statCardLive: {
-    backgroundColor: '#FF6B35', // Orange
+    backgroundColor: '#FF6B35',
   },
   liveBadge: {
     flexDirection: 'row',
@@ -603,69 +675,86 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.white,
   },
-  modalOverlay: {
+  // Picker Modal Styles
+  pickerModal: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
+    backgroundColor: Colors.background,
   },
-  modalContent: {
-    backgroundColor: Colors.white,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingTop: 20,
-    maxHeight: '80%',
-  },
-  modalHeader: {
+  pickerHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingBottom: 20,
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
-  modalTitle: {
-    fontSize: 20,
+  backButton: {
+    width: 60,
+    alignItems: 'flex-start',
+  },
+  pickerTitle: {
+    fontSize: 18,
     fontWeight: '700',
     color: Colors.text.primary,
+    flex: 1,
+    textAlign: 'center',
   },
-  modalBody: {
-    padding: 20,
+  closeButton: {
+    width: 60,
+    alignItems: 'flex-end',
   },
-  pickerContainer: {
-    marginBottom: 20,
-  },
-  pickerLabel: {
-    fontSize: 14,
+  closeButtonText: {
+    fontSize: 16,
+    color: Colors.primary,
     fontWeight: '600',
-    marginBottom: 8,
-    color: Colors.text.primary,
   },
-  pickerWrapper: {
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.card,
+    marginHorizontal: 16,
+    marginVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: Colors.border,
-    borderRadius: 12,
-    backgroundColor: Colors.white,
-    overflow: 'hidden',
-    minHeight: 50,
   },
-  picker: {
-    height: 50,
-    width: '100%',
+  searchInput: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    fontSize: 16,
+    color: Colors.text.primary,
   },
-  modalButton: {
-    backgroundColor: Colors.primary,
+  areaHeader: {
+    paddingHorizontal: 16,
     paddingVertical: 16,
-    borderRadius: 12,
+  },
+  areaHeaderText: {
+    fontSize: 15,
+    color: Colors.text.secondary,
+  },
+  listItem: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 10,
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
   },
-  modalButtonDisabled: {
-    opacity: 0.5,
+  listItemContent: {
+    flex: 1,
   },
-  modalButtonText: {
-    color: Colors.white,
-    fontSize: 18,
-    fontWeight: '600',
+  listItemTitle: {
+    fontSize: 17,
+    fontWeight: '500',
+    color: Colors.text.primary,
+  },
+  listItemCode: {
+    fontSize: 14,
+    color: Colors.text.secondary,
+    marginTop: 2,
   },
 });

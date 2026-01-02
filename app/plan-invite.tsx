@@ -1,4 +1,4 @@
-// app/qr-code.tsx
+// app/plan-invite.tsx
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { db } from '@/config/firebase';
@@ -6,7 +6,7 @@ import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import {
   addDoc,
   arrayUnion,
@@ -33,15 +33,6 @@ import {
 } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 
-type UserProfile = {
-  firstName: string;
-  lastInitial: string;
-  displayName: string;
-  airline: string;
-  base: string;
-  photoURL?: string;
-};
-
 type Plan = {
   id: string;
   title: string;
@@ -49,46 +40,76 @@ type Plan = {
   hostName: string;
   spotName: string;
   city: string;
+  scheduledTime: any;
   attendeeIds: string[];
 };
 
-export default function QRCodeModal() {
+type UserProfile = {
+  displayName: string;
+  photoURL?: string;
+};
+
+export default function PlanInviteScreen() {
+  const { id: planId } = useLocalSearchParams<{ id: string }>();
   const { user } = useAuth();
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [plan, setPlan] = useState<Plan | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'show' | 'scan'>('show');
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [processing, setProcessing] = useState(false);
 
+  // Load plan and user profile
   useEffect(() => {
-    const loadProfile = async () => {
-      if (!user) return;
-      
+    const loadData = async () => {
+      if (!planId || !user) return;
+
       try {
+        // Load plan
+        const planDoc = await getDoc(doc(db, 'plans', planId));
+        if (planDoc.exists()) {
+          setPlan({ id: planDoc.id, ...planDoc.data() } as Plan);
+        }
+
+        // Load user profile
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         if (userDoc.exists()) {
-          setProfile(userDoc.data() as UserProfile);
+          setUserProfile(userDoc.data() as UserProfile);
         }
       } catch (error) {
-        console.error('Error loading profile:', error);
+        console.error('Error loading data:', error);
       } finally {
         setLoading(false);
       }
     };
 
-    loadProfile();
-  }, [user]);
+    loadData();
+  }, [planId, user]);
 
   const handleShare = async () => {
+    if (!plan) return;
+    
     try {
       await Share.share({
-        message: `Connect with me on CrewMate! https://crewmate.app/connect/${user?.uid}`,
-        title: 'Connect on CrewMate',
+        message: `Join my plan "${plan.title}" on CrewMate! https://crewmate.app/plan-invite/${planId}`,
+        title: `Join ${plan.title}`,
       });
     } catch (error) {
       console.error('Error sharing:', error);
     }
+  };
+
+  const formatDateTime = (timestamp: any) => {
+    if (!timestamp) return '';
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    return date.toLocaleDateString('en-US', { 
+      weekday: 'short',
+      month: 'short', 
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit'
+    });
   };
 
   // Check if users are connected
@@ -101,79 +122,9 @@ export default function QRCodeModal() {
     return snapshot.docs.some(doc => doc.data().userIds.includes(userId2));
   };
 
-  // Handle plan QR code scan
-  const handlePlanQRCode = async (planId: string) => {
-    if (!user || !profile) return;
-
-    try {
-      // Get plan details
-      const planDoc = await getDoc(doc(db, 'plans', planId));
-      if (!planDoc.exists()) {
-        Alert.alert('Error', 'Plan not found. It may have been cancelled.');
-        return;
-      }
-
-      const plan = { id: planDoc.id, ...planDoc.data() } as Plan;
-
-      // Check if already attending
-      if (plan.attendeeIds?.includes(user.uid)) {
-        Alert.alert(
-          'Already Joined!',
-          `You're already part of "${plan.title}"`,
-          [
-            {
-              text: 'View Plan',
-              onPress: () => {
-                router.back();
-                router.push({ pathname: '/plan/[id]', params: { id: planId } });
-              }
-            }
-          ]
-        );
-        return;
-      }
-
-      // Check if connected to host
-      const isConnectedToHost = await checkConnection(user.uid, plan.hostUserId);
-
-      if (isConnectedToHost) {
-        // Connected - just join the plan
-        await joinPlan(planId, plan.title);
-      } else {
-        // Not connected - ask to connect first
-        Alert.alert(
-          'Join Plan',
-          `"${plan.title}" is hosted by ${plan.hostName}. You're not connected yet. Would you like to send a connection request and join the plan?`,
-          [
-            {
-              text: 'Cancel',
-              style: 'cancel',
-              onPress: () => {
-                setScanned(false);
-                setProcessing(false);
-              }
-            },
-            {
-              text: 'Connect & Join',
-              onPress: async () => {
-                // Send connection request to host
-                await sendConnectionRequest(plan.hostUserId, plan.hostName, planId);
-                // Join the plan
-                await joinPlan(planId, plan.title);
-              }
-            }
-          ]
-        );
-      }
-    } catch (error) {
-      console.error('Error handling plan QR:', error);
-      Alert.alert('Error', 'Failed to join plan. Please try again.');
-    }
-  };
-
   // Send connection request
-  const sendConnectionRequest = async (toUserId: string, toUserName: string, pendingPlanId?: string) => {
-    if (!user || !profile) return;
+  const sendConnectionRequest = async (toUserId: string, toUserName: string) => {
+    if (!user || !userProfile) return;
 
     // Check if request already exists
     const existingQuery = query(
@@ -187,182 +138,144 @@ export default function QRCodeModal() {
     if (existingSnapshot.empty) {
       await addDoc(collection(db, 'connectionRequests'), {
         fromUserId: user.uid,
-        fromUserName: profile.displayName,
+        fromUserName: userProfile.displayName,
         toUserId: toUserId,
         toUserName: toUserName,
         status: 'pending',
         createdAt: serverTimestamp(),
-        ...(pendingPlanId && { pendingPlanInvite: pendingPlanId }),
+        // Store plan info so we can auto-add them after connection
+        pendingPlanInvite: planId,
       });
     }
   };
 
-  // Join a plan
-  const joinPlan = async (planId: string, planTitle: string) => {
-    if (!user || !profile) return;
+  // Add user to plan
+  const addUserToPlan = async (userId: string, userName: string, userPhoto: string | null) => {
+    if (!planId) return;
 
-    try {
-      // Add user to plan
-      await updateDoc(doc(db, 'plans', planId), {
-        attendeeIds: arrayUnion(user.uid),
-        attendeeCount: increment(1),
-        updatedAt: serverTimestamp(),
-      });
-
-      // Add attendee document
-      await setDoc(doc(db, 'plans', planId, 'attendees', user.uid), {
-        userId: user.uid,
-        displayName: profile.displayName,
-        photoURL: profile.photoURL || null,
-        rsvpStatus: 'going',
-        joinedAt: serverTimestamp(),
-        joinedViaQR: true,
-      });
-
-      Alert.alert(
-        'Joined! 🎉',
-        `You've joined "${planTitle}"!`,
-        [
-          {
-            text: 'View Plan',
-            onPress: () => {
-              router.back();
-              router.push({ pathname: '/plan/[id]', params: { id: planId } });
-            }
-          }
-        ]
-      );
-    } catch (error) {
-      console.error('Error joining plan:', error);
-      throw error;
-    }
-  };
-
-  // Handle user QR code scan (existing logic)
-  const handleUserQRCode = async (scannedUserId: string) => {
-    if (!user || !profile) return;
-
-    // Check if scanning yourself
-    if (scannedUserId === user.uid) {
-      Alert.alert('Oops!', "You can't connect with yourself! 😄");
-      setTimeout(() => {
-        setScanned(false);
-        setProcessing(false);
-      }, 2000);
-      return;
+    // Check if already attending
+    const planDoc = await getDoc(doc(db, 'plans', planId));
+    if (!planDoc.exists()) return;
+    
+    const planData = planDoc.data();
+    if (planData.attendeeIds?.includes(userId)) {
+      return; // Already attending
     }
 
-    // Get scanned user's profile
-    const scannedUserDoc = await getDoc(doc(db, 'users', scannedUserId));
-    if (!scannedUserDoc.exists()) {
-      Alert.alert('Error', 'User not found. They may have deleted their account.');
-      setTimeout(() => {
-        setScanned(false);
-        setProcessing(false);
-      }, 2000);
-      return;
-    }
-
-    const scannedUserData = scannedUserDoc.data() as UserProfile;
-
-    // Check if already connected
-    const isConnected = await checkConnection(user.uid, scannedUserId);
-
-    if (isConnected) {
-      Alert.alert(
-        'Already Connected!',
-        `You're already connected with ${scannedUserData.displayName}. Check your Connections tab to chat!`
-      );
-      setTimeout(() => {
-        setScanned(false);
-        setProcessing(false);
-      }, 2000);
-      return;
-    }
-
-    // Check if request already exists
-    const requestsQuery = query(
-      collection(db, 'connectionRequests'),
-      where('fromUserId', '==', user.uid),
-      where('toUserId', '==', scannedUserId),
-      where('status', '==', 'pending')
-    );
-    const requestsSnapshot = await getDocs(requestsQuery);
-
-    if (!requestsSnapshot.empty) {
-      Alert.alert(
-        'Request Already Sent',
-        `You already sent a connection request to ${scannedUserData.displayName}. They'll see it in their Connections tab!`
-      );
-      setTimeout(() => {
-        setScanned(false);
-        setProcessing(false);
-      }, 2000);
-      return;
-    }
-
-    // Check if they sent you a request (reverse)
-    const reverseRequestQuery = query(
-      collection(db, 'connectionRequests'),
-      where('fromUserId', '==', scannedUserId),
-      where('toUserId', '==', user.uid),
-      where('status', '==', 'pending')
-    );
-    const reverseRequestSnapshot = await getDocs(reverseRequestQuery);
-
-    if (!reverseRequestSnapshot.empty) {
-      Alert.alert(
-        'They Already Sent You a Request!',
-        `${scannedUserData.displayName} already sent you a connection request. Check your Connections tab to accept it!`
-      );
-      setTimeout(() => {
-        setScanned(false);
-        setProcessing(false);
-      }, 2000);
-      return;
-    }
-
-    // Send connection request
-    await addDoc(collection(db, 'connectionRequests'), {
-      fromUserId: user.uid,
-      fromUserName: profile.displayName,
-      toUserId: scannedUserId,
-      toUserName: scannedUserData.displayName,
-      status: 'pending',
-      createdAt: serverTimestamp(),
+    // Add to plan
+    await updateDoc(doc(db, 'plans', planId), {
+      attendeeIds: arrayUnion(userId),
+      attendeeCount: increment(1),
+      updatedAt: serverTimestamp(),
     });
 
-    Alert.alert(
-      'Request Sent! ✈️',
-      `Connection request sent to ${scannedUserData.displayName}. They'll see it in their Connections tab!`,
-      [
-        {
-          text: 'Done',
-          onPress: () => router.back()
-        }
-      ]
-    );
+    // Add attendee document
+    await setDoc(doc(db, 'plans', planId, 'attendees', userId), {
+      userId: userId,
+      displayName: userName,
+      photoURL: userPhoto,
+      rsvpStatus: 'going',
+      joinedAt: serverTimestamp(),
+      invitedViaQR: true,
+    });
   };
 
   const handleBarCodeScanned = async ({ data }: { data: string }) => {
-    if (scanned || processing) return;
+    if (scanned || processing || !user || !plan) return;
     
     setScanned(true);
     setProcessing(true);
 
     try {
-      // Check if it's a plan QR code (format: "PLAN:{planId}")
-      if (data.startsWith('PLAN:')) {
-        const planId = data.replace('PLAN:', '');
-        await handlePlanQRCode(planId);
+      // QR code contains the user ID to invite
+      const scannedUserId = data;
+
+      // Can't invite yourself
+      if (scannedUserId === user.uid) {
+        Alert.alert('Oops!', "That's your own code! 😄");
+        setTimeout(() => {
+          setScanned(false);
+          setProcessing(false);
+        }, 2000);
+        return;
+      }
+
+      // Get scanned user's profile
+      const scannedUserDoc = await getDoc(doc(db, 'users', scannedUserId));
+      if (!scannedUserDoc.exists()) {
+        Alert.alert('Error', 'User not found.');
+        setTimeout(() => {
+          setScanned(false);
+          setProcessing(false);
+        }, 2000);
+        return;
+      }
+
+      const scannedUserData = scannedUserDoc.data();
+      const scannedUserName = scannedUserData.displayName || 'Unknown';
+      const scannedUserPhoto = scannedUserData.photoURL || null;
+
+      // Check if already attending this plan
+      if (plan.attendeeIds?.includes(scannedUserId)) {
+        Alert.alert(
+          'Already Attending!',
+          `${scannedUserName} is already part of this plan.`
+        );
+        setTimeout(() => {
+          setScanned(false);
+          setProcessing(false);
+        }, 2000);
+        return;
+      }
+
+      // Check if connected
+      const isConnected = await checkConnection(user.uid, scannedUserId);
+
+      if (isConnected) {
+        // Already connected - just add to plan
+        await addUserToPlan(scannedUserId, scannedUserName, scannedUserPhoto);
+        
+        Alert.alert(
+          'Added to Plan! 🎉',
+          `${scannedUserName} has been added to "${plan.title}"!`,
+          [{ text: 'Awesome!', onPress: () => setScanned(false) }]
+        );
+        setProcessing(false);
       } else {
-        // It's a user QR code (just the userId)
-        await handleUserQRCode(data);
+        // Not connected - need to connect first
+        Alert.alert(
+          'Connection Required',
+          `You're not connected with ${scannedUserName} yet. Send a connection request first?`,
+          [
+            {
+              text: 'Cancel',
+              style: 'cancel',
+              onPress: () => {
+                setScanned(false);
+                setProcessing(false);
+              }
+            },
+            {
+              text: 'Send Request & Add to Plan',
+              onPress: async () => {
+                await sendConnectionRequest(scannedUserId, scannedUserName);
+                // Add them to plan immediately (they can see it even without connection)
+                await addUserToPlan(scannedUserId, scannedUserName, scannedUserPhoto);
+                
+                Alert.alert(
+                  'Done! 🎉',
+                  `Connection request sent to ${scannedUserName} and they've been added to the plan!`,
+                  [{ text: 'Great!', onPress: () => setScanned(false) }]
+                );
+                setProcessing(false);
+              }
+            }
+          ]
+        );
       }
     } catch (error) {
       console.error('Error processing QR code:', error);
-      Alert.alert('Error', 'Failed to process QR code. Please try again.');
-    } finally {
+      Alert.alert('Error', 'Failed to process. Please try again.');
       setTimeout(() => {
         setScanned(false);
         setProcessing(false);
@@ -378,6 +291,21 @@ export default function QRCodeModal() {
     );
   }
 
+  if (!plan) {
+    return (
+      <ThemedView style={styles.container}>
+        <ThemedText style={styles.errorText}>Plan not found</ThemedText>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <ThemedText style={styles.backBtnText}>Go Back</ThemedText>
+        </TouchableOpacity>
+      </ThemedView>
+    );
+  }
+
+  // The QR code value is: PLAN:{planId}
+  // This distinguishes it from user QR codes (which are just the userId)
+  const qrValue = `PLAN:${planId}`;
+
   return (
     <ThemedView style={styles.container}>
       {/* Header */}
@@ -385,7 +313,7 @@ export default function QRCodeModal() {
         <TouchableOpacity onPress={() => router.back()} style={styles.closeButton}>
           <Ionicons name="close" size={28} color={Colors.text.primary} />
         </TouchableOpacity>
-        <ThemedText style={styles.title}>Quick Connect</ThemedText>
+        <ThemedText style={styles.title}>Share Plan</ThemedText>
         <View style={{ width: 28 }} />
       </View>
 
@@ -400,7 +328,7 @@ export default function QRCodeModal() {
           }}
         >
           <ThemedText style={[styles.tabText, tab === 'show' && styles.tabTextActive]}>
-            My Code
+            Show Code
           </ThemedText>
         </Pressable>
         <Pressable
@@ -408,7 +336,7 @@ export default function QRCodeModal() {
           onPress={() => setTab('scan')}
         >
           <ThemedText style={[styles.tabText, tab === 'scan' && styles.tabTextActive]}>
-            Scan Code
+            Scan to Add
           </ThemedText>
         </Pressable>
       </View>
@@ -418,21 +346,24 @@ export default function QRCodeModal() {
         <View style={styles.content}>
           <View style={styles.qrContainer}>
             <QRCode
-              value={user?.uid || ''}
-              size={250}
+              value={qrValue}
+              size={220}
               backgroundColor="white"
               color={Colors.primary}
             />
           </View>
 
-          <View style={styles.profileInfo}>
-            <ThemedText style={styles.displayName}>{profile?.displayName}</ThemedText>
-            <ThemedText style={styles.airline}>{profile?.airline}</ThemedText>
-            <ThemedText style={styles.base}>📍 {profile?.base}</ThemedText>
+          <View style={styles.planInfo}>
+            <ThemedText style={styles.planTitle}>{plan.title}</ThemedText>
+            <ThemedText style={styles.planSpot}>📍 {plan.spotName}</ThemedText>
+            <ThemedText style={styles.planTime}>
+              🗓️ {formatDateTime(plan.scheduledTime)}
+            </ThemedText>
+            <ThemedText style={styles.planCity}>{plan.city}</ThemedText>
           </View>
 
           <ThemedText style={styles.instructions}>
-            Have a crew member scan this code to connect instantly!
+            Have crew members scan this code to join your plan instantly!
           </ThemedText>
 
           <TouchableOpacity style={styles.shareButton} onPress={handleShare}>
@@ -449,7 +380,7 @@ export default function QRCodeModal() {
                 Camera Access Needed
               </ThemedText>
               <ThemedText style={styles.permissionText}>
-                Allow CrewMate to use your camera to scan QR codes from other crew members
+                Allow camera access to scan other crew members' QR codes and add them to your plan
               </ThemedText>
               <TouchableOpacity style={styles.permissionButton} onPress={requestPermission}>
                 <ThemedText style={styles.permissionButtonText}>Enable Camera</ThemedText>
@@ -470,15 +401,15 @@ export default function QRCodeModal() {
                   {processing ? (
                     <View style={styles.processingContainer}>
                       <ActivityIndicator size="large" color={Colors.white} />
-                      <ThemedText style={styles.processingText}>Processing...</ThemedText>
+                      <ThemedText style={styles.processingText}>Adding to plan...</ThemedText>
                     </View>
                   ) : (
                     <>
                       <ThemedText style={styles.scannerText}>
-                        {scanned ? 'QR Code Scanned!' : 'Point camera at QR code'}
+                        {scanned ? 'Scanned!' : 'Scan a crew member\'s QR code'}
                       </ThemedText>
-                      <ThemedText style={styles.scannerHint}>
-                        Scan crew codes or plan codes
+                      <ThemedText style={styles.scannerSubtext}>
+                        They'll be added to "{plan.title}"
                       </ThemedText>
                     </>
                   )}
@@ -490,7 +421,7 @@ export default function QRCodeModal() {
                   style={styles.scanAgainButton}
                   onPress={() => setScanned(false)}
                 >
-                  <ThemedText style={styles.scanAgainText}>Scan Again</ThemedText>
+                  <ThemedText style={styles.scanAgainText}>Scan Another</ThemedText>
                 </TouchableOpacity>
               )}
             </View>
@@ -536,7 +467,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   tabActive: {
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.primary,
   },
   tabText: {
     fontSize: 16,
@@ -544,7 +475,7 @@ const styles = StyleSheet.create({
     color: Colors.text.secondary,
   },
   tabTextActive: {
-    color: Colors.primary,
+    color: Colors.white,
   },
   content: {
     flex: 1,
@@ -553,40 +484,46 @@ const styles = StyleSheet.create({
   },
   qrContainer: {
     backgroundColor: Colors.white,
-    padding: 30,
+    padding: 25,
     borderRadius: 20,
-    marginBottom: 30,
+    marginBottom: 25,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 5,
   },
-  profileInfo: {
+  planInfo: {
     alignItems: 'center',
     marginBottom: 20,
+    gap: 6,
   },
-  displayName: {
-    fontSize: 24,
+  planTitle: {
+    fontSize: 22,
     fontWeight: '700',
     color: Colors.text.primary,
-    marginBottom: 5,
+    textAlign: 'center',
   },
-  airline: {
-    fontSize: 18,
-    color: Colors.primary,
-    marginBottom: 5,
-  },
-  base: {
+  planSpot: {
     fontSize: 16,
+    color: Colors.primary,
+    fontWeight: '600',
+  },
+  planTime: {
+    fontSize: 15,
+    color: Colors.text.secondary,
+  },
+  planCity: {
+    fontSize: 14,
     color: Colors.text.secondary,
   },
   instructions: {
     textAlign: 'center',
-    fontSize: 16,
+    fontSize: 15,
     color: Colors.text.secondary,
-    marginBottom: 30,
+    marginBottom: 25,
     paddingHorizontal: 20,
+    lineHeight: 22,
   },
   shareButton: {
     flexDirection: 'row',
@@ -610,7 +547,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 40,
   },
   permissionTitle: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '700',
     textAlign: 'center',
     color: Colors.text.primary,
@@ -620,6 +557,7 @@ const styles = StyleSheet.create({
     color: Colors.text.secondary,
     textAlign: 'center',
     marginBottom: 10,
+    lineHeight: 22,
   },
   permissionButton: {
     backgroundColor: Colors.primary,
@@ -659,14 +597,15 @@ const styles = StyleSheet.create({
     color: Colors.white,
     fontSize: 18,
     fontWeight: '600',
-    marginTop: 30,
+    marginTop: 25,
     textAlign: 'center',
   },
-  scannerHint: {
+  scannerSubtext: {
     color: Colors.white,
     fontSize: 14,
     marginTop: 8,
-    opacity: 0.7,
+    opacity: 0.8,
+    textAlign: 'center',
   },
   processingContainer: {
     position: 'absolute',
@@ -691,6 +630,24 @@ const styles = StyleSheet.create({
   scanAgainText: {
     color: Colors.primary,
     fontSize: 16,
+    fontWeight: '600',
+  },
+  errorText: {
+    fontSize: 18,
+    textAlign: 'center',
+    marginTop: 100,
+    color: Colors.text.secondary,
+  },
+  backBtn: {
+    marginTop: 20,
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 30,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignSelf: 'center',
+  },
+  backBtnText: {
+    color: '#fff',
     fontWeight: '600',
   },
 });

@@ -19,6 +19,7 @@ import {
   increment,
   onSnapshot,
   serverTimestamp,
+  setDoc,
   updateDoc
 } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
@@ -105,7 +106,7 @@ export default function PlanDetailScreen() {
           updatedAt: serverTimestamp(),
         });
 
-        await updateDoc(doc(db, 'plans', plan.id, 'attendees', user.uid), {
+        await setDoc(doc(db, 'plans', plan.id, 'attendees', user.uid), {
           userId: user.uid,
           displayName: userData?.displayName || 'Unknown',
           photoURL: userData?.photoURL || null,
@@ -124,6 +125,14 @@ export default function PlanDetailScreen() {
     router.push({
       pathname: '/spot/[id]',
       params: { id: plan.spotId }
+    });
+  };
+
+  const handleSharePlan = () => {
+    if (!id) return;
+    router.push({
+      pathname: '/plan-invite',
+      params: { id }
     });
   };
 
@@ -193,178 +202,202 @@ export default function PlanDetailScreen() {
       <ThemedView style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
-        <TouchableOpacity 
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
-          <Ionicons name="arrow-back" size={24} color={Colors.primary} />
-          <ThemedText style={styles.backText}>Back</ThemedText>
-        </TouchableOpacity>
-        {isHost && (
           <TouchableOpacity 
-            style={styles.cancelButton}
-            onPress={handleCancelPlan}
+            style={styles.backButton}
+            onPress={() => router.back()}
           >
-            <ThemedText style={styles.cancelButtonText}>Cancel Plan</ThemedText>
+            <Ionicons name="arrow-back" size={24} color={Colors.primary} />
+            <ThemedText style={styles.backText}>Back</ThemedText>
           </TouchableOpacity>
-        )}
-      </View>
-
-      <ScrollView 
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Plan Info Card */}
-        <View style={styles.planCard}>
-          <ThemedText style={styles.title}>{plan.title}</ThemedText>
           
-          {/* Host Info */}
-          <View style={styles.hostSection}>
-            {plan.hostPhoto ? (
-              <Image source={{ uri: plan.hostPhoto }} style={styles.hostAvatar} />
+          <View style={styles.headerRight}>
+            {/* Share Plan Button - Always visible for host and attendees */}
+            {(isHost || isAttending) && (
+              <TouchableOpacity 
+                style={styles.shareButton}
+                onPress={handleSharePlan}
+              >
+                <Ionicons name="qr-code" size={20} color={Colors.primary} />
+              </TouchableOpacity>
+            )}
+            
+            {isHost && (
+              <TouchableOpacity 
+                style={styles.cancelButton}
+                onPress={handleCancelPlan}
+              >
+                <ThemedText style={styles.cancelButtonText}>Cancel</ThemedText>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+
+        <ScrollView 
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Plan Info Card */}
+          <View style={styles.planCard}>
+            <ThemedText style={styles.title}>{plan.title}</ThemedText>
+            
+            {/* Host Info */}
+            <View style={styles.hostSection}>
+              {plan.hostPhoto ? (
+                <Image source={{ uri: plan.hostPhoto }} style={styles.hostAvatar} />
+              ) : (
+                <View style={styles.hostAvatarFallback}>
+                  <ThemedText style={styles.hostAvatarText}>
+                    {plan.hostName.slice(0, 2).toUpperCase()}
+                  </ThemedText>
+                </View>
+              )}
+              <View style={styles.hostInfo}>
+                <ThemedText style={styles.hostLabel}>Hosted by</ThemedText>
+                <ThemedText style={styles.hostName}>{plan.hostName}</ThemedText>
+              </View>
+              
+              {/* Share QR Button for Host */}
+              {isHost && (
+                <TouchableOpacity 
+                  style={styles.inviteButton}
+                  onPress={handleSharePlan}
+                >
+                  <Ionicons name="person-add" size={18} color={Colors.white} />
+                  <ThemedText style={styles.inviteButtonText}>Invite</ThemedText>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Date/Time */}
+            <View style={styles.infoRow}>
+              <Ionicons name="calendar-outline" size={24} color={Colors.primary} />
+              <View style={styles.infoText}>
+                <ThemedText style={styles.infoLabel}>When</ThemedText>
+                <ThemedText style={styles.infoValue}>
+                  {formatDateTime(plan.scheduledTime)}
+                </ThemedText>
+              </View>
+            </View>
+
+            {/* Location */}
+            <View style={styles.infoRow}>
+              <Ionicons name="location-outline" size={24} color={Colors.primary} />
+              <View style={styles.infoText}>
+                <ThemedText style={styles.infoLabel}>Where</ThemedText>
+                <TouchableOpacity onPress={handleViewSpot}>
+                  <ThemedText style={styles.infoValueLink}>{plan.spotName}</ThemedText>
+                </TouchableOpacity>
+                <ThemedText style={styles.infoSubtext}>{plan.city}</ThemedText>
+              </View>
+            </View>
+
+            {/* Meetup Location */}
+            {plan.meetupLocation && (
+              <View style={styles.infoRow}>
+                <Ionicons name="flag-outline" size={24} color={Colors.primary} />
+                <View style={styles.infoText}>
+                  <ThemedText style={styles.infoLabel}>Meet at</ThemedText>
+                  <ThemedText style={styles.infoValue}>{plan.meetupLocation}</ThemedText>
+                </View>
+              </View>
+            )}
+
+            {/* Description */}
+            {plan.description && (
+              <View style={styles.descriptionSection}>
+                <ThemedText style={styles.descriptionLabel}>Details</ThemedText>
+                <ThemedText style={styles.descriptionText}>{plan.description}</ThemedText>
+              </View>
+            )}
+
+            {/* Visibility Badge */}
+            <View style={styles.visibilityBadge}>
+              <Ionicons 
+                name={
+                  plan.visibility === 'public' ? 'globe-outline' : 
+                  plan.visibility === 'connections' ? 'people-outline' : 
+                  'lock-closed-outline'
+                } 
+                size={16} 
+                color={Colors.text.secondary} 
+              />
+              <ThemedText style={styles.visibilityText}>
+                {
+                  plan.visibility === 'public' ? 'Public Plan' : 
+                  plan.visibility === 'connections' ? 'Connections Only' : 
+                  'Invite Only'
+                }
+              </ThemedText>
+            </View>
+          </View>
+
+          {/* Attendees Section */}
+          <View style={styles.attendeesSection}>
+            <View style={styles.attendeesHeader}>
+              <ThemedText style={styles.attendeesTitle}>
+                Who's Going ({attendees.length})
+              </ThemedText>
+            </View>
+
+            {attendees.length > 0 ? (
+              <View style={styles.attendeesList}>
+                {attendees.map((attendee) => (
+                  <View key={attendee.userId} style={styles.attendeeItem}>
+                    {attendee.photoURL ? (
+                      <Image source={{ uri: attendee.photoURL }} style={styles.attendeeAvatar} />
+                    ) : (
+                      <View style={styles.attendeeAvatarFallback}>
+                        <ThemedText style={styles.attendeeAvatarText}>
+                          {attendee.displayName.slice(0, 2).toUpperCase()}
+                        </ThemedText>
+                      </View>
+                    )}
+                    <ThemedText style={styles.attendeeName}>{attendee.displayName}</ThemedText>
+                    {attendee.userId === plan.hostUserId && (
+                      <View style={styles.hostBadge}>
+                        <ThemedText style={styles.hostBadgeText}>Host</ThemedText>
+                      </View>
+                    )}
+                  </View>
+                ))}
+              </View>
             ) : (
-              <View style={styles.hostAvatarFallback}>
-                <ThemedText style={styles.hostAvatarText}>
-                  {plan.hostName.slice(0, 2).toUpperCase()}
+              <View style={styles.emptyAttendees}>
+                <ThemedText style={styles.emptyAttendeesText}>
+                  No one has RSVP'd yet. Be the first!
                 </ThemedText>
               </View>
             )}
-            <View style={styles.hostInfo}>
-              <ThemedText style={styles.hostLabel}>Hosted by</ThemedText>
-              <ThemedText style={styles.hostName}>{plan.hostName}</ThemedText>
-            </View>
           </View>
 
-          {/* Date/Time */}
-          <View style={styles.infoRow}>
-            <Ionicons name="calendar-outline" size={24} color={Colors.primary} />
-            <View style={styles.infoText}>
-              <ThemedText style={styles.infoLabel}>When</ThemedText>
-              <ThemedText style={styles.infoValue}>
-                {formatDateTime(plan.scheduledTime)}
+          {/* Plan Chat Section */}
+          <View style={styles.chatSection}>
+            <PlanChat planId={id!} planTitle={plan.title} />
+          </View>
+
+          <View style={{ height: 100 }} />
+        </ScrollView>
+
+        {/* RSVP Button */}
+        {!isHost && (
+          <View style={styles.footer}>
+            <TouchableOpacity
+              style={[styles.rsvpButton, isAttending && styles.rsvpButtonAttending]}
+              onPress={handleRSVP}
+            >
+              <Ionicons 
+                name={isAttending ? 'checkmark-circle' : 'add-circle-outline'} 
+                size={24} 
+                color={Colors.white} 
+              />
+              <ThemedText style={styles.rsvpButtonText}>
+                {isAttending ? "You're Going!" : 'RSVP to Join'}
               </ThemedText>
-            </View>
+            </TouchableOpacity>
           </View>
-
-          {/* Location */}
-          <View style={styles.infoRow}>
-            <Ionicons name="location-outline" size={24} color={Colors.primary} />
-            <View style={styles.infoText}>
-              <ThemedText style={styles.infoLabel}>Where</ThemedText>
-              <TouchableOpacity onPress={handleViewSpot}>
-                <ThemedText style={styles.infoValueLink}>{plan.spotName}</ThemedText>
-              </TouchableOpacity>
-              <ThemedText style={styles.infoSubtext}>{plan.city}</ThemedText>
-            </View>
-          </View>
-
-          {/* Meetup Location */}
-          {plan.meetupLocation && (
-            <View style={styles.infoRow}>
-              <Ionicons name="flag-outline" size={24} color={Colors.primary} />
-              <View style={styles.infoText}>
-                <ThemedText style={styles.infoLabel}>Meet at</ThemedText>
-                <ThemedText style={styles.infoValue}>{plan.meetupLocation}</ThemedText>
-              </View>
-            </View>
-          )}
-
-          {/* Description */}
-          {plan.description && (
-            <View style={styles.descriptionSection}>
-              <ThemedText style={styles.descriptionLabel}>Details</ThemedText>
-              <ThemedText style={styles.descriptionText}>{plan.description}</ThemedText>
-            </View>
-          )}
-
-          {/* Visibility Badge */}
-          <View style={styles.visibilityBadge}>
-            <Ionicons 
-              name={
-                plan.visibility === 'public' ? 'globe-outline' : 
-                plan.visibility === 'connections' ? 'people-outline' : 
-                'lock-closed-outline'
-              } 
-              size={16} 
-              color={Colors.text.secondary} 
-            />
-            <ThemedText style={styles.visibilityText}>
-              {
-                plan.visibility === 'public' ? 'Public Plan' : 
-                plan.visibility === 'connections' ? 'Connections Only' : 
-                'Invite Only'
-              }
-            </ThemedText>
-          </View>
-        </View>
-
-        {/* Attendees Section */}
-        <View style={styles.attendeesSection}>
-          <View style={styles.attendeesHeader}>
-            <ThemedText style={styles.attendeesTitle}>
-              Who's Going ({plan.attendeeCount})
-            </ThemedText>
-          </View>
-
-          {attendees.length > 0 ? (
-            <View style={styles.attendeesList}>
-              {attendees.map((attendee) => (
-                <View key={attendee.userId} style={styles.attendeeItem}>
-                  {attendee.photoURL ? (
-                    <Image source={{ uri: attendee.photoURL }} style={styles.attendeeAvatar} />
-                  ) : (
-                    <View style={styles.attendeeAvatarFallback}>
-                      <ThemedText style={styles.attendeeAvatarText}>
-                        {attendee.displayName.slice(0, 2).toUpperCase()}
-                      </ThemedText>
-                    </View>
-                  )}
-                  <ThemedText style={styles.attendeeName}>{attendee.displayName}</ThemedText>
-                  {attendee.userId === plan.hostUserId && (
-                    <View style={styles.hostBadge}>
-                      <ThemedText style={styles.hostBadgeText}>Host</ThemedText>
-                    </View>
-                  )}
-                </View>
-              ))}
-            </View>
-          ) : (
-            <View style={styles.emptyAttendees}>
-              <ThemedText style={styles.emptyAttendeesText}>
-                No one has RSVP'd yet. Be the first!
-              </ThemedText>
-            </View>
-          )}
-        </View>
-
-        {/* Plan Chat Section */}
-        <View style={styles.chatSection}>
-          <PlanChat planId={id!} planTitle={plan.title} />
-        </View>
-
-        <View style={{ height: 100 }} />
-      </ScrollView>
-
-      {/* RSVP Button */}
-      {!isHost && (
-        <View style={styles.footer}>
-          <TouchableOpacity
-            style={[styles.rsvpButton, isAttending && styles.rsvpButtonAttending]}
-            onPress={handleRSVP}
-          >
-            <Ionicons 
-              name={isAttending ? 'checkmark-circle' : 'add-circle-outline'} 
-              size={24} 
-              color={Colors.white} 
-            />
-            <ThemedText style={styles.rsvpButtonText}>
-              {isAttending ? "You're Going!" : 'RSVP to Join'}
-            </ThemedText>
-          </TouchableOpacity>
-        </View>
-      )}
-    </ThemedView>
+        )}
+      </ThemedView>
     </KeyboardAvoidingView>
   );
 }
@@ -389,6 +422,21 @@ const styles = StyleSheet.create({
   backText: {
     fontSize: 16,
     color: Colors.primary,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  shareButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: Colors.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
   cancelButton: {
     paddingHorizontal: 12,
@@ -462,6 +510,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: Colors.text.primary,
+  },
+  inviteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  inviteButtonText: {
+    color: Colors.white,
+    fontSize: 14,
+    fontWeight: '600',
   },
   infoRow: {
     flexDirection: 'row',
@@ -588,14 +650,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   chatSection: {
-    marginTop: 24,
     backgroundColor: Colors.card,
     borderRadius: 16,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: Colors.border,
     height: 500,
-    marginHorizontal: 20,
   },
   footer: {
     position: 'absolute',
@@ -603,7 +663,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     padding: 20,
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.background,
     borderTopWidth: 1,
     borderTopColor: Colors.border,
   },
