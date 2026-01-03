@@ -4,12 +4,14 @@ import { ThemedView } from '@/components/themed-view';
 import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import {
   addDoc,
   collection,
   deleteDoc,
   doc,
+  getDoc,
   onSnapshot,
   query,
   serverTimestamp,
@@ -18,6 +20,8 @@ import {
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
+  Image,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
@@ -37,6 +41,7 @@ type Connection = {
   id: string;
   userId: string;
   displayName: string;
+  photoURL?: string;
 };
 
 export default function ConnectionsScreen() {
@@ -83,17 +88,32 @@ export default function ConnectionsScreen() {
       where('userIds', 'array-contains', user.uid)
     );
 
-    const unsubConnections = onSnapshot(connectionsQuery, (snapshot) => {
-      const conns = snapshot.docs.map(doc => {
-        const data = doc.data();
-        const otherUserId = data.userIds.find((id: string) => id !== user.uid);
-        const otherUserName = data.userNames[otherUserId] || 'Unknown';
-        return {
-          id: doc.id,
-          userId: otherUserId,
-          displayName: otherUserName,
-        };
-      }) as Connection[];
+    const unsubConnections = onSnapshot(connectionsQuery, async (snapshot) => {
+      const conns = await Promise.all(
+        snapshot.docs.map(async (connectionDoc) => {
+          const data = connectionDoc.data();
+          const otherUserId = data.userIds.find((id: string) => id !== user.uid);
+          const otherUserName = data.userNames[otherUserId] || 'Unknown';
+          
+          // Fetch the user's profile to get their photo
+          let photoURL: string | undefined = undefined;
+          try {
+            const userDoc = await getDoc(doc(db, 'users', otherUserId));
+            if (userDoc.exists()) {
+              photoURL = userDoc.data()?.photoURL;
+            }
+          } catch (error) {
+            console.error('Error fetching user profile:', error);
+          }
+          
+          return {
+            id: connectionDoc.id,
+            userId: otherUserId,
+            displayName: otherUserName,
+            photoURL,
+          };
+        })
+      );
       setConnections(conns);
     });
 
@@ -106,6 +126,7 @@ export default function ConnectionsScreen() {
 
   const handleAccept = async (request: ConnectionRequest) => {
     try {
+      // First create the connection
       await addDoc(collection(db, 'connections'), {
         userIds: [request.fromUserId, request.toUserId],
         userNames: {
@@ -114,9 +135,19 @@ export default function ConnectionsScreen() {
         },
         createdAt: serverTimestamp(),
       });
-      await deleteDoc(doc(db, 'connectionRequests', request.id));
+      
+      // Then delete the request - wrap in try/catch to ensure it happens
+      try {
+        await deleteDoc(doc(db, 'connectionRequests', request.id));
+      } catch (deleteError) {
+        console.error('Error deleting connection request:', deleteError);
+        // Even if delete fails, the connection was created successfully
+        // Force refresh by manually removing from state
+        setIncomingRequests(prev => prev.filter(r => r.id !== request.id));
+      }
     } catch (error) {
       console.error('Error accepting request:', error);
+      Alert.alert('Error', 'Failed to accept connection request. Please try again.');
     }
   };
 
@@ -125,7 +156,30 @@ export default function ConnectionsScreen() {
       await deleteDoc(doc(db, 'connectionRequests', requestId));
     } catch (error) {
       console.error('Error declining request:', error);
+      Alert.alert('Error', 'Failed to decline request. Please try again.');
     }
+  };
+
+  const handleDeleteConnection = (connection: Connection) => {
+    Alert.alert(
+      'Remove Connection',
+      `Are you sure you want to remove ${connection.displayName} from your connections?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteDoc(doc(db, 'connections', connection.id));
+            } catch (error) {
+              console.error('Error deleting connection:', error);
+              Alert.alert('Error', 'Failed to remove connection. Please try again.');
+            }
+          }
+        }
+      ]
+    );
   };
 
   if (loading) {
@@ -230,31 +284,47 @@ export default function ConnectionsScreen() {
           
           {connections.length > 0 ? (
             connections.map((connection) => (
-              <TouchableOpacity 
-                key={connection.id} 
-                style={styles.connectionCard}
-                onPress={() => router.push({
-                  pathname: '/chat/[id]',
-                  params: { id: connection.id, name: connection.displayName }
-                })}
-              >
-                <View style={styles.avatarContainer}>
-                  <View style={styles.avatarFallback}>
-                    <ThemedText style={styles.avatarText}>
-                      {connection.displayName.slice(0, 2).toUpperCase()}
+              <View key={connection.id} style={styles.connectionCard}>
+                <TouchableOpacity 
+                  style={styles.connectionMain}
+                  onPress={() => router.push({
+                    pathname: '/chat/[id]',
+                    params: { id: connection.id, name: connection.displayName }
+                  })}
+                >
+                  <View style={styles.avatarContainer}>
+                    {connection.photoURL ? (
+                      <Image 
+                        source={{ uri: connection.photoURL }} 
+                        style={styles.avatar}
+                      />
+                    ) : (
+                      <View style={styles.avatarFallback}>
+                        <ThemedText style={styles.avatarText}>
+                          {connection.displayName.slice(0, 2).toUpperCase()}
+                        </ThemedText>
+                      </View>
+                    )}
+                  </View>
+                  
+                  <View style={styles.connectionInfo}>
+                    <ThemedText style={styles.connectionName}>
+                      {connection.displayName}
+                    </ThemedText>
+                    <ThemedText style={styles.tapToChat}>
+                      Tap to chat
                     </ThemedText>
                   </View>
-                </View>
-                
-                <View style={styles.connectionInfo}>
-                  <ThemedText style={styles.connectionName}>
-                    {connection.displayName}
-                  </ThemedText>
-                  <ThemedText style={styles.tapToChat}>
-                    Tap to chat
-                  </ThemedText>
-                </View>
-              </TouchableOpacity>
+                </TouchableOpacity>
+
+                {/* Delete button */}
+                <TouchableOpacity 
+                  style={styles.deleteButton}
+                  onPress={() => handleDeleteConnection(connection)}
+                >
+                  <Ionicons name="trash-outline" size={20} color={Colors.error} />
+                </TouchableOpacity>
+              </View>
             ))
           ) : (
             <View style={styles.emptyState}>
@@ -390,9 +460,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
   },
+  connectionMain: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   avatarContainer: {
     position: 'relative',
     marginRight: 12,
+  },
+  avatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
   },
   avatarFallback: {
     width: 50,
@@ -418,6 +498,10 @@ const styles = StyleSheet.create({
   tapToChat: {
     fontSize: 13,
     color: Colors.primary,
+  },
+  deleteButton: {
+    padding: 8,
+    marginLeft: 8,
   },
   emptyState: {
     padding: 30,

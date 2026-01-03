@@ -344,6 +344,16 @@ export default function MyLayoverScreen() {
                   Create Plan
                 </ThemedText>
               </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.actionButton, styles.actionButtonSecondary]}
+                onPress={() => router.push('/qr-code?tab=scan')}
+              >
+                <Ionicons name="qr-code-outline" size={24} color={Colors.primary} />
+                <ThemedText style={[styles.actionButtonText, styles.actionButtonTextSecondary]}>
+                  Scan to Join Plan
+                </ThemedText>
+              </TouchableOpacity>
             </View>
 
             {/* Clear Layover Link */}

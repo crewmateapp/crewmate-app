@@ -1,8 +1,10 @@
+// app/(tabs)/profile.tsx
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
+import { isAdmin, useAdminRole } from '@/hooks/useAdminRole';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
@@ -40,6 +42,7 @@ type UserStats = {
 
 export default function ProfileScreen() {
   const { user, signOut } = useAuth();
+  const { role, cities, loading: adminLoading } = useAdminRole();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [currentLocation, setCurrentLocation] = useState<{ city: string; area: string } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -137,27 +140,28 @@ export default function ProfileScreen() {
 
     fetchStats();
   }, [user]);
+
   // Listen to current layover location
-useEffect(() => {
-  if (!user) return;
+  useEffect(() => {
+    if (!user) return;
 
-  const userDoc = doc(db, 'users', user.uid);
-  const unsubscribe = onSnapshot(userDoc, (snapshot) => {
-    if (snapshot.exists()) {
-      const data = snapshot.data();
-      if (data.layoverCity && data.layoverArea && data.layoverActive) {
-        setCurrentLocation({
-          city: data.layoverCity,
-          area: data.layoverArea
-        });
-      } else {
-        setCurrentLocation(null);
+    const userDoc = doc(db, 'users', user.uid);
+    const unsubscribe = onSnapshot(userDoc, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        if (data.layoverCity && data.layoverArea && data.layoverActive) {
+          setCurrentLocation({
+            city: data.layoverCity,
+            area: data.layoverArea
+          });
+        } else {
+          setCurrentLocation(null);
+        }
       }
-    }
-  });
+    });
 
-  return () => unsubscribe();
-}, [user]);
+    return () => unsubscribe();
+  }, [user]);
 
   useFocusEffect(
     useCallback(() => {
@@ -275,44 +279,44 @@ useEffect(() => {
     <ScrollView style={styles.scrollContainer} showsVerticalScrollIndicator={false}>
       <ThemedView style={styles.container}>
         {/* Header Section */}
-<View style={styles.topSection}>
-  {/* Currently In */}
-  <View style={styles.currentlyInContainer}>
-    {currentLocation ? (
-      <>
-        <View style={styles.activeIndicator} />
-        <View style={styles.locationInfo}>
-          <ThemedText style={styles.currentlyInLabel}>Currently in</ThemedText>
-          <ThemedText style={styles.currentlyInCity}>{currentLocation.city}</ThemedText>
-        </View>
-      </>
-    ) : (
-      <>
-        <ThemedText style={styles.offlineEmoji}>💤</ThemedText>
-        <View style={styles.locationInfo}>
-          <ThemedText style={styles.offlineText}>Off duty</ThemedText>
-        </View>
-      </>
-    )}
-  </View>
+        <View style={styles.topSection}>
+          {/* Currently In */}
+          <View style={styles.currentlyInContainer}>
+            {currentLocation ? (
+              <>
+                <View style={styles.activeIndicator} />
+                <View style={styles.locationInfo}>
+                  <ThemedText style={styles.currentlyInLabel}>Currently in</ThemedText>
+                  <ThemedText style={styles.currentlyInCity}>{currentLocation.city}</ThemedText>
+                </View>
+              </>
+            ) : (
+              <>
+                <ThemedText style={styles.offlineEmoji}>💤</ThemedText>
+                <View style={styles.locationInfo}>
+                  <ThemedText style={styles.offlineText}>Off duty</ThemedText>
+                </View>
+              </>
+            )}
+          </View>
 
-  {/* Action Buttons */}
-  <View style={styles.headerButtons}>
-    <TouchableOpacity 
-      style={styles.iconButton}
-      onPress={() => router.push('/qr-code')}
-    >
-      <Ionicons name="qr-code" size={22} color={Colors.primary} />
-    </TouchableOpacity>
-    <TouchableOpacity 
-      style={styles.editButtonHeader}
-      onPress={() => router.push('/edit-profile')}
-    >
-      <Ionicons name="pencil" size={18} color={Colors.white} />
-      <ThemedText style={styles.editButtonText}>Edit</ThemedText>
-    </TouchableOpacity>
-  </View>
-</View>
+          {/* Action Buttons */}
+          <View style={styles.headerButtons}>
+            <TouchableOpacity 
+              style={styles.iconButton}
+              onPress={() => router.push('/qr-code')}
+            >
+              <Ionicons name="qr-code" size={22} color={Colors.primary} />
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.editButtonHeader}
+              onPress={() => router.push('/edit-profile')}
+            >
+              <Ionicons name="pencil" size={18} color={Colors.white} />
+              <ThemedText style={styles.editButtonText}>Edit</ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
 
         {/* Profile Header */}
         <View style={styles.profileHeader}>
@@ -346,32 +350,32 @@ useEffect(() => {
         </View>
 
         {/* Stats Row */}
-        {/* Stats Row */}
-<View style={styles.statsContainer}>
-  <TouchableOpacity 
-    style={styles.statBox}
-    onPress={() => router.push('/my-spots')}
-  >
-    <ThemedText style={styles.statNumber}>{stats.spotsAdded}</ThemedText>
-    <ThemedText style={styles.statLabel}>Spots</ThemedText>
-  </TouchableOpacity>
-  <View style={styles.statDivider} />
-  <TouchableOpacity 
-    style={styles.statBox}
-    onPress={() => router.push('/my-photos')}
-  >
-    <ThemedText style={styles.statNumber}>{stats.photosPosted}</ThemedText>
-    <ThemedText style={styles.statLabel}>Photos</ThemedText>
-  </TouchableOpacity>
-  <View style={styles.statDivider} />
-  <TouchableOpacity 
-    style={styles.statBox}
-    onPress={() => router.push('/my-reviews')}
-  >
-    <ThemedText style={styles.statNumber}>{stats.reviewsLeft}</ThemedText>
-    <ThemedText style={styles.statLabel}>Reviews</ThemedText>
-  </TouchableOpacity>
-</View>
+        <View style={styles.statsContainer}>
+          <TouchableOpacity 
+            style={styles.statBox}
+            onPress={() => router.push('/my-spots')}
+          >
+            <ThemedText style={styles.statNumber}>{stats.spotsAdded}</ThemedText>
+            <ThemedText style={styles.statLabel}>Spots</ThemedText>
+          </TouchableOpacity>
+          <View style={styles.statDivider} />
+          <TouchableOpacity 
+            style={styles.statBox}
+            onPress={() => router.push('/my-photos')}
+          >
+            <ThemedText style={styles.statNumber}>{stats.photosPosted}</ThemedText>
+            <ThemedText style={styles.statLabel}>Photos</ThemedText>
+          </TouchableOpacity>
+          <View style={styles.statDivider} />
+          <TouchableOpacity 
+            style={styles.statBox}
+            onPress={() => router.push('/my-reviews')}
+          >
+            <ThemedText style={styles.statNumber}>{stats.reviewsLeft}</ThemedText>
+            <ThemedText style={styles.statLabel}>Reviews</ThemedText>
+          </TouchableOpacity>
+        </View>
+
         {/* Friends Section */}
         <TouchableOpacity 
           style={styles.friendsCard}
@@ -389,15 +393,20 @@ useEffect(() => {
           </View>
         </TouchableOpacity>
 
-        {/* Admin Panel */}
-        {(user?.email === 'zachary.tillman@aa.com' || user?.email === 'johnny.guzman@aa.com') && (
+        {/* Admin Panel - Now using Firestore check */}
+        {isAdmin(role) && (
           <TouchableOpacity
             style={styles.adminCard}
             onPress={() => router.push('/admin')}
           >
             <View style={styles.adminLeft}>
               <Ionicons name="shield-checkmark" size={22} color="#9C27B0" />
-              <ThemedText style={styles.adminTitle}>Admin Panel</ThemedText>
+              <View>
+                <ThemedText style={styles.adminTitle}>Admin Panel</ThemedText>
+                <ThemedText style={styles.adminSubtitle}>
+                  {role === 'super' ? 'Super Admin' : `City Admin: ${cities.join(', ')}`}
+                </ThemedText>
+              </View>
             </View>
             <Ionicons name="chevron-forward" size={20} color={Colors.text.secondary} />
           </TouchableOpacity>
@@ -665,6 +674,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#9C27B0',
+  },
+  adminSubtitle: {
+    fontSize: 12,
+    color: Colors.text.secondary,
+    marginTop: 2,
   },
   activitySection: {
     marginHorizontal: 20,

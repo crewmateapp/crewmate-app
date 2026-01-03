@@ -6,7 +6,7 @@ import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import {
   addDoc,
   arrayUnion,
@@ -54,9 +54,12 @@ type Plan = {
 
 export default function QRCodeModal() {
   const { user } = useAuth();
+  const { tab: initialTab } = useLocalSearchParams<{ tab?: string }>();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'show' | 'scan'>('show');
+  const [tab, setTab] = useState<'show' | 'scan'>(
+    initialTab === 'scan' ? 'scan' : 'show'
+  );
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [processing, setProcessing] = useState(false);
@@ -110,6 +113,8 @@ export default function QRCodeModal() {
       const planDoc = await getDoc(doc(db, 'plans', planId));
       if (!planDoc.exists()) {
         Alert.alert('Error', 'Plan not found. It may have been cancelled.');
+        setScanned(false);
+        setProcessing(false);
         return;
       }
 
@@ -124,8 +129,17 @@ export default function QRCodeModal() {
             {
               text: 'View Plan',
               onPress: () => {
+                setScanned(false);
+                setProcessing(false);
                 router.back();
                 router.push({ pathname: '/plan/[id]', params: { id: planId } });
+              }
+            },
+            {
+              text: 'OK',
+              onPress: () => {
+                setScanned(false);
+                setProcessing(false);
               }
             }
           ]
@@ -139,6 +153,8 @@ export default function QRCodeModal() {
       if (isConnectedToHost) {
         // Connected - just join the plan
         await joinPlan(planId, plan.title);
+        setScanned(false);
+        setProcessing(false);
       } else {
         // Not connected - ask to connect first
         Alert.alert(
@@ -160,6 +176,8 @@ export default function QRCodeModal() {
                 await sendConnectionRequest(plan.hostUserId, plan.hostName, planId);
                 // Join the plan
                 await joinPlan(planId, plan.title);
+                setScanned(false);
+                setProcessing(false);
               }
             }
           ]
@@ -168,6 +186,8 @@ export default function QRCodeModal() {
     } catch (error) {
       console.error('Error handling plan QR:', error);
       Alert.alert('Error', 'Failed to join plan. Please try again.');
+      setScanned(false);
+      setProcessing(false);
     }
   };
 
@@ -338,7 +358,11 @@ export default function QRCodeModal() {
       [
         {
           text: 'Done',
-          onPress: () => router.back()
+          onPress: () => {
+            setScanned(false);
+            setProcessing(false);
+            router.back();
+          }
         }
       ]
     );
@@ -362,11 +386,8 @@ export default function QRCodeModal() {
     } catch (error) {
       console.error('Error processing QR code:', error);
       Alert.alert('Error', 'Failed to process QR code. Please try again.');
-    } finally {
-      setTimeout(() => {
-        setScanned(false);
-        setProcessing(false);
-      }, 2000);
+      setScanned(false);
+      setProcessing(false);
     }
   };
 

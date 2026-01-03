@@ -119,65 +119,67 @@ export default function ChatScreen() {
   }
 
   return (
-    <ThemedView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <ThemedText style={styles.backText}>← Back</ThemedText>
-        </TouchableOpacity>
-        <ThemedText style={styles.headerName}>{name}</ThemedText>
-        <View style={styles.placeholder} />
-      </View>
-
-      {/* Messages */}
-      {messages.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <ThemedText style={styles.emptyText}>
-            No messages yet. Say hi! 👋
-          </ThemedText>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+    >
+      <ThemedView style={styles.container}>
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <ThemedText style={styles.backText}>← Back</ThemedText>
+          </TouchableOpacity>
+          <ThemedText style={styles.headerName}>{name}</ThemedText>
+          <View style={styles.placeholder} />
         </View>
-      ) : (
-        <FlatList
-          data={messages}
-          keyExtractor={(item) => item.id}
-          style={styles.messageList}
-          contentContainerStyle={styles.messageListContent}
-          renderItem={({ item }) => {
-            const isMyMessage = item.senderId === user?.uid;
-            return (
-              <View
-                style={[
-                  styles.messageBubble,
-                  isMyMessage ? styles.myMessage : styles.theirMessage,
-                ]}
-              >
-                <ThemedText
-                  style={[
-                    styles.messageText,
-                    isMyMessage ? styles.myMessageText : styles.theirMessageText,
-                  ]}
-                >
-                  {item.text}
-                </ThemedText>
-                <ThemedText
-                  style={[
-                    styles.timestamp,
-                    isMyMessage ? styles.myTimestamp : styles.theirTimestamp,
-                  ]}
-                >
-                  {formatTime(item.createdAt)}
-                </ThemedText>
-              </View>
-            );
-          }}
-        />
-      )}
 
-      {/* Input */}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={0}
-      >
+        {/* Messages */}
+        {messages.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <ThemedText style={styles.emptyText}>
+              No messages yet. Say hi! 👋
+            </ThemedText>
+          </View>
+        ) : (
+          <FlatList
+            data={messages}
+            keyExtractor={(item) => item.id}
+            style={styles.messageList}
+            contentContainerStyle={styles.messageListContent}
+            keyboardShouldPersistTaps="handled"
+            renderItem={({ item }) => {
+              const isMyMessage = item.senderId === user?.uid;
+              return (
+                <View
+                  style={[
+                    styles.messageBubble,
+                    isMyMessage ? styles.myMessage : styles.theirMessage,
+                  ]}
+                >
+                  <ThemedText
+                    style={[
+                      styles.messageText,
+                      isMyMessage ? styles.myMessageText : styles.theirMessageText,
+                    ]}
+                  >
+                    {item.text}
+                  </ThemedText>
+                  <ThemedText
+                    style={[
+                      styles.timestamp,
+                      isMyMessage ? styles.myTimestamp : styles.theirTimestamp,
+                    ]}
+                  >
+                    {formatTime(item.createdAt)}
+                  </ThemedText>
+                </View>
+              );
+            }}
+          />
+        )}
+
+        {/* Input */}
         <View style={styles.inputContainer}>
           <TextInput
             style={styles.input}
@@ -203,8 +205,8 @@ export default function ChatScreen() {
             )}
           </TouchableOpacity>
         </View>
-      </KeyboardAvoidingView>
-    </ThemedView>
+      </ThemedView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -301,7 +303,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     padding: 15,
-    paddingBottom: 30,
+    paddingBottom: Platform.OS === 'android' ? 15 : 30,
     borderTopWidth: 1,
     borderTopColor: '#333',
     gap: 10,

@@ -1,8 +1,10 @@
+// app/admin.tsx
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
+import { canManageCity, isSuperAdmin, useAdminRole } from '@/hooks/useAdminRole';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import {
@@ -44,33 +46,49 @@ type Report = {
   id: string;
   spotId: string;
   spotName: string;
+  city: string;
   reportedBy: string;
   reportedByEmail: string;
   reason: string;
   createdAt: any;
 };
 
-type DeleteRequest = {
+type RemovalRequest = {
   id: string;
   spotId: string;
   spotName: string;
+  city: string;
   requestedBy: string;
+  requestedByName: string;
   requestedByEmail: string;
   reason: string;
+  status: string;
   createdAt: any;
 };
 
 export default function AdminScreen() {
   const { user } = useAuth();
+  const { role, cities, loading: roleLoading } = useAdminRole();
   const [pendingSpots, setPendingSpots] = useState<Spot[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
-  const [deleteRequests, setDeleteRequests] = useState<DeleteRequest[]>([]);
+  const [removalRequests, setRemovalRequests] = useState<RemovalRequest[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'spots' | 'reports' | 'deletes'>('spots');
+  const [activeTab, setActiveTab] = useState<'spots' | 'reports' | 'removals'>('spots');
+
+  // Filter data based on admin role
+  const filterByCity = (items: any[]) => {
+    if (isSuperAdmin(role)) return items;
+    return items.filter(item => cities.includes(item.city));
+  };
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || roleLoading) return;
+    if (!role) {
+      setLoading(false);
+      return;
+    }
 
+    // Listen to pending spots
     const spotsQuery = query(
       collection(db, 'spots'),
       where('status', '==', 'pending')
@@ -81,10 +99,11 @@ export default function AdminScreen() {
       snapshot.docs.forEach((doc) => {
         spots.push({ id: doc.id, ...doc.data() } as Spot);
       });
-      setPendingSpots(spots);
+      setPendingSpots(filterByCity(spots));
       setLoading(false);
     });
 
+    // Listen to reports
     const unsubscribeReports = onSnapshot(
       collection(db, 'spotReports'),
       (snapshot) => {
@@ -92,66 +111,71 @@ export default function AdminScreen() {
         snapshot.docs.forEach((doc) => {
           fetchedReports.push({ id: doc.id, ...doc.data() } as Report);
         });
-        setReports(fetchedReports);
+        setReports(filterByCity(fetchedReports));
       }
     );
 
-    const unsubscribeDeletes = onSnapshot(
-      collection(db, 'deleteRequests'),
-      (snapshot) => {
-        const fetchedRequests: DeleteRequest[] = [];
-        snapshot.docs.forEach((doc) => {
-          fetchedRequests.push({ id: doc.id, ...doc.data() } as DeleteRequest);
-        });
-        setDeleteRequests(fetchedRequests);
-      }
-    );
+    // Listen to removal requests (only pending for city admins, all for super)
+    const removalsQuery = isSuperAdmin(role)
+      ? query(collection(db, 'removalRequests'), where('status', '==', 'pending'))
+      : query(
+          collection(db, 'removalRequests'),
+          where('status', '==', 'pending'),
+          where('city', 'in', cities.length > 0 ? cities : ['__none__'])
+        );
+
+    const unsubscribeRemovals = onSnapshot(removalsQuery, (snapshot) => {
+      const requests: RemovalRequest[] = [];
+      snapshot.docs.forEach((doc) => {
+        requests.push({ id: doc.id, ...doc.data() } as RemovalRequest);
+      });
+      setRemovalRequests(requests);
+    });
 
     return () => {
       unsubscribeSpots();
       unsubscribeReports();
-      unsubscribeDeletes();
+      unsubscribeRemovals();
     };
-  }, [user]);
+  }, [user, role, cities, roleLoading]);
 
   const handleApproveSpot = async (spotId: string, spotData: any) => {
-  try {
-    await updateDoc(doc(db, 'spots', spotId), {
-      status: 'approved',
-      approvedAt: serverTimestamp(),
-      approvedBy: user?.email,
-    });
-
-    // Get user's photo for activity
-    let userPhoto = null;
     try {
-      const userDoc = await getDoc(doc(db, 'users', spotData.addedBy));
-      if (userDoc.exists()) {
-        userPhoto = userDoc.data().photoURL || null;
+      await updateDoc(doc(db, 'spots', spotId), {
+        status: 'approved',
+        approvedAt: serverTimestamp(),
+        approvedBy: user?.email,
+      });
+
+      // Get user's photo for activity
+      let userPhoto = null;
+      try {
+        const userDoc = await getDoc(doc(db, 'users', spotData.addedBy));
+        if (userDoc.exists()) {
+          userPhoto = userDoc.data().photoURL || null;
+        }
+      } catch (error) {
+        console.log('Could not fetch user photo');
       }
+
+      // Create activity for approved spot
+      await addDoc(collection(db, 'activities'), {
+        type: 'spot_added',
+        userId: spotData.addedBy,
+        userName: spotData.addedByName,
+        userPhoto: userPhoto,
+        spotId: spotId,
+        spotName: spotData.name,
+        city: spotData.city,
+        createdAt: serverTimestamp(),
+      });
+
+      Alert.alert('Success', 'Spot approved and added to the guide!');
     } catch (error) {
-      console.log('Could not fetch user photo');
+      console.error('Error approving spot:', error);
+      Alert.alert('Error', 'Failed to approve spot.');
     }
-
-    // Create activity for approved spot
-    await addDoc(collection(db, 'activities'), {
-      type: 'spot_added',
-      userId: spotData.addedBy,
-      userName: spotData.addedByName,
-      userPhoto: userPhoto,
-      spotId: spotId,
-      spotName: spotData.name,
-      city: spotData.city,
-      createdAt: serverTimestamp(),
-    });
-
-    Alert.alert('Success', 'Spot approved and added to the guide!');
-  } catch (error) {
-    console.error('Error approving spot:', error);
-    Alert.alert('Error', 'Failed to approve spot.');
-  }
-};
-  
+  };
 
   const handleRejectSpot = async (spotId: string) => {
     Alert.alert(
@@ -186,10 +210,53 @@ export default function AdminScreen() {
     }
   };
 
-  const handleDeleteSpot = async (spotId: string, deleteRequestId: string) => {
+  // City admin: Request removal (goes to super admin queue)
+  const handleRequestRemoval = async (spotId: string, spotName: string, city: string) => {
+    Alert.prompt(
+      'Request Removal',
+      'Why should this spot be removed?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Submit',
+          onPress: async (reason) => {
+            if (!reason?.trim()) {
+              Alert.alert('Error', 'Please provide a reason.');
+              return;
+            }
+            try {
+              // Get current user info
+              const userDoc = await getDoc(doc(db, 'users', user!.uid));
+              const userData = userDoc.data();
+
+              await addDoc(collection(db, 'removalRequests'), {
+                spotId,
+                spotName,
+                city,
+                requestedBy: user!.uid,
+                requestedByName: userData?.displayName || 'Unknown',
+                requestedByEmail: user!.email,
+                reason: reason.trim(),
+                status: 'pending',
+                createdAt: serverTimestamp(),
+              });
+              Alert.alert('Submitted', 'Removal request sent to super admins.');
+            } catch (error) {
+              console.error('Error creating removal request:', error);
+              Alert.alert('Error', 'Failed to submit removal request.');
+            }
+          },
+        },
+      ],
+      'plain-text'
+    );
+  };
+
+  // Super admin: Approve removal request and delete spot
+  const handleApproveRemoval = async (request: RemovalRequest) => {
     Alert.alert(
-      'Delete Spot',
-      'Are you sure you want to delete this spot? This cannot be undone.',
+      'Approve Removal',
+      `Delete "${request.spotName}" permanently?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -197,9 +264,15 @@ export default function AdminScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await deleteDoc(doc(db, 'spots', spotId));
-              await deleteDoc(doc(db, 'deleteRequests', deleteRequestId));
-              Alert.alert('Deleted', 'Spot has been deleted.');
+              // Delete the spot
+              await deleteDoc(doc(db, 'spots', request.spotId));
+              // Update request status
+              await updateDoc(doc(db, 'removalRequests', request.id), {
+                status: 'approved',
+                approvedBy: user?.email,
+                approvedAt: serverTimestamp(),
+              });
+              Alert.alert('Deleted', 'Spot has been permanently removed.');
             } catch (error) {
               console.error('Error deleting spot:', error);
               Alert.alert('Error', 'Failed to delete spot.');
@@ -210,13 +283,18 @@ export default function AdminScreen() {
     );
   };
 
-  const handleDismissDeleteRequest = async (requestId: string) => {
+  // Super admin: Reject removal request
+  const handleRejectRemoval = async (requestId: string) => {
     try {
-      await deleteDoc(doc(db, 'deleteRequests', requestId));
-      Alert.alert('Dismissed', 'Delete request has been dismissed.');
+      await updateDoc(doc(db, 'removalRequests', requestId), {
+        status: 'rejected',
+        rejectedBy: user?.email,
+        rejectedAt: serverTimestamp(),
+      });
+      Alert.alert('Rejected', 'Removal request has been rejected.');
     } catch (error) {
-      console.error('Error dismissing request:', error);
-      Alert.alert('Error', 'Failed to dismiss request.');
+      console.error('Error rejecting removal:', error);
+      Alert.alert('Error', 'Failed to reject removal request.');
     }
   };
 
@@ -269,6 +347,7 @@ export default function AdminScreen() {
         </View>
       </View>
       
+      <ThemedText style={styles.cityText}>📍 {item.city}</ThemedText>
       <ThemedText style={styles.reportedBy}>
         Reported by {item.reportedByEmail}
       </ThemedText>
@@ -276,47 +355,75 @@ export default function AdminScreen() {
       <View style={styles.actions}>
         <TouchableOpacity
           style={[styles.actionButton, styles.viewButton]}
-          onPress={() => router.push(`/spot/${item.spotId}`)}
+          onPress={() => router.push({ pathname: '/spot/[id]', params: { id: item.spotId } })}
         >
           <Ionicons name="eye" size={20} color={Colors.white} />
-          <ThemedText style={styles.actionButtonText}>View Spot</ThemedText>
+          <ThemedText style={styles.actionButtonText}>View</ThemedText>
         </TouchableOpacity>
+
+        {isSuperAdmin(role) ? (
+          // Super admin can delete directly
+          <TouchableOpacity
+            style={[styles.actionButton, styles.rejectButton]}
+            onPress={() => handleApproveRemoval({
+              id: item.id,
+              spotId: item.spotId,
+              spotName: item.spotName,
+              city: item.city,
+            } as RemovalRequest)}
+          >
+            <Ionicons name="trash" size={20} color={Colors.white} />
+            <ThemedText style={styles.actionButtonText}>Delete</ThemedText>
+          </TouchableOpacity>
+        ) : (
+          // City admin requests removal
+          <TouchableOpacity
+            style={[styles.actionButton, styles.warningButton]}
+            onPress={() => handleRequestRemoval(item.spotId, item.spotName, item.city)}
+          >
+            <Ionicons name="flag" size={20} color={Colors.white} />
+            <ThemedText style={styles.actionButtonText}>Request Removal</ThemedText>
+          </TouchableOpacity>
+        )}
 
         <TouchableOpacity
           style={[styles.actionButton, styles.dismissButton]}
           onPress={() => handleDismissReport(item.id)}
         >
+          <Ionicons name="close" size={20} color={Colors.white} />
           <ThemedText style={styles.actionButtonText}>Dismiss</ThemedText>
         </TouchableOpacity>
       </View>
     </View>
   );
 
-  const renderDeleteRequest = ({ item }: { item: DeleteRequest }) => (
+  const renderRemovalRequest = ({ item }: { item: RemovalRequest }) => (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
         <ThemedText style={styles.spotName}>{item.spotName}</ThemedText>
-        <View style={[styles.typeTag, { backgroundColor: Colors.error }]}>
-          <ThemedText style={styles.typeText}>{item.reason}</ThemedText>
+        <View style={[styles.typeTag, { backgroundColor: '#FF9800' }]}>
+          <ThemedText style={styles.typeText}>Removal Request</ThemedText>
         </View>
       </View>
       
+      <ThemedText style={styles.cityText}>📍 {item.city}</ThemedText>
+      <ThemedText style={styles.description}>"{item.reason}"</ThemedText>
       <ThemedText style={styles.reportedBy}>
-        Requested by {item.requestedByEmail}
+        Requested by {item.requestedByName} ({item.requestedByEmail})
       </ThemedText>
 
       <View style={styles.actions}>
         <TouchableOpacity
           style={[styles.actionButton, styles.viewButton]}
-          onPress={() => router.push(`/spot/${item.spotId}`)}
+          onPress={() => router.push({ pathname: '/spot/[id]', params: { id: item.spotId } })}
         >
           <Ionicons name="eye" size={20} color={Colors.white} />
-          <ThemedText style={styles.actionButtonText}>View Spot</ThemedText>
+          <ThemedText style={styles.actionButtonText}>View</ThemedText>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.actionButton, styles.rejectButton]}
-          onPress={() => handleDeleteSpot(item.spotId, item.id)}
+          style={[styles.actionButton, styles.approveButton]}
+          onPress={() => handleApproveRemoval(item)}
         >
           <Ionicons name="trash" size={20} color={Colors.white} />
           <ThemedText style={styles.actionButtonText}>Delete</ThemedText>
@@ -324,18 +431,33 @@ export default function AdminScreen() {
 
         <TouchableOpacity
           style={[styles.actionButton, styles.dismissButton]}
-          onPress={() => handleDismissDeleteRequest(item.id)}
+          onPress={() => handleRejectRemoval(item.id)}
         >
-          <ThemedText style={styles.actionButtonText}>Dismiss</ThemedText>
+          <Ionicons name="close" size={20} color={Colors.white} />
+          <ThemedText style={styles.actionButtonText}>Reject</ThemedText>
         </TouchableOpacity>
       </View>
     </View>
   );
 
-  if (loading) {
+  if (loading || roleLoading) {
     return (
       <ThemedView style={styles.container}>
         <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: 100 }} />
+      </ThemedView>
+    );
+  }
+
+  if (!role) {
+    return (
+      <ThemedView style={styles.container}>
+        <View style={styles.noAccessContainer}>
+          <Ionicons name="lock-closed" size={60} color={Colors.text.secondary} />
+          <ThemedText style={styles.noAccessText}>Admin access required</ThemedText>
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+            <ThemedText style={styles.backBtnText}>Go Back</ThemedText>
+          </TouchableOpacity>
+        </View>
       </ThemedView>
     );
   }
@@ -346,10 +468,26 @@ export default function AdminScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color={Colors.text.primary} />
         </TouchableOpacity>
-        <ThemedText type="title" style={styles.title}>
-          Admin Panel
-        </ThemedText>
+        <View>
+          <ThemedText type="title" style={styles.title}>
+            Admin Panel
+          </ThemedText>
+          <ThemedText style={styles.roleText}>
+            {isSuperAdmin(role) ? '🛡️ Super Admin' : `📍 City Admin: ${cities.join(', ')}`}
+          </ThemedText>
+        </View>
       </View>
+
+      {/* Super Admin: Manage Admins Button */}
+      {isSuperAdmin(role) && (
+        <TouchableOpacity
+          style={styles.manageAdminsBtn}
+          onPress={() => router.push('/manage-admins')}
+        >
+          <Ionicons name="people" size={20} color={Colors.white} />
+          <ThemedText style={styles.manageAdminsBtnText}>Manage Admins</ThemedText>
+        </TouchableOpacity>
+      )}
 
       <View style={styles.tabContainer}>
         <TouchableOpacity
@@ -357,7 +495,7 @@ export default function AdminScreen() {
           onPress={() => setActiveTab('spots')}
         >
           <ThemedText style={[styles.tabText, activeTab === 'spots' && styles.tabTextActive]}>
-            Pending Spots
+            Pending
           </ThemedText>
           {pendingSpots.length > 0 && (
             <View style={styles.badge}>
@@ -380,19 +518,22 @@ export default function AdminScreen() {
           )}
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'deletes' && styles.tabActive]}
-          onPress={() => setActiveTab('deletes')}
-        >
-          <ThemedText style={[styles.tabText, activeTab === 'deletes' && styles.tabTextActive]}>
-            Delete Requests
-          </ThemedText>
-          {deleteRequests.length > 0 && (
-            <View style={styles.badge}>
-              <ThemedText style={styles.badgeText}>{deleteRequests.length}</ThemedText>
-            </View>
-          )}
-        </TouchableOpacity>
+        {/* Removal requests tab - only for super admins */}
+        {isSuperAdmin(role) && (
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'removals' && styles.tabActive]}
+            onPress={() => setActiveTab('removals')}
+          >
+            <ThemedText style={[styles.tabText, activeTab === 'removals' && styles.tabTextActive]}>
+              Removals
+            </ThemedText>
+            {removalRequests.length > 0 && (
+              <View style={styles.badge}>
+                <ThemedText style={styles.badgeText}>{removalRequests.length}</ThemedText>
+              </View>
+            )}
+          </TouchableOpacity>
+        )}
       </View>
 
       {activeTab === 'spots' && (
@@ -429,17 +570,17 @@ export default function AdminScreen() {
         />
       )}
 
-      {activeTab === 'deletes' && (
+      {activeTab === 'removals' && isSuperAdmin(role) && (
         <FlatList
-          data={deleteRequests}
-          renderItem={renderDeleteRequest}
+          data={removalRequests}
+          renderItem={renderRemovalRequest}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={
             <View style={styles.emptyState}>
               <Ionicons name="trash-outline" size={80} color={Colors.text.secondary} />
               <ThemedText style={styles.emptyText}>
-                No delete requests
+                No removal requests
               </ThemedText>
             </View>
           }
@@ -458,7 +599,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
-    marginBottom: 20,
+    marginBottom: 15,
   },
   backButton: {
     marginRight: 12,
@@ -466,6 +607,27 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: 'bold',
+  },
+  roleText: {
+    fontSize: 14,
+    color: Colors.text.secondary,
+    marginTop: 2,
+  },
+  manageAdminsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#9C27B0',
+    marginHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 10,
+    marginBottom: 15,
+  },
+  manageAdminsBtnText: {
+    color: Colors.white,
+    fontSize: 16,
+    fontWeight: '600',
   },
   tabContainer: {
     flexDirection: 'row',
@@ -576,9 +738,11 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: 'row',
     gap: 8,
+    flexWrap: 'wrap',
   },
   actionButton: {
     flex: 1,
+    minWidth: 80,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -598,9 +762,12 @@ const styles = StyleSheet.create({
   dismissButton: {
     backgroundColor: Colors.text.secondary,
   },
+  warningButton: {
+    backgroundColor: '#FF9800',
+  },
   actionButtonText: {
     color: Colors.white,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
   },
   emptyState: {
@@ -613,5 +780,26 @@ const styles = StyleSheet.create({
     color: Colors.text.secondary,
     marginTop: 16,
     textAlign: 'center',
+  },
+  noAccessContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 16,
+  },
+  noAccessText: {
+    fontSize: 18,
+    color: Colors.text.secondary,
+  },
+  backBtn: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 10,
+    marginTop: 10,
+  },
+  backBtnText: {
+    color: Colors.white,
+    fontWeight: '600',
   },
 });
