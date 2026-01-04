@@ -616,20 +616,62 @@ export default function SpotDetailScreen() {
       />
       <ScrollView style={styles.scrollContainer}>
         <ThemedView style={styles.container}>
-          {/* Back Button Row */}
-          <View style={styles.headerRow}>
-            <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-              <Ionicons name="arrow-back" size={24} color={Colors.text.primary} />
-              <ThemedText style={styles.backText}>Back</ThemedText>
-            </TouchableOpacity>
-            
-            {isAdmin && (
-              <TouchableOpacity style={styles.adminEditButton} onPress={handleEditSpot}>
-                <Ionicons name="pencil" size={18} color="#fff" />
-                <ThemedText style={styles.adminEditText}>Edit</ThemedText>
+          {/* Hero Image with Overlays */}
+          {spotPhotos.length > 0 ? (
+            <View style={styles.heroContainer}>
+              <TouchableOpacity onPress={() => setSelectedImage(spotPhotos[0])}>
+                <Image
+                  source={{ uri: spotPhotos[0] }}
+                  style={styles.heroImage}
+                  resizeMode="cover"
+                />
               </TouchableOpacity>
-            )}
-          </View>
+              
+              {/* Back Button Overlay */}
+              <TouchableOpacity 
+                style={styles.backButtonOverlay} 
+                onPress={() => router.back()}
+              >
+                <Ionicons name="arrow-back" size={24} color={Colors.white} />
+              </TouchableOpacity>
+              
+              {/* Rating Overlay */}
+              {averageRating > 0 && (
+                <View style={styles.ratingOverlay}>
+                  <Ionicons name="star" size={20} color={Colors.accent} />
+                  <ThemedText style={styles.ratingOverlayText}>
+                    {averageRating.toFixed(1)}
+                  </ThemedText>
+                </View>
+              )}
+              
+              {/* Admin Edit Button Overlay */}
+              {isAdmin && (
+                <TouchableOpacity 
+                  style={styles.adminEditButtonOverlay} 
+                  onPress={handleEditSpot}
+                >
+                  <Ionicons name="pencil" size={18} color="#fff" />
+                  <ThemedText style={styles.adminEditText}>Edit</ThemedText>
+                </TouchableOpacity>
+              )}
+            </View>
+          ) : (
+            // Fallback if no photos - show back button normally
+            <View style={styles.headerRow}>
+              <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+                <Ionicons name="arrow-back" size={24} color={Colors.text.primary} />
+                <ThemedText style={styles.backText}>Back</ThemedText>
+              </TouchableOpacity>
+              
+              {isAdmin && (
+                <TouchableOpacity style={styles.adminEditButton} onPress={handleEditSpot}>
+                  <Ionicons name="pencil" size={18} color="#fff" />
+                  <ThemedText style={styles.adminEditText}>Edit</ThemedText>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
 
         <ThemedText type="title" style={styles.title}>
           {spot.name}
@@ -678,12 +720,12 @@ export default function SpotDetailScreen() {
           onQuickRate={() => setShowQuickRate(true)}
         />
 
-        {/* Photos Section */}
-        {spotPhotos.length > 0 && (
+        {/* More Photos Section - Show remaining photos (skip first since it's hero) */}
+        {spotPhotos.length > 1 && (
           <View style={styles.photosSection}>
-            <ThemedText style={styles.sectionTitle}>📸 Photos</ThemedText>
+            <ThemedText style={styles.sectionTitle}>📸 More Photos</ThemedText>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              {spotPhotos.map((photoUrl, index) => (
+              {spotPhotos.slice(1).map((photoUrl, index) => (
                 <TouchableOpacity key={index} onPress={() => setSelectedImage(photoUrl)}>
                   <Image source={{ uri: photoUrl }} style={styles.photo} />
                 </TouchableOpacity>
@@ -711,10 +753,33 @@ export default function SpotDetailScreen() {
         <View style={styles.infoCard}>
           <ThemedText style={styles.sectionTitle}>Details</ThemedText>
           {spot.address && (
-            <View style={styles.infoRow}>
-              <Ionicons name="location" size={20} color={Colors.text.secondary} />
-              <ThemedText style={styles.infoText}>{spot.address}</ThemedText>
-            </View>
+            <TouchableOpacity
+              style={styles.infoRow}
+              onPress={async () => {
+                try {
+                  const address = encodeURIComponent(spot.address);
+                  let url;
+                  if (Platform.OS === 'ios') {
+                    url = `maps://maps.apple.com/?address=${address}`;
+                  } else {
+                    url = `https://www.google.com/maps/search/?api=1&query=${address}`;
+                  }
+                  const supported = await Linking.canOpenURL(url);
+                  if (supported) {
+                    await Linking.openURL(url);
+                  } else {
+                    // Fallback to web maps
+                    await Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${address}`);
+                  }
+                } catch (error) {
+                  console.error('Error opening maps:', error);
+                  Alert.alert('Error', 'Could not open maps app');
+                }
+              }}
+            >
+              <Ionicons name="location" size={20} color={Colors.primary} />
+              <ThemedText style={[styles.infoText, styles.linkText]}>{spot.address}</ThemedText>
+            </TouchableOpacity>
           )}
           {spot.phone && (
             <TouchableOpacity
@@ -846,6 +911,59 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingTop: 20,
   },
+  // Hero Image Styles
+  heroContainer: {
+    height: 250,
+    position: 'relative',
+    marginLeft: -20,
+    marginRight: -20,
+    marginTop: -20,
+    marginBottom: 16,
+  },
+  heroImage: {
+    width: '100%',
+    height: 250,
+  },
+  backButtonOverlay: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderRadius: 20,
+    padding: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  ratingOverlay: {
+    position: 'absolute',
+    bottom: 16,
+    right: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  ratingOverlayText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: Colors.white,
+  },
+  adminEditButtonOverlay: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#9333EA',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -959,7 +1077,7 @@ const styles = StyleSheet.create({
   tipsText: {
     fontSize: 15,
     lineHeight: 22,
-    color: Colors.text.inverse, // Use inverse (dark text) for light yellow background
+    color: Colors.text.primary,
   },
   sectionTitle: {
     fontSize: 18,

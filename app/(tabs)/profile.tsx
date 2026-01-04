@@ -149,10 +149,11 @@ export default function ProfileScreen() {
     const unsubscribe = onSnapshot(userDoc, (snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.data();
-        if (data.layoverCity && data.layoverArea && data.layoverActive) {
+        // Check for currentLayover object (new structure)
+        if (data.currentLayover?.city && data.currentLayover?.area) {
           setCurrentLocation({
-            city: data.layoverCity,
-            area: data.layoverArea
+            city: data.currentLayover.city,
+            area: data.currentLayover.area
           });
         } else {
           setCurrentLocation(null);
@@ -608,7 +609,7 @@ const styles = StyleSheet.create({
   },
   statLabel: {
     fontSize: 13,
-    color: Colors.text.secondary,
+    color: Colors.text.primary,
     fontWeight: '500',
   },
   statDivider: {
@@ -693,7 +694,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 13,
     fontWeight: '700',
-    color: Colors.text.secondary,
+    color: Colors.text.primary,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },

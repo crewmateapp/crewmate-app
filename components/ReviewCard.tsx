@@ -32,13 +32,15 @@ type ReviewCardProps = {
   currentUserId: string | undefined;
   onHelpfulVote: (reviewId: string, currentVotes: string[]) => void;
   onUserPress?: (userId: string) => void;
+  onPhotoPress?: (photoUrl: string) => void;
 };
 
 export function ReviewCard({ 
   review, 
   currentUserId,
   onHelpfulVote,
-  onUserPress 
+  onUserPress,
+  onPhotoPress
 }: ReviewCardProps) {
   const [expanded, setExpanded] = useState(false);
   const isLongReview = review.reviewText.length > 200;
@@ -127,7 +129,11 @@ export function ReviewCard({
       {review.photos.length > 0 && (
         <View style={styles.photosContainer}>
           {review.photos.slice(0, 3).map((photo, index) => (
-            <TouchableOpacity key={index} style={styles.photoWrapper}>
+            <TouchableOpacity 
+              key={index} 
+              style={styles.photoWrapper}
+              onPress={() => onPhotoPress?.(photo)}
+            >
               <Image source={{ uri: photo }} style={styles.photo} />
               {index === 2 && review.photos.length > 3 && (
                 <View style={styles.photoOverlay}>

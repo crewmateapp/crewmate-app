@@ -794,7 +794,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
   },
   statNumber: {
-    fontSize: 32,
+    fontSize: 25,
     fontWeight: '700',
     color: Colors.primary,
     marginBottom: 4,

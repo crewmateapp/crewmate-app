@@ -34,13 +34,15 @@ type ReviewListProps = {
   currentUserId: string | undefined;
   onHelpfulVote: (reviewId: string, currentVotes: string[]) => void;
   onUserPress?: (userId: string) => void;
+  onPhotoPress?: (photoUrl: string) => void;
 };
 
 export function ReviewList({ 
   reviews, 
   currentUserId,
   onHelpfulVote,
-  onUserPress 
+  onUserPress,
+  onPhotoPress
 }: ReviewListProps) {
   const [sortBy, setSortBy] = useState<SortOption>('helpful');
   const [showSortMenu, setShowSortMenu] = useState(false);
@@ -153,6 +155,7 @@ export function ReviewList({
             currentUserId={currentUserId}
             onHelpfulVote={onHelpfulVote}
             onUserPress={onUserPress}
+            onPhotoPress={onPhotoPress}
           />
         ))}
       </View>
