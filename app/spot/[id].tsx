@@ -1,5 +1,6 @@
 // app/spot/[id].tsx
 import AppHeader from '@/components/AppHeader';
+import AppDrawer from '@/components/AppDrawer';
 import { ReviewList } from '@/components/ReviewList';
 import { ReviewStatsCard } from '@/components/ReviewStatsCard';
 import { ThemedText } from '@/components/themed-text';
@@ -604,6 +605,11 @@ export default function SpotDetailScreen() {
 
   return (
     <>
+      <AppDrawer 
+        visible={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+      />
+      
       <AppHeader 
         onMenuPress={() => setDrawerOpen(true)}
         onConnectionsPress={() => router.push('/(tabs)/connections')}

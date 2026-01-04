@@ -98,16 +98,21 @@ export default function ExploreScreen() {
       const user = auth.currentUser;
       if (!user) return;
 
-      // Check if user has an active layover
+      // Query just by userId to avoid needing composite index
       const layoversQuery = query(
         collection(db, 'layovers'),
-        where('userId', '==', user.uid),
-        where('status', '==', 'active')
+        where('userId', '==', user.uid)
       );
 
       const layoversSnapshot = await getDocs(layoversQuery);
-      if (!layoversSnapshot.empty) {
-        const layover = layoversSnapshot.docs[0].data();
+      
+      // Filter for active layover in code
+      const activeLayover = layoversSnapshot.docs.find(
+        doc => doc.data().status === 'active'
+      );
+      
+      if (activeLayover) {
+        const layover = activeLayover.data();
         setUserLayoverCity(layover.city);
         setSelectedCity(layover.city); // Auto-select user's layover city
         
