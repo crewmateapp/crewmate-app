@@ -1,4 +1,5 @@
 // app/spot/[id].tsx
+import AppHeader from '@/components/AppHeader';
 import { ReviewList } from '@/components/ReviewList';
 import { ReviewStatsCard } from '@/components/ReviewStatsCard';
 import { ThemedText } from '@/components/themed-text';
@@ -109,6 +110,12 @@ export default function SpotDetailScreen() {
   const [showWriteReview, setShowWriteReview] = useState(false);
   const [showQuickRate, setShowQuickRate] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
+
+  // Image viewer state
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+
+  // Drawer state for AppHeader
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   // Check if user is admin
   const isAdmin = user?.email && ADMIN_EMAILS.includes(user.email);
@@ -497,7 +504,7 @@ export default function SpotDetailScreen() {
           text: 'Closed/Moved',
           onPress: async () => {
             try {
-              await addDoc(collection(db, 'reports'), {
+              await addDoc(collection(db, 'spotReports'), {
                 spotId: id,
                 spotName: spot.name,
                 reportedBy: user.uid,
@@ -515,7 +522,7 @@ export default function SpotDetailScreen() {
           text: 'Incorrect Info',
           onPress: async () => {
             try {
-              await addDoc(collection(db, 'reports'), {
+              await addDoc(collection(db, 'spotReports'), {
                 spotId: id,
                 spotName: spot.name,
                 reportedBy: user.uid,
@@ -596,21 +603,27 @@ export default function SpotDetailScreen() {
   }
 
   return (
-    <ScrollView style={styles.scrollContainer}>
-      <ThemedView style={styles.container}>
-        {/* Header with Back and Admin Edit */}
-        <View style={styles.headerRow}>
-          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-            <Ionicons name="arrow-back" size={24} color={Colors.text.primary} />
-          </TouchableOpacity>
-          
-          {isAdmin && (
-            <TouchableOpacity style={styles.adminEditButton} onPress={handleEditSpot}>
-              <Ionicons name="pencil" size={18} color="#fff" />
-              <ThemedText style={styles.adminEditText}>Edit</ThemedText>
+    <>
+      <AppHeader 
+        onMenuPress={() => setDrawerOpen(true)}
+        onConnectionsPress={() => router.push('/(tabs)/connections')}
+      />
+      <ScrollView style={styles.scrollContainer}>
+        <ThemedView style={styles.container}>
+          {/* Back Button Row */}
+          <View style={styles.headerRow}>
+            <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+              <Ionicons name="arrow-back" size={24} color={Colors.text.primary} />
+              <ThemedText style={styles.backText}>Back</ThemedText>
             </TouchableOpacity>
-          )}
-        </View>
+            
+            {isAdmin && (
+              <TouchableOpacity style={styles.adminEditButton} onPress={handleEditSpot}>
+                <Ionicons name="pencil" size={18} color="#fff" />
+                <ThemedText style={styles.adminEditText}>Edit</ThemedText>
+              </TouchableOpacity>
+            )}
+          </View>
 
         <ThemedText type="title" style={styles.title}>
           {spot.name}
@@ -665,7 +678,9 @@ export default function SpotDetailScreen() {
             <ThemedText style={styles.sectionTitle}>📸 Photos</ThemedText>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               {spotPhotos.map((photoUrl, index) => (
-                <Image key={index} source={{ uri: photoUrl }} style={styles.photo} />
+                <TouchableOpacity key={index} onPress={() => setSelectedImage(photoUrl)}>
+                  <Image source={{ uri: photoUrl }} style={styles.photo} />
+                </TouchableOpacity>
               ))}
             </ScrollView>
           </View>
@@ -720,6 +735,7 @@ export default function SpotDetailScreen() {
           reviews={reviews}
           currentUserId={user?.uid}
           onHelpfulVote={handleHelpfulVote}
+          onPhotoPress={setSelectedImage}
         />
 
         {/* Report Button */}
@@ -786,7 +802,32 @@ export default function SpotDetailScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* IMAGE VIEWER MODAL */}
+      <Modal
+        visible={selectedImage !== null}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setSelectedImage(null)}
+      >
+        <View style={styles.imageViewerOverlay}>
+          <TouchableOpacity 
+            style={styles.imageViewerClose}
+            onPress={() => setSelectedImage(null)}
+          >
+            <Ionicons name="close" size={32} color={Colors.white} />
+          </TouchableOpacity>
+          {selectedImage && (
+            <Image 
+              source={{ uri: selectedImage }} 
+              style={styles.imageViewerImage}
+              resizeMode="contain"
+            />
+          )}
+        </View>
+      </Modal>
     </ScrollView>
+    </>
   );
 }
 
@@ -797,7 +838,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 20,
-    paddingTop: 60,
+    paddingTop: 20,
   },
   headerRow: {
     flexDirection: 'row',
@@ -806,7 +847,15 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     padding: 8,
+  },
+  backText: {
+    fontSize: 16,
+    color: Colors.text.primary,
+    fontWeight: '600',
   },
   adminEditButton: {
     flexDirection: 'row',
@@ -904,7 +953,7 @@ const styles = StyleSheet.create({
   tipsText: {
     fontSize: 15,
     lineHeight: 22,
-    color: Colors.text.primary,
+    color: Colors.text.inverse, // Use inverse (dark text) for light yellow background
   },
   sectionTitle: {
     fontSize: 18,
@@ -1036,5 +1085,24 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.text.secondary,
     textAlign: 'center',
+  },
+  imageViewerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageViewerClose: {
+    position: 'absolute',
+    top: 60,
+    right: 20,
+    zIndex: 10,
+    padding: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 20,
+  },
+  imageViewerImage: {
+    width: '100%',
+    height: '100%',
   },
 });
