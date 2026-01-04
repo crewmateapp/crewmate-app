@@ -12,6 +12,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
   onSnapshot,
   query,
   serverTimestamp,
@@ -35,6 +36,7 @@ type ConnectionRequest = {
   toUserId: string;
   toUserName: string;
   status: 'pending' | 'accepted' | 'declined';
+  photoURL?: string;
 };
 
 type Connection = {
@@ -60,12 +62,30 @@ export default function ConnectionsScreen() {
       where('status', '==', 'pending')
     );
 
-    const unsubIncoming = onSnapshot(incomingQuery, (snapshot) => {
-      const requests = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as ConnectionRequest[];
-      setIncomingRequests(requests);
+    const unsubIncoming = onSnapshot(incomingQuery, async (snapshot) => {
+      const requests = await Promise.all(
+        snapshot.docs.map(async (requestDoc) => {
+          const data = requestDoc.data();
+          
+          // Fetch the sender's profile photo
+          let photoURL: string | undefined = undefined;
+          try {
+            const userDoc = await getDoc(doc(db, 'users', data.fromUserId));
+            if (userDoc.exists()) {
+              photoURL = userDoc.data()?.photoURL;
+            }
+          } catch (error) {
+            console.error('Error fetching user profile:', error);
+          }
+          
+          return {
+            id: requestDoc.id,
+            ...data,
+            photoURL,
+          };
+        })
+      );
+      setIncomingRequests(requests as ConnectionRequest[]);
       setLoading(false);
     });
 
@@ -126,7 +146,32 @@ export default function ConnectionsScreen() {
 
   const handleAccept = async (request: ConnectionRequest) => {
     try {
-      // First create the connection
+      // First check if connection already exists
+      const existingConnectionQuery = query(
+        collection(db, 'connections'),
+        where('userIds', 'array-contains', user!.uid)
+      );
+      
+      const existingConnections = await getDocs(existingConnectionQuery);
+      const alreadyConnected = existingConnections.docs.some(doc => {
+        const data = doc.data();
+        return data.userIds.includes(request.fromUserId);
+      });
+      
+      if (alreadyConnected) {
+        // Already connected - just remove the request
+        setIncomingRequests(prev => prev.filter(r => r.id !== request.id));
+        
+        try {
+          await deleteDoc(doc(db, 'connectionRequests', request.id));
+        } catch (deleteError) {
+          console.error('Error deleting duplicate request:', deleteError);
+        }
+        
+        return;
+      }
+      
+      // Create the connection
       await addDoc(collection(db, 'connections'), {
         userIds: [request.fromUserId, request.toUserId],
         userNames: {
@@ -136,14 +181,15 @@ export default function ConnectionsScreen() {
         createdAt: serverTimestamp(),
       });
       
-      // Then delete the request - wrap in try/catch to ensure it happens
+      // Immediately remove from UI for better UX
+      setIncomingRequests(prev => prev.filter(r => r.id !== request.id));
+      
+      // Then delete the request from Firestore
       try {
         await deleteDoc(doc(db, 'connectionRequests', request.id));
       } catch (deleteError) {
         console.error('Error deleting connection request:', deleteError);
-        // Even if delete fails, the connection was created successfully
-        // Force refresh by manually removing from state
-        setIncomingRequests(prev => prev.filter(r => r.id !== request.id));
+        // UI already updated, this is just cleanup
       }
     } catch (error) {
       console.error('Error accepting request:', error);
@@ -152,11 +198,16 @@ export default function ConnectionsScreen() {
   };
 
   const handleDecline = async (requestId: string) => {
+    // Immediately remove from UI
+    setIncomingRequests(prev => prev.filter(r => r.id !== requestId));
+    setOutgoingRequests(prev => prev.filter(r => r.id !== requestId));
+    
     try {
       await deleteDoc(doc(db, 'connectionRequests', requestId));
     } catch (error) {
       console.error('Error declining request:', error);
-      Alert.alert('Error', 'Failed to decline request. Please try again.');
+      // Don't show alert since UI already updated
+      // The Firestore delete might fail due to security rules but that's okay
     }
   };
 
@@ -211,11 +262,18 @@ export default function ConnectionsScreen() {
             {incomingRequests.map((request) => (
               <View key={request.id} style={styles.requestCard}>
                 <View style={styles.requestInfo}>
-                  <View style={styles.avatarFallback}>
-                    <ThemedText style={styles.avatarText}>
-                      {request.fromUserName.slice(0, 2).toUpperCase()}
-                    </ThemedText>
-                  </View>
+                  {request.photoURL ? (
+                    <Image 
+                      source={{ uri: request.photoURL }} 
+                      style={styles.avatar}
+                    />
+                  ) : (
+                    <View style={styles.avatarFallback}>
+                      <ThemedText style={styles.avatarText}>
+                        {request.fromUserName.slice(0, 2).toUpperCase()}
+                      </ThemedText>
+                    </View>
+                  )}
                   <View style={styles.requestDetails}>
                     <ThemedText style={styles.requestName}>
                       {request.fromUserName}

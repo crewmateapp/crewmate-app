@@ -1,5 +1,9 @@
+// app/spot/[id].tsx
+import { ReviewList } from '@/components/ReviewList';
+import { ReviewStatsCard } from '@/components/ReviewStatsCard';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { WriteReviewModal } from '@/components/WriteReviewModal';
 import { db, storage } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
@@ -26,6 +30,7 @@ import {
   Alert,
   Image,
   Linking,
+  Modal,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
@@ -59,6 +64,35 @@ type Vote = {
   vote: number;
 };
 
+type Review = {
+  id: string;
+  spotId: string;
+  userId: string;
+  userName: string;
+  userPhoto: string | null;
+  userPosition: string | null;
+  rating: number;
+  reviewText: string;
+  photos: string[];
+  helpfulVotes: string[];
+  notHelpfulVotes: string[];
+  verified: boolean;
+  createdAt: any;
+  updatedAt: any;
+};
+
+type ReviewStats = {
+  totalReviews: number;
+  averageRating: number;
+  ratingBreakdown: {
+    5: number;
+    4: number;
+    3: number;
+    2: number;
+    1: number;
+  };
+};
+
 export default function SpotDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useAuth();
@@ -68,6 +102,13 @@ export default function SpotDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [hasLayover, setHasLayover] = useState(false);
+
+  // Review state
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [reviewStats, setReviewStats] = useState<ReviewStats | null>(null);
+  const [showWriteReview, setShowWriteReview] = useState(false);
+  const [showQuickRate, setShowQuickRate] = useState(false);
+  const [isVerified, setIsVerified] = useState(false);
 
   // Check if user is admin
   const isAdmin = user?.email && ADMIN_EMAILS.includes(user.email);
@@ -109,20 +150,65 @@ export default function SpotDetailScreen() {
     return () => unsubscribe();
   }, [id, user]);
 
-  // Check if user has a layover set
+  // Fetch reviews
   useEffect(() => {
-    if (!user) return;
+    if (!id) return;
+
+    const reviewsQuery = query(
+      collection(db, 'reviews'),
+      where('spotId', '==', id)
+    );
+
+    const unsubscribe = onSnapshot(reviewsQuery, (snapshot) => {
+      const fetchedReviews: Review[] = [];
+      snapshot.docs.forEach((reviewDoc) => {
+        fetchedReviews.push({
+          id: reviewDoc.id,
+          ...reviewDoc.data(),
+        } as Review);
+      });
+      setReviews(fetchedReviews);
+
+      // Calculate review stats
+      if (fetchedReviews.length > 0) {
+        const stats: ReviewStats = {
+          totalReviews: fetchedReviews.length,
+          averageRating: fetchedReviews.reduce((sum, r) => sum + r.rating, 0) / fetchedReviews.length,
+          ratingBreakdown: {
+            5: fetchedReviews.filter(r => r.rating === 5).length,
+            4: fetchedReviews.filter(r => r.rating === 4).length,
+            3: fetchedReviews.filter(r => r.rating === 3).length,
+            2: fetchedReviews.filter(r => r.rating === 2).length,
+            1: fetchedReviews.filter(r => r.rating === 1).length,
+          }
+        };
+        setReviewStats(stats);
+      } else {
+        setReviewStats(null);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [id]);
+
+  // Check if user has a layover set and if verified
+  useEffect(() => {
+    if (!user || !spot) return;
 
     const userDoc = doc(db, 'users', user.uid);
     const unsubscribe = onSnapshot(userDoc, (docSnap) => {
       if (docSnap.exists()) {
         const userData = docSnap.data();
         setHasLayover(!!userData.currentLayover);
+        
+        // Check if verified (has been in this city)
+        const layoverHistory = userData.layoverHistory || [];
+        setIsVerified(layoverHistory.includes(spot.city));
       }
     });
 
     return () => unsubscribe();
-  }, [user]);
+  }, [user, spot]);
 
   const handleVote = async (rating: number) => {
     if (!user || !id || !spot) return;
@@ -196,10 +282,103 @@ export default function SpotDetailScreen() {
         });
       }
 
+      setShowQuickRate(false);
       Alert.alert('Thanks!', 'Your rating has been saved.');
     } catch (error) {
       console.error('Error voting:', error);
       Alert.alert('Error', 'Failed to save rating.');
+    }
+  };
+
+  const handleWriteReview = async (rating: number, reviewText: string, reviewPhotos: string[]) => {
+    if (!user || !id || !spot) return;
+
+    try {
+      // Get user profile
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      const userData = userDoc.data();
+
+      // Check if user already reviewed this spot
+      const existingReviewQuery = query(
+        collection(db, 'reviews'),
+        where('spotId', '==', id),
+        where('userId', '==', user.uid)
+      );
+      const existingReviewSnapshot = await getDocs(existingReviewQuery);
+
+      if (!existingReviewSnapshot.empty) {
+        Alert.alert('Already Reviewed', 'You\'ve already reviewed this spot. Edit your existing review instead.');
+        return;
+      }
+
+      // Upload review photos if any
+      const uploadedPhotoURLs: string[] = [];
+      for (const photoUri of reviewPhotos) {
+        const response = await fetch(photoUri);
+        const blob = await response.blob();
+        const photoRef = ref(storage, `reviews/${id}/${user.uid}/${Date.now()}.jpg`);
+        await uploadBytes(photoRef, blob);
+        const downloadURL = await getDownloadURL(photoRef);
+        uploadedPhotoURLs.push(downloadURL);
+      }
+
+      // Create review
+      await addDoc(collection(db, 'reviews'), {
+        spotId: id,
+        userId: user.uid,
+        userName: userData?.displayName || 'Unknown',
+        userPhoto: userData?.photoURL || null,
+        userPosition: userData?.position || null,
+        rating: rating,
+        reviewText: reviewText.trim(),
+        photos: uploadedPhotoURLs,
+        helpfulVotes: [],
+        notHelpfulVotes: [],
+        verified: isVerified,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      // Create activity
+      await addDoc(collection(db, 'activities'), {
+        type: 'review_left',
+        userId: user.uid,
+        userName: userData?.displayName || 'Unknown',
+        userPhoto: userData?.photoURL || null,
+        spotId: id,
+        spotName: spot.name,
+        city: spot.city,
+        rating: rating,
+        createdAt: serverTimestamp(),
+      });
+
+      Alert.alert('Thanks!', 'Your review has been posted.');
+    } catch (error) {
+      console.error('Error posting review:', error);
+      Alert.alert('Error', 'Failed to post review. Please try again.');
+      throw error;
+    }
+  };
+
+  const handleHelpfulVote = async (reviewId: string, currentHelpfulVotes: string[]) => {
+    if (!user) return;
+
+    try {
+      const reviewDoc = doc(db, 'reviews', reviewId);
+      
+      if (currentHelpfulVotes.includes(user.uid)) {
+        // Remove vote
+        await updateDoc(reviewDoc, {
+          helpfulVotes: currentHelpfulVotes.filter(id => id !== user.uid),
+        });
+      } else {
+        // Add vote
+        await updateDoc(reviewDoc, {
+          helpfulVotes: [...currentHelpfulVotes, user.uid],
+        });
+      }
+    } catch (error) {
+      console.error('Error voting on review:', error);
     }
   };
 
@@ -471,34 +650,19 @@ export default function SpotDetailScreen() {
           </View>
         )}
 
-        <View style={styles.ratingCard}>
-          <ThemedText style={styles.sectionTitle}>Rating</ThemedText>
-          <View style={styles.ratingContainer}>
-            <ThemedText style={styles.averageRating}>
-              {averageRating > 0 ? averageRating.toFixed(1) : 'No ratings yet'}
-            </ThemedText>
-            {votes.length > 0 && (
-              <ThemedText style={styles.voteCount}>({votes.length} reviews)</ThemedText>
-            )}
-          </View>
+        {/* REVIEW STATS CARD */}
+        <ReviewStatsCard
+          stats={reviewStats}
+          quickVoteCount={votes.length}
+          quickVoteAverage={averageRating}
+          onWriteReview={() => setShowWriteReview(true)}
+          onQuickRate={() => setShowQuickRate(true)}
+        />
 
-          <ThemedText style={styles.ratePrompt}>Your Rating:</ThemedText>
-          <View style={styles.starsContainer}>
-            {[1, 2, 3, 4, 5].map((star) => (
-              <TouchableOpacity key={star} onPress={() => handleVote(star)}>
-                <Ionicons
-                  name={myVote && myVote >= star ? 'star' : 'star-outline'}
-                  size={40}
-                  color={myVote && myVote >= star ? Colors.accent : Colors.text.secondary}
-                />
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
+        {/* Photos Section */}
         {spotPhotos.length > 0 && (
           <View style={styles.photosSection}>
-            <ThemedText style={styles.sectionTitle}>Photos</ThemedText>
+            <ThemedText style={styles.sectionTitle}>📸 Photos</ThemedText>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               {spotPhotos.map((photoUrl, index) => (
                 <Image key={index} source={{ uri: photoUrl }} style={styles.photo} />
@@ -522,6 +686,7 @@ export default function SpotDetailScreen() {
           )}
         </TouchableOpacity>
 
+        {/* Details Card */}
         <View style={styles.infoCard}>
           <ThemedText style={styles.sectionTitle}>Details</ThemedText>
           {spot.address && (
@@ -550,6 +715,14 @@ export default function SpotDetailScreen() {
           )}
         </View>
 
+        {/* REVIEW LIST */}
+        <ReviewList
+          reviews={reviews}
+          currentUserId={user?.uid}
+          onHelpfulVote={handleHelpfulVote}
+        />
+
+        {/* Report Button */}
         <TouchableOpacity style={styles.reportButton} onPress={handleReport}>
           <Ionicons name="flag-outline" size={18} color={Colors.error} />
           <ThemedText style={styles.reportButtonText}>Report Issue</ThemedText>
@@ -561,6 +734,58 @@ export default function SpotDetailScreen() {
           </ThemedText>
         </View>
       </ThemedView>
+
+      {/* WRITE REVIEW MODAL */}
+      <WriteReviewModal
+        visible={showWriteReview}
+        onClose={() => setShowWriteReview(false)}
+        onSubmit={handleWriteReview}
+        spotName={spot.name}
+        isVerified={isVerified}
+      />
+
+      {/* QUICK RATE MODAL */}
+      <Modal
+        visible={showQuickRate}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setShowQuickRate(false)}
+      >
+        <View style={styles.quickRateOverlay}>
+          <View style={styles.quickRateModal}>
+            <View style={styles.quickRateHeader}>
+              <ThemedText style={styles.quickRateTitle}>Quick Rate</ThemedText>
+              <TouchableOpacity onPress={() => setShowQuickRate(false)}>
+                <Ionicons name="close" size={28} color={Colors.text.primary} />
+              </TouchableOpacity>
+            </View>
+            
+            <ThemedText style={styles.quickRateSpot}>{spot.name}</ThemedText>
+            
+            <View style={styles.quickRateStars}>
+              {[1, 2, 3, 4, 5].map((star) => (
+                <TouchableOpacity 
+                  key={star} 
+                  onPress={() => handleVote(star)}
+                  style={styles.quickRateStar}
+                >
+                  <Ionicons
+                    name={myVote && myVote >= star ? 'star' : 'star-outline'}
+                    size={56}
+                    color={myVote && myVote >= star ? Colors.accent : Colors.text.secondary}
+                  />
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {myVote !== null && (
+              <ThemedText style={styles.currentRating}>
+                Current: {myVote} {myVote === 1 ? 'star' : 'stars'}
+              </ThemedText>
+            )}
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -681,44 +906,11 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: Colors.text.primary,
   },
-  ratingCard: {
-    backgroundColor: Colors.card,
-    padding: 20,
-    borderRadius: 12,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '700',
     marginBottom: 12,
     color: Colors.text.primary,
-  },
-  ratingContainer: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 8,
-    marginBottom: 20,
-  },
-  averageRating: {
-    fontSize: 36,
-    fontWeight: 'bold',
-    color: Colors.accent,
-  },
-  voteCount: {
-    fontSize: 16,
-    color: Colors.text.secondary,
-  },
-  ratePrompt: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 12,
-    color: Colors.text.primary,
-  },
-  starsContainer: {
-    flexDirection: 'row',
-    gap: 8,
   },
   photosSection: {
     marginBottom: 20,
@@ -776,6 +968,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     paddingVertical: 12,
+    marginTop: 20,
     marginBottom: 20,
   },
   reportButtonText: {
@@ -798,5 +991,50 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 100,
     color: Colors.text.secondary,
+  },
+  quickRateOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  quickRateModal: {
+    backgroundColor: Colors.card,
+    borderRadius: 20,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+  },
+  quickRateHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  quickRateTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: Colors.text.primary,
+  },
+  quickRateSpot: {
+    fontSize: 18,
+    color: Colors.text.secondary,
+    marginBottom: 24,
+    textAlign: 'center',
+  },
+  quickRateStars: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 16,
+  },
+  quickRateStar: {
+    padding: 4,
+  },
+  currentRating: {
+    fontSize: 14,
+    color: Colors.text.secondary,
+    textAlign: 'center',
   },
 });

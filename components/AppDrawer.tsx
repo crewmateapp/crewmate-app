@@ -1,8 +1,8 @@
 // components/AppDrawer.tsx
 import { ThemedText } from '@/components/themed-text';
 import { db } from '@/config/firebase';
-import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
+import { useTheme } from '@/contexts/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { doc, getDoc } from 'firebase/firestore';
@@ -32,6 +32,7 @@ type UserProfile = {
 
 export default function AppDrawer({ visible, onClose }: AppDrawerProps) {
   const { user, signOut } = useAuth();
+  const { theme, setTheme, colors } = useTheme();
   const [profile, setProfile] = useState<UserProfile | null>(null);
 
   useEffect(() => {
@@ -58,6 +59,23 @@ export default function AppDrawer({ visible, onClose }: AppDrawerProps) {
     setTimeout(() => {
       router.push(path as any);
     }, 300);
+  };
+
+  const handleThemeChange = () => {
+    const nextTheme = theme === 'light' ? 'dark' : theme === 'dark' ? 'auto' : 'light';
+    setTheme(nextTheme);
+  };
+
+  const getThemeIcon = () => {
+    if (theme === 'light') return 'sunny';
+    if (theme === 'dark') return 'moon';
+    return 'phone-portrait'; // auto mode
+  };
+
+  const getThemeLabel = () => {
+    if (theme === 'light') return 'Light';
+    if (theme === 'dark') return 'Dark';
+    return 'Auto';
   };
 
   const handleSignOut = () => {
@@ -93,19 +111,19 @@ export default function AppDrawer({ visible, onClose }: AppDrawerProps) {
           onPress={onClose}
         />
         
-        <View style={styles.drawer}>
+        <View style={[styles.drawer, { backgroundColor: colors.card }]}>
           {/* Close Button */}
           <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-            <Ionicons name="close" size={32} color={Colors.text.primary} />
+            <Ionicons name="close" size={32} color={colors.text.primary} />
           </TouchableOpacity>
 
           <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
             {/* Profile Header */}
-            <View style={styles.profileSection}>
+            <View style={[styles.profileSection, { borderBottomColor: colors.border }]}>
               {profile?.photoURL ? (
                 <Image source={{ uri: profile.photoURL }} style={styles.avatar} />
               ) : (
-                <View style={styles.avatarFallback}>
+                <View style={[styles.avatarFallback, { backgroundColor: colors.primary }]}>
                   <ThemedText style={styles.avatarText}>
                     {profile?.firstName?.[0]}{profile?.lastInitial}
                   </ThemedText>
@@ -114,7 +132,7 @@ export default function AppDrawer({ visible, onClose }: AppDrawerProps) {
               <ThemedText style={styles.profileName}>
                 {profile?.displayName || 'Loading...'}
               </ThemedText>
-              <ThemedText style={styles.profileRole}>
+              <ThemedText style={[styles.profileRole, { color: colors.text.secondary }]}>
                 {profile?.position || 'Crew Member'}
               </ThemedText>
             </View>
@@ -125,7 +143,7 @@ export default function AppDrawer({ visible, onClose }: AppDrawerProps) {
                 style={styles.menuItem}
                 onPress={() => handleNavigation('/profile')}
               >
-                <Ionicons name="person-outline" size={24} color={Colors.text.primary} />
+                <Ionicons name="person-outline" size={24} color={colors.text.primary} />
                 <ThemedText style={styles.menuText}>Profile</ThemedText>
               </TouchableOpacity>
 
@@ -133,19 +151,31 @@ export default function AppDrawer({ visible, onClose }: AppDrawerProps) {
                 style={styles.menuItem}
                 onPress={() => handleNavigation('/explore')}
               >
-                <Ionicons name="compass-outline" size={24} color={Colors.text.primary} />
+                <Ionicons name="compass-outline" size={24} color={colors.text.primary} />
                 <ThemedText style={styles.menuText}>Explore Guide</ThemedText>
+              </TouchableOpacity>
+
+              {/* Theme Toggle */}
+              <TouchableOpacity 
+                style={styles.menuItem}
+                onPress={handleThemeChange}
+              >
+                <Ionicons name={getThemeIcon()} size={24} color={colors.text.primary} />
+                <ThemedText style={styles.menuText}>Theme</ThemedText>
+                <View style={[styles.themeBadge, { backgroundColor: colors.primary }]}>
+                  <ThemedText style={styles.themeBadgeText}>{getThemeLabel()}</ThemedText>
+                </View>
               </TouchableOpacity>
 
               <TouchableOpacity 
                 style={[styles.menuItem, styles.menuItemDisabled]}
                 onPress={() => Alert.alert('Coming Soon', 'Saved Places feature is coming soon!')}
               >
-                <Ionicons name="bookmark-outline" size={24} color={Colors.text.disabled} />
-                <ThemedText style={[styles.menuText, styles.menuTextDisabled]}>
+                <Ionicons name="bookmark-outline" size={24} color={colors.text.disabled} />
+                <ThemedText style={[styles.menuText, { color: colors.text.disabled }]}>
                   Saved Places
                 </ThemedText>
-                <View style={styles.comingSoonBadge}>
+                <View style={[styles.comingSoonBadge, { backgroundColor: colors.accent }]}>
                   <ThemedText style={styles.comingSoonText}>Soon</ThemedText>
                 </View>
               </TouchableOpacity>
@@ -154,11 +184,11 @@ export default function AppDrawer({ visible, onClose }: AppDrawerProps) {
                 style={[styles.menuItem, styles.menuItemDisabled]}
                 onPress={() => Alert.alert('Coming Soon', 'Settings feature is coming soon!')}
               >
-                <Ionicons name="settings-outline" size={24} color={Colors.text.disabled} />
-                <ThemedText style={[styles.menuText, styles.menuTextDisabled]}>
+                <Ionicons name="settings-outline" size={24} color={colors.text.disabled} />
+                <ThemedText style={[styles.menuText, { color: colors.text.disabled }]}>
                   Settings
                 </ThemedText>
-                <View style={styles.comingSoonBadge}>
+                <View style={[styles.comingSoonBadge, { backgroundColor: colors.accent }]}>
                   <ThemedText style={styles.comingSoonText}>Soon</ThemedText>
                 </View>
               </TouchableOpacity>
@@ -167,11 +197,11 @@ export default function AppDrawer({ visible, onClose }: AppDrawerProps) {
                 style={[styles.menuItem, styles.menuItemDisabled]}
                 onPress={() => Alert.alert('Coming Soon', 'Help & Support feature is coming soon!')}
               >
-                <Ionicons name="help-circle-outline" size={24} color={Colors.text.disabled} />
-                <ThemedText style={[styles.menuText, styles.menuTextDisabled]}>
+                <Ionicons name="help-circle-outline" size={24} color={colors.text.disabled} />
+                <ThemedText style={[styles.menuText, { color: colors.text.disabled }]}>
                   Help & Support
                 </ThemedText>
-                <View style={styles.comingSoonBadge}>
+                <View style={[styles.comingSoonBadge, { backgroundColor: colors.accent }]}>
                   <ThemedText style={styles.comingSoonText}>Soon</ThemedText>
                 </View>
               </TouchableOpacity>
@@ -179,11 +209,11 @@ export default function AppDrawer({ visible, onClose }: AppDrawerProps) {
 
             {/* Sign Out Button */}
             <TouchableOpacity 
-              style={styles.signOutButton}
+              style={[styles.signOutButton, { borderTopColor: colors.border }]}
               onPress={handleSignOut}
             >
-              <Ionicons name="log-out-outline" size={24} color={Colors.error} />
-              <ThemedText style={styles.signOutText}>Sign Out</ThemedText>
+              <Ionicons name="log-out-outline" size={24} color={colors.error} />
+              <ThemedText style={[styles.signOutText, { color: colors.error }]}>Sign Out</ThemedText>
             </TouchableOpacity>
           </ScrollView>
         </View>
@@ -207,7 +237,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: '80%',
     maxWidth: 320,
-    backgroundColor: Colors.white,
     borderTopRightRadius: 20,
     borderBottomRightRadius: 20,
   },
@@ -226,7 +255,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 30,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
   },
   avatar: {
     width: 80,
@@ -238,7 +266,6 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: Colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 12,
@@ -246,17 +273,15 @@ const styles = StyleSheet.create({
   avatarText: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: Colors.white,
+    color: '#FFFFFF',
   },
   profileName: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: Colors.text.primary,
     marginBottom: 4,
   },
   profileRole: {
     fontSize: 14,
-    color: Colors.text.secondary,
   },
   menuSection: {
     paddingTop: 20,
@@ -273,14 +298,19 @@ const styles = StyleSheet.create({
   },
   menuText: {
     fontSize: 16,
-    color: Colors.text.primary,
     flex: 1,
   },
-  menuTextDisabled: {
-    color: Colors.text.disabled,
+  themeBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  themeBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
   comingSoonBadge: {
-    backgroundColor: Colors.accent,
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 8,
@@ -288,7 +318,6 @@ const styles = StyleSheet.create({
   comingSoonText: {
     fontSize: 10,
     fontWeight: '600',
-    color: Colors.text.primary,
   },
   signOutButton: {
     flexDirection: 'row',
@@ -299,11 +328,9 @@ const styles = StyleSheet.create({
     marginTop: 20,
     marginBottom: 40,
     borderTopWidth: 1,
-    borderTopColor: Colors.border,
   },
   signOutText: {
     fontSize: 16,
-    color: Colors.error,
     fontWeight: '600',
   },
 });

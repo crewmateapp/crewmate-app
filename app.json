@@ -12,7 +12,9 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.crewmateapp.CrewMateApp",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSLocationWhenInUseUsageDescription": "CrewMate needs your location to verify you're in your layover city and connect you with nearby crew.",
+        "NSLocationAlwaysUsageDescription": "CrewMate uses your location to connect you with nearby crew members during your layovers."
       }
     },
     "android": {
@@ -24,7 +26,11 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.crewmateapp.CrewMateApp"
+      "package": "com.crewmateapp.CrewMateApp",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "output": "static",
@@ -44,7 +50,13 @@
           }
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "CrewMate needs your location to verify you're in your layover city and connect you with nearby crew."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

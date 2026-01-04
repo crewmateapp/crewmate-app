@@ -33,6 +33,7 @@ type CrewMember = {
     city: string;
     area: string;
     discoverable: boolean;
+    isLive: boolean;
   } | null;
 };
 
@@ -66,19 +67,21 @@ export default function CrewScreen() {
     let q;
 
     if (filter === 'live') {
-      // Same area + discoverable
+      // Same area + discoverable + live
       q = query(
         collection(db, 'users'),
         where('currentLayover.city', '==', myLayover.city),
         where('currentLayover.area', '==', myLayover.area),
-        where('currentLayover.discoverable', '==', true)
+        where('currentLayover.discoverable', '==', true),
+        where('currentLayover.isLive', '==', true)
       );
     } else {
-      // Same city + discoverable (nearby)
+      // Same city + discoverable + live (nearby)
       q = query(
         collection(db, 'users'),
         where('currentLayover.city', '==', myLayover.city),
-        where('currentLayover.discoverable', '==', true)
+        where('currentLayover.discoverable', '==', true),
+        where('currentLayover.isLive', '==', true)
       );
     }
 
@@ -112,6 +115,43 @@ export default function CrewScreen() {
     );
   }
 
+  // Check if user is live before showing crew
+  if (myLayover && !myLayover.isLive) {
+    return (
+      <ThemedView style={styles.container}>
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity 
+            style={styles.backButton}
+            onPress={() => router.back()}
+          >
+            <Ionicons name="arrow-back" size={24} color={Colors.primary} />
+            <ThemedText style={styles.backText}>Back</ThemedText>
+          </TouchableOpacity>
+          <ThemedText style={styles.headerTitle}>
+            {filter === 'live' ? 'Live Crew' : 'Crew Nearby'}
+          </ThemedText>
+          <View style={styles.placeholder} />
+        </View>
+
+        <View style={styles.verifyContainer}>
+          <Ionicons name="location-outline" size={80} color={Colors.warning} />
+          <ThemedText style={styles.verifyTitle}>Verify Your Location</ThemedText>
+          <ThemedText style={styles.verifyText}>
+            Go live from your layover page to see and connect with crew nearby.
+          </ThemedText>
+          <TouchableOpacity 
+            style={styles.goBackButton}
+            onPress={() => router.back()}
+          >
+            <Ionicons name="arrow-back" size={20} color={Colors.white} />
+            <ThemedText style={styles.goBackText}>Back to My Layover</ThemedText>
+          </TouchableOpacity>
+        </View>
+      </ThemedView>
+    );
+  }
+
   return (
     <ThemedView style={styles.container}>
       {/* Header */}
@@ -124,7 +164,7 @@ export default function CrewScreen() {
           <ThemedText style={styles.backText}>Back</ThemedText>
         </TouchableOpacity>
         <ThemedText style={styles.headerTitle}>
-          {filter === 'live' ? 'Live Crew' : 'Crew Nearby'}
+          {filter === 'live' ? 'In Your Area' : `Crew in ${myLayover?.city}`}
         </ThemedText>
         <View style={styles.placeholder} />
       </View>
@@ -154,15 +194,15 @@ export default function CrewScreen() {
             </ThemedText>
             <ThemedText style={styles.emptyHint}>
               {filter === 'live' 
-                ? `No other crew in ${myLayover.area} right now. Check back later!`
-                : `No other crew in ${myLayover.city} at the moment. Be the first!`
+                ? `No other crew live in ${myLayover.area} right now. Check back later!`
+                : `No other crew live in ${myLayover.city} at the moment. Be the first!`
               }
             </ThemedText>
           </View>
         ) : (
           <View style={styles.crewList}>
             <ThemedText style={styles.listTitle}>
-              {crew.length} {crew.length === 1 ? 'crew member' : 'crew members'} {filter === 'live' ? 'live' : 'nearby'}
+              {crew.length} {crew.length === 1 ? 'crew member' : 'crew members'} {filter === 'live' ? 'in your area' : 'in your city'}
             </ThemedText>
 
             {crew.map((member) => (
@@ -193,9 +233,9 @@ export default function CrewScreen() {
 
                     {member.currentLayover && (
                       <View style={styles.locationRow}>
-                        <Ionicons name="location" size={14} color={Colors.text.secondary} />
+                        <Ionicons name="location" size={14} color={Colors.success} />
                         <ThemedText style={styles.crewLocation}>
-                          {member.currentLayover.area}
+                          Live in {member.currentLayover.area}
                         </ThemedText>
                       </View>
                     )}
@@ -247,6 +287,41 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 20,
+  },
+  verifyContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 40,
+  },
+  verifyTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: Colors.text.primary,
+    marginTop: 20,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  verifyText: {
+    fontSize: 16,
+    color: Colors.text.secondary,
+    textAlign: 'center',
+    lineHeight: 24,
+    marginBottom: 30,
+  },
+  goBackButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  goBackText: {
+    color: Colors.white,
+    fontSize: 16,
+    fontWeight: '600',
   },
   emptyState: {
     alignItems: 'center',
@@ -330,6 +405,7 @@ const styles = StyleSheet.create({
   },
   crewLocation: {
     fontSize: 13,
-    color: Colors.text.secondary,
+    color: Colors.success,
+    fontWeight: '500',
   },
 });
