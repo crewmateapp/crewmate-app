@@ -5,7 +5,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import {
   FlatList,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
+  Pressable,
   StyleSheet,
   TextInput,
   TouchableOpacity,
@@ -38,79 +41,92 @@ export function SpotSelector({ visible, spots, onClose, onSelect }: SpotSelector
     onClose();
   };
 
+  const handleClose = () => {
+    setSearchQuery('');
+    onClose();
+  };
+
   return (
     <Modal
       visible={visible}
       animationType="slide"
       transparent={true}
-      onRequestClose={onClose}
+      onRequestClose={handleClose}
     >
-      <View style={styles.overlay}>
-        <View style={styles.modal}>
-          {/* Header */}
-          <View style={styles.header}>
-            <ThemedText style={styles.title}>Select Spot</ThemedText>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-              <Ionicons name="close" size={28} color={Colors.text.primary} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Search Bar */}
-          <View style={styles.searchContainer}>
-            <Ionicons name="search" size={20} color={Colors.text.secondary} />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search spots..."
-              placeholderTextColor={Colors.text.disabled}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              autoFocus
-            />
-            {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => setSearchQuery('')}>
-                <Ionicons name="close-circle" size={20} color={Colors.text.secondary} />
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.container}
+      >
+        <Pressable style={styles.overlay} onPress={handleClose}>
+          <Pressable style={styles.modal} onPress={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <View style={styles.header}>
+              <ThemedText style={styles.title}>Select Spot</ThemedText>
+              <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
+                <Ionicons name="close" size={28} color={Colors.text.primary} />
               </TouchableOpacity>
-            )}
-          </View>
+            </View>
 
-          {/* Spot List */}
-          <FlatList
-            data={filteredSpots}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={styles.spotItem}
-                onPress={() => handleSelect(item.id, item.name)}
-              >
-                <View style={styles.spotIcon}>
-                  <Ionicons name="location" size={20} color={Colors.primary} />
-                </View>
-                <ThemedText style={styles.spotName}>{item.name}</ThemedText>
-                <Ionicons name="chevron-forward" size={20} color={Colors.text.secondary} />
-              </TouchableOpacity>
-            )}
-            ListEmptyComponent={
-              <View style={styles.emptyState}>
-                <Ionicons name="search-outline" size={48} color={Colors.text.secondary} />
-                <ThemedText style={styles.emptyText}>
-                  {spots.length === 0 ? 'No spots in this city yet' : 'No spots found'}
-                </ThemedText>
-                {spots.length === 0 && (
-                  <ThemedText style={styles.emptyHint}>
-                    Add a spot first, then create your plan
+            {/* Search Bar */}
+            <View style={styles.searchContainer}>
+              <Ionicons name="search" size={20} color={Colors.text.secondary} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search spots..."
+                placeholderTextColor={Colors.text.disabled}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setSearchQuery('')}>
+                  <Ionicons name="close-circle" size={20} color={Colors.text.secondary} />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Spot List */}
+            <FlatList
+              data={filteredSpots}
+              keyExtractor={(item) => item.id}
+              keyboardShouldPersistTaps="handled"
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.spotItem}
+                  onPress={() => handleSelect(item.id, item.name)}
+                >
+                  <View style={styles.spotIcon}>
+                    <Ionicons name="location" size={20} color={Colors.primary} />
+                  </View>
+                  <ThemedText style={styles.spotName}>{item.name}</ThemedText>
+                  <Ionicons name="chevron-forward" size={20} color={Colors.text.secondary} />
+                </TouchableOpacity>
+              )}
+              ListEmptyComponent={
+                <View style={styles.emptyState}>
+                  <Ionicons name="search-outline" size={48} color={Colors.text.secondary} />
+                  <ThemedText style={styles.emptyText}>
+                    {spots.length === 0 ? 'No spots in this city yet' : 'No spots found'}
                   </ThemedText>
-                )}
-              </View>
-            }
-            showsVerticalScrollIndicator={false}
-          />
-        </View>
-      </View>
+                  {spots.length === 0 && (
+                    <ThemedText style={styles.emptyHint}>
+                      Add a spot first, then create your plan
+                    </ThemedText>
+                  )}
+                </View>
+              }
+              showsVerticalScrollIndicator={false}
+            />
+          </Pressable>
+        </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',

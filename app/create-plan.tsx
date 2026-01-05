@@ -1,4 +1,6 @@
 // app/create-plan.tsx
+import AppHeader from '@/components/AppHeader';
+import AppDrawer from '@/components/AppDrawer';
 import { DateTimePicker } from '@/components/DateTimePicker';
 import { SpotSelector } from '@/components/SpotSelector';
 import { ThemedText } from '@/components/themed-text';
@@ -27,6 +29,7 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
   ScrollView,
   StyleSheet,
@@ -65,6 +68,7 @@ export default function CreatePlanScreen() {
   const [description, setDescription] = useState('');
   const [visibility, setVisibility] = useState<'public' | 'connections' | 'invite_only'>('public');
   const [showSpotSelector, setShowSpotSelector] = useState(false);
+  const [drawerVisible, setDrawerVisible] = useState(false);
 
   // Pre-fill spot if coming from spot detail page
   useEffect(() => {
@@ -257,11 +261,21 @@ export default function CreatePlanScreen() {
   }
 
   return (
-    <KeyboardAvoidingView 
-      style={{ flex: 1 }} 
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <ThemedView style={styles.container}>
+    <>
+      <AppDrawer 
+        visible={drawerVisible}
+        onClose={() => setDrawerVisible(false)}
+      />
+      
+      <AppHeader 
+        onMenuPress={() => setDrawerVisible(true)}
+      />
+      
+      <KeyboardAvoidingView 
+        style={{ flex: 1 }} 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <ThemedView style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity 
@@ -286,7 +300,10 @@ export default function CreatePlanScreen() {
             <ThemedText style={styles.label}>Select Spot *</ThemedText>
             <TouchableOpacity 
               style={styles.selectorButton}
-              onPress={() => setShowSpotSelector(true)}
+              onPress={() => {
+                Keyboard.dismiss();
+                setShowSpotSelector(true);
+              }}
             >
               <ThemedText style={selectedSpotId ? styles.selectorTextSelected : styles.selectorTextPlaceholder}>
                 {selectedSpotName || 'Choose a spot...'}
@@ -499,6 +516,7 @@ export default function CreatePlanScreen() {
         />
       </ThemedView>
     </KeyboardAvoidingView>
+    </>
   );
 }
 
@@ -511,7 +529,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 60,
+    paddingTop: 20, // Reduced from 60 since AppHeader provides spacing
     paddingBottom: 20,
   },
   backButton: {

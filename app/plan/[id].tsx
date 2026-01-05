@@ -1,4 +1,6 @@
 // app/plan/[id].tsx
+import AppDrawer from '@/components/AppDrawer';
+import AppHeader from '@/components/AppHeader';
 import { PlanChat } from '@/components/PlanChat';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -9,7 +11,6 @@ import { Plan, PlanAttendee } from '@/types/plan';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
-  addDoc,
   arrayRemove,
   arrayUnion,
   collection,
@@ -43,6 +44,7 @@ export default function PlanDetailScreen() {
   const [attendees, setAttendees] = useState<PlanAttendee[]>([]);
   const [isAttending, setIsAttending] = useState(false);
   const [isHost, setIsHost] = useState(false);
+  const [drawerVisible, setDrawerVisible] = useState(false);
 
   // Fetch plan details
   useEffect(() => {
@@ -194,12 +196,22 @@ export default function PlanDetailScreen() {
   }
 
   return (
-    <KeyboardAvoidingView 
-      style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={0}
-    >
-      <ThemedView style={styles.container}>
+    <>
+      <AppDrawer 
+        visible={drawerVisible}
+        onClose={() => setDrawerVisible(false)}
+      />
+      
+      <AppHeader 
+        onMenuPress={() => setDrawerVisible(true)}
+      />
+      
+      <KeyboardAvoidingView 
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={0}
+      >
+        <ThemedView style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity 
@@ -218,6 +230,17 @@ export default function PlanDetailScreen() {
                 onPress={handleSharePlan}
               >
                 <Ionicons name="qr-code" size={20} color={Colors.primary} />
+              </TouchableOpacity>
+            )}
+            
+            {/* Edit Button - Host only */}
+            {isHost && (
+              <TouchableOpacity 
+                style={styles.editButton}
+                onPress={() => router.push({ pathname: '/edit-plan', params: { id } })}
+              >
+                <Ionicons name="pencil" size={18} color={Colors.white} />
+                <ThemedText style={styles.editButtonText}>Edit</ThemedText>
               </TouchableOpacity>
             )}
             
@@ -399,6 +422,7 @@ export default function PlanDetailScreen() {
         )}
       </ThemedView>
     </KeyboardAvoidingView>
+    </>
   );
 }
 
@@ -411,7 +435,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 60,
+    paddingTop: 20,
     paddingBottom: 20,
   },
   backButton: {
@@ -437,6 +461,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: Colors.border,
+  },
+  editButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: Colors.primary,
+  },
+  editButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.white,
   },
   cancelButton: {
     paddingHorizontal: 12,

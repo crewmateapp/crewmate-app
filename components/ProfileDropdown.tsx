@@ -44,6 +44,11 @@ export default function ProfileDropdown({
     router.push('/(tabs)/connections');
   };
 
+  const navigateToPlans = () => {
+    setVisible(false);
+    router.push('/plans');
+  };
+
   return (
     <>
       {/* Profile Photo Button */}
@@ -124,6 +129,14 @@ export default function ProfileDropdown({
                       </ThemedText>
                     </View>
                   )}
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  style={styles.menuItem}
+                  onPress={navigateToPlans}
+                >
+                  <Ionicons name="calendar" size={20} color={Colors.text.primary} />
+                  <ThemedText style={styles.menuItemText}>My Plans</ThemedText>
                 </TouchableOpacity>
               </View>
             </Pressable>

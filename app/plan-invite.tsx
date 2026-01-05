@@ -92,7 +92,7 @@ export default function PlanInviteScreen() {
     
     try {
       await Share.share({
-        message: `Join my plan "${plan.title}" on CrewMate! https://crewmate.app/plan-invite/${planId}`,
+        message: `Join my plan "${plan.title}" on CrewMate! Scan the QR code in the app to join.`,
         title: `Join ${plan.title}`,
       });
     } catch (error) {

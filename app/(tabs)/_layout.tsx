@@ -15,7 +15,8 @@ export default function TabLayout() {
   const colorScheme = useColorScheme();
   const { user } = useAuth();
   const [drawerVisible, setDrawerVisible] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const [connectionRequestCount, setConnectionRequestCount] = useState(0);
+  const [planNotificationCount, setPlanNotificationCount] = useState(0);
 
   // Listen for incoming connection requests
   useEffect(() => {
@@ -28,11 +29,31 @@ export default function TabLayout() {
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      setUnreadCount(snapshot.size);
+      setConnectionRequestCount(snapshot.size);
     });
 
     return () => unsubscribe();
   }, [user]);
+
+  // Listen for unread plan notifications
+  useEffect(() => {
+    if (!user) return;
+
+    const q = query(
+      collection(db, 'planNotifications'),
+      where('userId', '==', user.uid),
+      where('read', '==', false)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setPlanNotificationCount(snapshot.size);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // Combine all notification counts
+  const totalUnreadCount = connectionRequestCount + planNotificationCount;
 
   return (
     <>
@@ -48,7 +69,7 @@ export default function TabLayout() {
           header: () => (
             <AppHeader
               onMenuPress={() => setDrawerVisible(true)}
-              unreadCount={unreadCount}
+              unreadCount={totalUnreadCount}
             />
           ),
           tabBarButton: HapticTab,
