@@ -455,7 +455,7 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    paddingTop: 80,
+    paddingTop: 10,
     paddingBottom: 40,
   },
   topSection: {

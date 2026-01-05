@@ -398,7 +398,10 @@ export default function ConnectionsScreen() {
 }
 
 const styles = StyleSheet.create({
-  scrollContainer: { flex: 1 },
+  scrollContainer: { 
+    flex: 1,
+    backgroundColor: Colors.background, // Fix black background
+  },
   container: { 
     flex: 1, 
     padding: 20,
