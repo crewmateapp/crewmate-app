@@ -1,3 +1,5 @@
+import AppDrawer from '@/components/AppDrawer';
+import AppHeader from '@/components/AppHeader';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { db } from '@/config/firebase';
@@ -6,25 +8,27 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import {
-    addDoc,
-    collection,
-    deleteDoc,
-    doc,
-    getDoc,
-    onSnapshot,
-    query,
-    serverTimestamp,
-    where,
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  onSnapshot,
+  query,
+  serverTimestamp,
+  where,
 } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    StyleSheet,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActionSheetIOS,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Platform,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
 type Friend = {
@@ -43,6 +47,7 @@ export default function FriendsScreen() {
   const [filteredFriends, setFilteredFriends] = useState<Friend[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [drawerVisible, setDrawerVisible] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -164,42 +169,85 @@ export default function FriendsScreen() {
     );
   };
 
+  // FIXED: Use ActionSheetIOS on iOS which dismisses on tap outside
   const showFriendOptions = (friend: Friend) => {
-    Alert.alert(
-      friend.displayName,
-      'Choose an action',
-      [
+    if (Platform.OS === 'ios') {
+      // iOS: Use ActionSheetIOS which automatically dismisses when tapping outside
+      ActionSheetIOS.showActionSheetWithOptions(
         {
-          text: 'View Profile',
-          onPress: () => {
-            router.push({
-              pathname: '/profile/friend/[userId]',
-              params: { userId: friend.userId }
-            });
+          title: friend.displayName,
+          options: [
+            'View Profile',
+            'Message',
+            'Remove Connection',
+            'Block User',
+            'Cancel',
+          ],
+          destructiveButtonIndex: [2, 3], // Red color for Remove and Block
+          cancelButtonIndex: 4, // Cancel button
+        },
+        (buttonIndex) => {
+          switch (buttonIndex) {
+            case 0: // View Profile
+              router.push({
+                pathname: '/profile/friend/[userId]',
+                params: { userId: friend.userId }
+              });
+              break;
+            case 1: // Message
+              router.push({
+                pathname: '/chat/[id]',
+                params: { id: friend.connectionDocId, name: friend.displayName }
+              });
+              break;
+            case 2: // Remove Connection
+              handleRemoveFriend(friend);
+              break;
+            case 3: // Block User
+              handleBlockUser(friend);
+              break;
+            // case 4 is Cancel - does nothing
           }
-        },
-        {
-          text: 'Message',
-          onPress: () => {
-            router.push({
-              pathname: '/chat/[id]',
-              params: { id: friend.connectionDocId, name: friend.displayName }
-            });
-          }
-        },
-        {
-          text: 'Remove Connection',
-          style: 'destructive',
-          onPress: () => handleRemoveFriend(friend),
-        },
-        {
-          text: 'Block User',
-          style: 'destructive',
-          onPress: () => handleBlockUser(friend),
-        },
-        { text: 'Cancel', style: 'cancel' },
-      ]
-    );
+        }
+      );
+    } else {
+      // Android: Use Alert (doesn't support tap outside dismiss on Android)
+      Alert.alert(
+        friend.displayName,
+        'Choose an action',
+        [
+          {
+            text: 'View Profile',
+            onPress: () => {
+              router.push({
+                pathname: '/profile/friend/[userId]',
+                params: { userId: friend.userId }
+              });
+            }
+          },
+          {
+            text: 'Message',
+            onPress: () => {
+              router.push({
+                pathname: '/chat/[id]',
+                params: { id: friend.connectionDocId, name: friend.displayName }
+              });
+            }
+          },
+          {
+            text: 'Remove Connection',
+            style: 'destructive',
+            onPress: () => handleRemoveFriend(friend),
+          },
+          {
+            text: 'Block User',
+            style: 'destructive',
+            onPress: () => handleBlockUser(friend),
+          },
+          { text: 'Cancel', style: 'cancel' },
+        ]
+      );
+    }
   };
 
   const renderFriend = ({ item }: { item: Friend }) => (
@@ -234,7 +282,18 @@ export default function FriendsScreen() {
   }
 
   return (
-    <ThemedView style={styles.container}>
+    <>
+      <AppDrawer 
+        visible={drawerVisible}
+        onClose={() => setDrawerVisible(false)}
+      />
+      
+      <AppHeader 
+        onMenuPress={() => setDrawerVisible(true)}
+        onConnectionsPress={() => router.push('/(tabs)/connections')}
+      />
+      
+      <ThemedView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
@@ -286,13 +345,14 @@ export default function FriendsScreen() {
         </View>
       )}
     </ThemedView>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 60,
+    paddingTop: 20, // Reduced since AppHeader provides spacing
   },
   header: {
     flexDirection: 'row',
@@ -305,7 +365,7 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   title: {
-    fontSize: 28,
+    fontSize: 20,
     fontWeight: '700',
     flex: 1,
   },

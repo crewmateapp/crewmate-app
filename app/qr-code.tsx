@@ -21,7 +21,7 @@ import {
   updateDoc,
   where
 } from 'firebase/firestore';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -63,6 +63,10 @@ export default function QRCodeModal() {
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [processing, setProcessing] = useState(false);
+  
+  // DEBOUNCE FIX: Use ref to track last scan time
+  const lastScanRef = useRef<number>(0);
+  const SCAN_COOLDOWN = 3000; // 3 seconds between scans
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -86,7 +90,7 @@ export default function QRCodeModal() {
   const handleShare = async () => {
     try {
       await Share.share({
-        message: `Connect with me on CrewMate! https://crewmate.app/connect/${user?.uid}`,
+        message: `Connect with me on CrewMate! My user ID: ${user?.uid}`,
         title: 'Connect on CrewMate',
       });
     } catch (error) {
@@ -113,8 +117,7 @@ export default function QRCodeModal() {
       const planDoc = await getDoc(doc(db, 'plans', planId));
       if (!planDoc.exists()) {
         Alert.alert('Error', 'Plan not found. It may have been cancelled.');
-        setScanned(false);
-        setProcessing(false);
+        resetScanner();
         return;
       }
 
@@ -129,18 +132,14 @@ export default function QRCodeModal() {
             {
               text: 'View Plan',
               onPress: () => {
-                setScanned(false);
-                setProcessing(false);
+                resetScanner();
                 router.back();
                 router.push({ pathname: '/plan/[id]', params: { id: planId } });
               }
             },
             {
               text: 'OK',
-              onPress: () => {
-                setScanned(false);
-                setProcessing(false);
-              }
+              onPress: () => resetScanner()
             }
           ]
         );
@@ -153,8 +152,7 @@ export default function QRCodeModal() {
       if (isConnectedToHost) {
         // Connected - just join the plan
         await joinPlan(planId, plan.title);
-        setScanned(false);
-        setProcessing(false);
+        resetScanner();
       } else {
         // Not connected - ask to connect first
         Alert.alert(
@@ -164,10 +162,7 @@ export default function QRCodeModal() {
             {
               text: 'Cancel',
               style: 'cancel',
-              onPress: () => {
-                setScanned(false);
-                setProcessing(false);
-              }
+              onPress: () => resetScanner()
             },
             {
               text: 'Connect & Join',
@@ -176,8 +171,7 @@ export default function QRCodeModal() {
                 await sendConnectionRequest(plan.hostUserId, plan.hostName, planId);
                 // Join the plan
                 await joinPlan(planId, plan.title);
-                setScanned(false);
-                setProcessing(false);
+                resetScanner();
               }
             }
           ]
@@ -186,8 +180,7 @@ export default function QRCodeModal() {
     } catch (error) {
       console.error('Error handling plan QR:', error);
       Alert.alert('Error', 'Failed to join plan. Please try again.');
-      setScanned(false);
-      setProcessing(false);
+      resetScanner();
     }
   };
 
@@ -249,7 +242,8 @@ export default function QRCodeModal() {
               router.back();
               router.push({ pathname: '/plan/[id]', params: { id: planId } });
             }
-          }
+          },
+          { text: 'OK' }
         ]
       );
     } catch (error) {
@@ -264,22 +258,18 @@ export default function QRCodeModal() {
 
     // Check if scanning yourself
     if (scannedUserId === user.uid) {
-      Alert.alert('Oops!', "You can't connect with yourself! 😄");
-      setTimeout(() => {
-        setScanned(false);
-        setProcessing(false);
-      }, 2000);
+      Alert.alert('Oops!', "You can't connect with yourself! 😄", [
+        { text: 'OK', onPress: () => resetScanner() }
+      ]);
       return;
     }
 
     // Get scanned user's profile
     const scannedUserDoc = await getDoc(doc(db, 'users', scannedUserId));
     if (!scannedUserDoc.exists()) {
-      Alert.alert('Error', 'User not found. They may have deleted their account.');
-      setTimeout(() => {
-        setScanned(false);
-        setProcessing(false);
-      }, 2000);
+      Alert.alert('Error', 'User not found. They may have deleted their account.', [
+        { text: 'OK', onPress: () => resetScanner() }
+      ]);
       return;
     }
 
@@ -291,12 +281,9 @@ export default function QRCodeModal() {
     if (isConnected) {
       Alert.alert(
         'Already Connected!',
-        `You're already connected with ${scannedUserData.displayName}. Check your Connections tab to chat!`
+        `You're already connected with ${scannedUserData.displayName}. Check your Connections tab to chat!`,
+        [{ text: 'OK', onPress: () => resetScanner() }]
       );
-      setTimeout(() => {
-        setScanned(false);
-        setProcessing(false);
-      }, 2000);
       return;
     }
 
@@ -312,12 +299,9 @@ export default function QRCodeModal() {
     if (!requestsSnapshot.empty) {
       Alert.alert(
         'Request Already Sent',
-        `You already sent a connection request to ${scannedUserData.displayName}. They'll see it in their Connections tab!`
+        `You already sent a connection request to ${scannedUserData.displayName}. They'll see it in their Connections tab!`,
+        [{ text: 'OK', onPress: () => resetScanner() }]
       );
-      setTimeout(() => {
-        setScanned(false);
-        setProcessing(false);
-      }, 2000);
       return;
     }
 
@@ -333,12 +317,9 @@ export default function QRCodeModal() {
     if (!reverseRequestSnapshot.empty) {
       Alert.alert(
         'They Already Sent You a Request!',
-        `${scannedUserData.displayName} already sent you a connection request. Check your Connections tab to accept it!`
+        `${scannedUserData.displayName} already sent you a connection request. Check your Connections tab to accept it!`,
+        [{ text: 'OK', onPress: () => resetScanner() }]
       );
-      setTimeout(() => {
-        setScanned(false);
-        setProcessing(false);
-      }, 2000);
       return;
     }
 
@@ -359,8 +340,7 @@ export default function QRCodeModal() {
         {
           text: 'Done',
           onPress: () => {
-            setScanned(false);
-            setProcessing(false);
+            resetScanner();
             router.back();
           }
         }
@@ -368,9 +348,30 @@ export default function QRCodeModal() {
     );
   };
 
+  // DEBOUNCE FIX: Reset scanner state
+  const resetScanner = () => {
+    setScanned(false);
+    setProcessing(false);
+  };
+
+  // DEBOUNCE FIX: Enhanced handleBarCodeScanned with cooldown
   const handleBarCodeScanned = async ({ data }: { data: string }) => {
-    if (scanned || processing) return;
+    const now = Date.now();
     
+    // Check if we're in cooldown period
+    if (now - lastScanRef.current < SCAN_COOLDOWN) {
+      console.log('Scan ignored - cooldown active');
+      return;
+    }
+    
+    // Check if already processing
+    if (scanned || processing) {
+      console.log('Scan ignored - already processing');
+      return;
+    }
+    
+    // Update last scan time and set states
+    lastScanRef.current = now;
     setScanned(true);
     setProcessing(true);
 
@@ -385,9 +386,9 @@ export default function QRCodeModal() {
       }
     } catch (error) {
       console.error('Error processing QR code:', error);
-      Alert.alert('Error', 'Failed to process QR code. Please try again.');
-      setScanned(false);
-      setProcessing(false);
+      Alert.alert('Error', 'Failed to process QR code. Please try again.', [
+        { text: 'OK', onPress: () => resetScanner() }
+      ]);
     }
   };
 
@@ -399,6 +400,17 @@ export default function QRCodeModal() {
     );
   }
 
+  if (!profile) {
+    return (
+      <ThemedView style={styles.container}>
+        <ThemedText>Error loading profile</ThemedText>
+        <TouchableOpacity onPress={() => router.back()} style={styles.closeButton}>
+          <ThemedText>Close</ThemedText>
+        </TouchableOpacity>
+      </ThemedView>
+    );
+  }
+
   return (
     <ThemedView style={styles.container}>
       {/* Header */}
@@ -406,38 +418,37 @@ export default function QRCodeModal() {
         <TouchableOpacity onPress={() => router.back()} style={styles.closeButton}>
           <Ionicons name="close" size={28} color={Colors.text.primary} />
         </TouchableOpacity>
-        <ThemedText style={styles.title}>Quick Connect</ThemedText>
+        <ThemedText style={styles.headerTitle}>Connect with Crew</ThemedText>
         <View style={{ width: 28 }} />
       </View>
 
-      {/* Tab Switcher */}
+      {/* Tab Selector */}
       <View style={styles.tabContainer}>
         <Pressable
-          style={[styles.tab, tab === 'show' && styles.tabActive]}
-          onPress={() => {
-            setTab('show');
-            setScanned(false);
-            setProcessing(false);
-          }}
+          style={[styles.tab, tab === 'show' && styles.activeTab]}
+          onPress={() => setTab('show')}
         >
-          <ThemedText style={[styles.tabText, tab === 'show' && styles.tabTextActive]}>
-            My Code
+          <ThemedText style={[styles.tabText, tab === 'show' && styles.activeTabText]}>
+            My QR Code
           </ThemedText>
         </Pressable>
         <Pressable
-          style={[styles.tab, tab === 'scan' && styles.tabActive]}
-          onPress={() => setTab('scan')}
+          style={[styles.tab, tab === 'scan' && styles.activeTab]}
+          onPress={() => {
+            setTab('scan');
+            resetScanner(); // Reset when switching tabs
+          }}
         >
-          <ThemedText style={[styles.tabText, tab === 'scan' && styles.tabTextActive]}>
-            Scan Code
+          <ThemedText style={[styles.tabText, tab === 'scan' && styles.activeTabText]}>
+            Scan QR
           </ThemedText>
         </Pressable>
       </View>
 
       {/* Content */}
       {tab === 'show' ? (
-        <View style={styles.content}>
-          <View style={styles.qrContainer}>
+        <View style={styles.qrContainer}>
+          <View style={styles.qrWrapper}>
             <QRCode
               value={user?.uid || ''}
               size={250}
@@ -445,39 +456,27 @@ export default function QRCodeModal() {
               color={Colors.primary}
             />
           </View>
-
-          <View style={styles.profileInfo}>
-            <ThemedText style={styles.displayName}>{profile?.displayName}</ThemedText>
-            <ThemedText style={styles.airline}>{profile?.airline}</ThemedText>
-            <ThemedText style={styles.base}>📍 {profile?.base}</ThemedText>
+          
+          <View style={styles.infoCard}>
+            <ThemedText style={styles.infoTitle}>{profile.displayName}</ThemedText>
+            <ThemedText style={styles.infoSubtitle}>
+              {profile.airline} • {profile.base}
+            </ThemedText>
           </View>
-
-          <ThemedText style={styles.instructions}>
-            Have a crew member scan this code to connect instantly!
-          </ThemedText>
 
           <TouchableOpacity style={styles.shareButton} onPress={handleShare}>
             <Ionicons name="share-outline" size={20} color={Colors.white} />
-            <ThemedText style={styles.shareButtonText}>Share Link</ThemedText>
+            <ThemedText style={styles.shareButtonText}>Share My Code</ThemedText>
           </TouchableOpacity>
+
+          <ThemedText style={styles.instructionText}>
+            Have another crew member scan this code to connect!
+          </ThemedText>
         </View>
       ) : (
-        <View style={styles.content}>
-          {!permission?.granted ? (
-            <View style={styles.permissionContainer}>
-              <Ionicons name="camera-outline" size={80} color={Colors.text.secondary} />
-              <ThemedText style={styles.permissionTitle}>
-                Camera Access Needed
-              </ThemedText>
-              <ThemedText style={styles.permissionText}>
-                Allow CrewMate to use your camera to scan QR codes from other crew members
-              </ThemedText>
-              <TouchableOpacity style={styles.permissionButton} onPress={requestPermission}>
-                <ThemedText style={styles.permissionButtonText}>Enable Camera</ThemedText>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <View style={styles.scannerContainer}>
+        <View style={styles.scanContainer}>
+          {permission?.granted ? (
+            <>
               <CameraView
                 style={styles.camera}
                 facing="back"
@@ -485,35 +484,43 @@ export default function QRCodeModal() {
                 barcodeScannerSettings={{
                   barcodeTypes: ['qr'],
                 }}
-              >
-                <View style={styles.scannerOverlay}>
-                  <View style={styles.scannerFrame} />
-                  {processing ? (
-                    <View style={styles.processingContainer}>
-                      <ActivityIndicator size="large" color={Colors.white} />
-                      <ThemedText style={styles.processingText}>Processing...</ThemedText>
-                    </View>
-                  ) : (
-                    <>
-                      <ThemedText style={styles.scannerText}>
-                        {scanned ? 'QR Code Scanned!' : 'Point camera at QR code'}
-                      </ThemedText>
-                      <ThemedText style={styles.scannerHint}>
-                        Scan crew codes or plan codes
-                      </ThemedText>
-                    </>
-                  )}
-                </View>
-              </CameraView>
+              />
               
-              {scanned && !processing && (
-                <TouchableOpacity 
-                  style={styles.scanAgainButton}
-                  onPress={() => setScanned(false)}
+              <View style={styles.scanOverlay}>
+                <View style={styles.scanFrame} />
+              </View>
+
+              {scanned && (
+                <View style={styles.scanningIndicator}>
+                  <ActivityIndicator size="large" color={Colors.white} />
+                  <ThemedText style={styles.scanningText}>Processing...</ThemedText>
+                </View>
+              )}
+
+              <View style={styles.scanInstructions}>
+                <ThemedText style={styles.scanInstructionText}>
+                  Position QR code within the frame
+                </ThemedText>
+              </View>
+
+              {scanned && (
+                <TouchableOpacity
+                  style={styles.resetButton}
+                  onPress={resetScanner}
                 >
-                  <ThemedText style={styles.scanAgainText}>Scan Again</ThemedText>
+                  <ThemedText style={styles.resetButtonText}>Scan Again</ThemedText>
                 </TouchableOpacity>
               )}
+            </>
+          ) : (
+            <View style={styles.permissionContainer}>
+              <Ionicons name="camera-outline" size={64} color={Colors.text.secondary} />
+              <ThemedText style={styles.permissionText}>
+                Camera permission is required to scan QR codes
+              </ThemedText>
+              <TouchableOpacity style={styles.permissionButton} onPress={requestPermission}>
+                <ThemedText style={styles.permissionButtonText}>Grant Permission</ThemedText>
+              </TouchableOpacity>
             </View>
           )}
         </View>
@@ -525,28 +532,27 @@ export default function QRCodeModal() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 60,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    marginBottom: 20,
+    paddingTop: 60,
+    paddingBottom: 20,
   },
   closeButton: {
     padding: 4,
   },
-  title: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: Colors.text.primary,
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '600',
   },
   tabContainer: {
     flexDirection: 'row',
     marginHorizontal: 20,
-    marginBottom: 30,
-    backgroundColor: Colors.card,
+    marginBottom: 20,
+    backgroundColor: Colors.border,
     borderRadius: 12,
     padding: 4,
   },
@@ -556,161 +562,155 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 8,
   },
-  tabActive: {
+  activeTab: {
     backgroundColor: Colors.white,
   },
   tabText: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: '500',
     color: Colors.text.secondary,
   },
-  tabTextActive: {
+  activeTabText: {
     color: Colors.primary,
+    fontWeight: '600',
   },
-  content: {
+  qrContainer: {
     flex: 1,
     alignItems: 'center',
     paddingHorizontal: 20,
   },
-  qrContainer: {
+  qrWrapper: {
     backgroundColor: Colors.white,
     padding: 30,
     borderRadius: 20,
-    marginBottom: 30,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 5,
+    marginTop: 20,
   },
-  profileInfo: {
+  infoCard: {
     alignItems: 'center',
-    marginBottom: 20,
+    marginTop: 30,
   },
-  displayName: {
+  infoTitle: {
     fontSize: 24,
     fontWeight: '700',
-    color: Colors.text.primary,
-    marginBottom: 5,
+    marginBottom: 4,
   },
-  airline: {
-    fontSize: 18,
-    color: Colors.primary,
-    marginBottom: 5,
-  },
-  base: {
+  infoSubtitle: {
     fontSize: 16,
     color: Colors.text.secondary,
-  },
-  instructions: {
-    textAlign: 'center',
-    fontSize: 16,
-    color: Colors.text.secondary,
-    marginBottom: 30,
-    paddingHorizontal: 20,
   },
   shareButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
     backgroundColor: Colors.primary,
-    paddingHorizontal: 30,
-    paddingVertical: 15,
+    paddingHorizontal: 24,
+    paddingVertical: 14,
     borderRadius: 12,
+    marginTop: 30,
   },
   shareButtonText: {
     color: Colors.white,
     fontSize: 16,
     fontWeight: '600',
   },
-  permissionContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 15,
-    paddingHorizontal: 40,
-  },
-  permissionTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    textAlign: 'center',
-    color: Colors.text.primary,
-  },
-  permissionText: {
-    fontSize: 16,
+  instructionText: {
+    fontSize: 14,
     color: Colors.text.secondary,
     textAlign: 'center',
-    marginBottom: 10,
+    marginTop: 30,
+    paddingHorizontal: 40,
   },
-  permissionButton: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 30,
-    paddingVertical: 15,
-    borderRadius: 12,
-  },
-  permissionButtonText: {
-    color: Colors.white,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  scannerContainer: {
+  scanContainer: {
     flex: 1,
-    width: '100%',
-    borderRadius: 20,
-    overflow: 'hidden',
+    position: 'relative',
   },
   camera: {
     flex: 1,
   },
-  scannerOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
+  scanOverlay: {
+    ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  scannerFrame: {
+  scanFrame: {
     width: 250,
     height: 250,
     borderWidth: 3,
-    borderColor: Colors.white,
+    borderColor: Colors.accent,
     borderRadius: 20,
     backgroundColor: 'transparent',
   },
-  scannerText: {
-    color: Colors.white,
-    fontSize: 18,
-    fontWeight: '600',
-    marginTop: 30,
-    textAlign: 'center',
-  },
-  scannerHint: {
-    color: Colors.white,
-    fontSize: 14,
-    marginTop: 8,
-    opacity: 0.7,
-  },
-  processingContainer: {
+  scanningIndicator: {
     position: 'absolute',
+    top: '50%',
+    left: 0,
+    right: 0,
     alignItems: 'center',
-    gap: 10,
+    marginTop: -50,
   },
-  processingText: {
+  scanningText: {
     color: Colors.white,
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
+    marginTop: 12,
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
-  scanAgainButton: {
+  scanInstructions: {
+    position: 'absolute',
+    bottom: 100,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  scanInstructionText: {
+    color: Colors.white,
+    fontSize: 16,
+    fontWeight: '500',
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  resetButton: {
     position: 'absolute',
     bottom: 40,
-    left: 20,
-    right: 20,
-    backgroundColor: Colors.white,
-    paddingVertical: 15,
+    alignSelf: 'center',
+    backgroundColor: Colors.accent,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
     borderRadius: 12,
-    alignItems: 'center',
   },
-  scanAgainText: {
+  resetButtonText: {
     color: Colors.primary,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  permissionContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 40,
+  },
+  permissionText: {
+    fontSize: 16,
+    textAlign: 'center',
+    marginTop: 20,
+    marginBottom: 30,
+  },
+  permissionButton: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  permissionButtonText: {
+    color: Colors.white,
     fontSize: 16,
     fontWeight: '600',
   },

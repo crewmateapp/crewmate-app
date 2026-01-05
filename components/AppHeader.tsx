@@ -1,11 +1,11 @@
 // components/AppHeader.tsx
 import Logo from '@/components/Logo';
-import { NotificationBadge } from '@/components/NotificationBadge';
+import ProfileDropdown from '@/components/ProfileDropdown';
 import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
-import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, updateDoc } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import {
     Alert,
@@ -19,19 +19,19 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface AppHeaderProps {
   onMenuPress: () => void;
-  onConnectionsPress: () => void;
-  unreadCount?: number;
+  unreadCount?: number; // Combined notifications (connections + messages)
 }
 
 export default function AppHeader({ 
-  onMenuPress, 
-  onConnectionsPress,
+  onMenuPress,
   unreadCount = 0 
 }: AppHeaderProps) {
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const [hasLayover, setHasLayover] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
+  const [displayName, setDisplayName] = useState('');
+  const [photoURL, setPhotoURL] = useState<string | undefined>();
 
   useEffect(() => {
     if (!user) return;
@@ -42,6 +42,8 @@ export default function AppHeader({
         const layover = data.currentLayover;
         setHasLayover(!!layover);
         setIsVisible(layover?.discoverable || false);
+        setDisplayName(data.displayName || '');
+        setPhotoURL(data.photoURL);
       }
     });
 
@@ -107,18 +109,12 @@ export default function AppHeader({
             />
           </View>
 
-          {/* Connections Icon with Badge */}
-          <TouchableOpacity 
-            style={styles.iconButton}
-            onPress={onConnectionsPress}
-          >
-            <Ionicons name="people" size={26} color={Colors.white} />
-            {unreadCount > 0 && (
-              <View style={styles.badgeContainer}>
-                <NotificationBadge count={unreadCount} />
-              </View>
-            )}
-          </TouchableOpacity>
+          {/* Profile Dropdown (replaces Connections button) */}
+          <ProfileDropdown 
+            photoURL={photoURL}
+            displayName={displayName}
+            unreadCount={unreadCount}
+          />
         </View>
       </View>
     </View>
@@ -169,10 +165,5 @@ const styles = StyleSheet.create({
   },
   switch: {
     transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }],
-  },
-  badgeContainer: {
-    position: 'absolute',
-    top: -2,
-    right: -2,
   },
 });
