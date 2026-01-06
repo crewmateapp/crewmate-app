@@ -78,6 +78,7 @@ export default function ExploreScreen() {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
   // Load user's current layover city on mount
   useEffect(() => {
@@ -91,7 +92,7 @@ export default function ExploreScreen() {
       fetchSpots();
       saveRecentCity(selectedCity);
     }
-  }, [selectedCity, category, sortBy, filters]);
+  }, [selectedCity, category, sortBy, filters, searchQuery]);
 
   const loadUserLayoverCity = async () => {
     try {
@@ -197,6 +198,17 @@ export default function ExploreScreen() {
 
   const applyFilters = (spotsList: Spot[]): Spot[] => {
     let filtered = spotsList;
+
+    // Filter by search query
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      filtered = filtered.filter(spot => {
+        const nameMatch = spot.name.toLowerCase().includes(query);
+        const descMatch = (spot.description || '').toLowerCase().includes(query);
+        const addressMatch = (spot.address || '').toLowerCase().includes(query);
+        return nameMatch || descMatch || addressMatch;
+      });
+    }
 
     // Filter by category
     if (category !== 'All') {
@@ -350,6 +362,24 @@ export default function ExploreScreen() {
 
         {selectedCity && (
           <>
+            {/* Search Bar */}
+            <View style={styles.searchContainer}>
+              <Ionicons name="search" size={20} color={COLORS.mediumGray} style={styles.searchIcon} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search spots..."
+                placeholderTextColor={COLORS.mediumGray}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                returnKeyType="search"
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearButton}>
+                  <Ionicons name="close-circle" size={20} color={COLORS.mediumGray} />
+                </TouchableOpacity>
+              )}
+            </View>
+
             {/* Category Tabs */}
             <CategoryTabs
               categories={CATEGORIES}
@@ -406,6 +436,29 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.lightGray,
+    marginHorizontal: 16,
+    marginVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: COLORS.darkGray,
+  },
+  clearButton: {
+    padding: 4,
   },
   spotsList: {
     padding: 16,

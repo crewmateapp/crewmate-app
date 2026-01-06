@@ -6,10 +6,13 @@ import { router, useLocalSearchParams } from 'expo-router';
 import {
   addDoc,
   collection,
+  doc,
+  getDoc,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
+  updateDoc,
 } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import {
@@ -42,7 +45,7 @@ export default function ChatScreen() {
 
   // Load messages from Firestore in real-time
   useEffect(() => {
-    if (!id) return;
+    if (!id || !user) return;
 
     const messagesRef = collection(db, 'messages', id, 'messages');
     const q = query(messagesRef, orderBy('createdAt', 'asc'));
@@ -63,6 +66,9 @@ export default function ChatScreen() {
         });
         setMessages(loadedMessages);
         setLoading(false);
+        
+        // Mark conversation as read for current user
+        markConversationAsRead();
       },
       (error) => {
         console.error('Error loading messages:', error);
@@ -71,7 +77,20 @@ export default function ChatScreen() {
     );
 
     return () => unsubscribe();
-  }, [id]);
+  }, [id, user]);
+
+  const markConversationAsRead = async () => {
+    if (!id || !user) return;
+    
+    try {
+      const conversationRef = doc(db, 'conversations', id);
+      await updateDoc(conversationRef, {
+        [`unreadCount.${user.uid}`]: 0,
+      });
+    } catch (error) {
+      console.error('Error marking as read:', error);
+    }
+  };
 
   const sendMessage = async () => {
     if (!newMessage.trim() || !id || !user) return;
@@ -87,6 +106,21 @@ export default function ChatScreen() {
         createdAt: serverTimestamp(),
         read: false,
       });
+
+      // Update conversation metadata
+      const conversationRef = doc(db, 'conversations', id);
+      const conversationSnap = await getDoc(conversationRef);
+      
+      if (conversationSnap.exists()) {
+        const data = conversationSnap.data();
+        const otherUserId = data.participantIds.find((uid: string) => uid !== user.uid);
+        
+        await updateDoc(conversationRef, {
+          lastMessage: newMessage.trim(),
+          lastMessageTime: serverTimestamp(),
+          [`unreadCount.${otherUserId}`]: (data.unreadCount?.[otherUserId] || 0) + 1,
+        });
+      }
 
       setNewMessage('');
     } catch (error) {

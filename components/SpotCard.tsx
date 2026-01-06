@@ -1,6 +1,7 @@
 import React from 'react';
 import { StyleSheet, View, TouchableOpacity, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { SaveButton } from '@/components/SaveButton';
 import { ThemedText } from '@/components/themed-text';
 
 const COLORS = {
@@ -58,6 +59,11 @@ export default function SpotCard({
   onCreatePlan,
   onPress,
 }: SpotCardProps) {
+  // Safety check
+  if (!spot) {
+    return null;
+  }
+
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
     const R = 3959; // Earth radius in miles
     const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -106,7 +112,29 @@ export default function SpotCard({
   return (
     <View style={styles.card}>
       {/* Spot Photo */}
-      <TouchableOpacity onPress={onPress} activeOpacity={0.9}>
+      <TouchableOpacity 
+        onPress={() => {
+          // If spot has photos, open photo viewer, otherwise open spot detail
+          if (photoUrl && (spot.photos || spot.photoURLs)) {
+            const photos = spot.photoURLs || spot.photos || [];
+            if (photos.length > 0) {
+              // @ts-ignore
+              router.push({
+                pathname: '/photo-viewer',
+                params: {
+                  photos: JSON.stringify(photos),
+                  initialIndex: 0
+                }
+              });
+            } else {
+              onPress();
+            }
+          } else {
+            onPress();
+          }
+        }}
+        activeOpacity={0.9}
+      >
         {photoUrl ? (
           <Image
             source={{ uri: photoUrl }}
@@ -118,6 +146,20 @@ export default function SpotCard({
             <Ionicons name={categoryIcon as any} size={48} color={COLORS.mediumGray} />
           </View>
         )}
+        
+        {/* Save Button Overlay */}
+        <View style={styles.saveButtonOverlay}>
+          <SaveButton
+            spot={{
+              spotId: spot.id,
+              spotName: spot.name,
+              city: spot.city,
+              category: spot.category || 'other',
+              photoURL: photoUrl,
+            }}
+            size={22}
+          />
+        </View>
       </TouchableOpacity>
 
       {/* Spot Details */}
@@ -218,6 +260,20 @@ const styles = StyleSheet.create({
   photoPlaceholder: {
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  saveButtonOverlay: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 20,
+    padding: 6,
+    zIndex: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
   },
   details: {
     padding: 16,

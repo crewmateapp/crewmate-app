@@ -3,6 +3,7 @@ import AppHeader from '@/components/AppHeader';
 import AppDrawer from '@/components/AppDrawer';
 import { ReviewList } from '@/components/ReviewList';
 import { ReviewStatsCard } from '@/components/ReviewStatsCard';
+import { SaveButton } from '@/components/SaveButton';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { WriteReviewModal } from '@/components/WriteReviewModal';
@@ -619,7 +620,13 @@ export default function SpotDetailScreen() {
           {/* Hero Image with Overlays */}
           {spotPhotos.length > 0 ? (
             <View style={styles.heroContainer}>
-              <TouchableOpacity onPress={() => setSelectedImage(spotPhotos[0])}>
+              <TouchableOpacity onPress={() => router.push({
+                pathname: '/photo-viewer',
+                params: {
+                  photos: JSON.stringify(spotPhotos),
+                  initialIndex: 0
+                }
+              })}>
                 <Image
                   source={{ uri: spotPhotos[0] }}
                   style={styles.heroImage}
@@ -645,6 +652,20 @@ export default function SpotDetailScreen() {
                 </View>
               )}
               
+              {/* Save Button Overlay */}
+              <View style={styles.saveButtonOverlay}>
+                <SaveButton
+                  spot={{
+                    spotId: spot.id,
+                    spotName: spot.name,
+                    city: spot.city,
+                    category: spot.category || spot.type || 'other',
+                    photoURL: spotPhotos[0],
+                  }}
+                  size={26}
+                />
+              </View>
+              
               {/* Admin Edit Button Overlay */}
               {isAdmin && (
                 <TouchableOpacity 
@@ -664,12 +685,24 @@ export default function SpotDetailScreen() {
                 <ThemedText style={styles.backText}>Back</ThemedText>
               </TouchableOpacity>
               
-              {isAdmin && (
-                <TouchableOpacity style={styles.adminEditButton} onPress={handleEditSpot}>
-                  <Ionicons name="pencil" size={18} color="#fff" />
-                  <ThemedText style={styles.adminEditText}>Edit</ThemedText>
-                </TouchableOpacity>
-              )}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <SaveButton
+                  spot={{
+                    spotId: spot.id,
+                    spotName: spot.name,
+                    city: spot.city,
+                    category: spot.category || spot.type || 'other',
+                  }}
+                  size={24}
+                />
+                
+                {isAdmin && (
+                  <TouchableOpacity style={styles.adminEditButton} onPress={handleEditSpot}>
+                    <Ionicons name="pencil" size={18} color="#fff" />
+                    <ThemedText style={styles.adminEditText}>Edit</ThemedText>
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
           )}
 
@@ -726,7 +759,16 @@ export default function SpotDetailScreen() {
             <ThemedText style={styles.sectionTitle}>📸 More Photos</ThemedText>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               {spotPhotos.slice(1).map((photoUrl, index) => (
-                <TouchableOpacity key={index} onPress={() => setSelectedImage(photoUrl)}>
+                <TouchableOpacity 
+                  key={index} 
+                  onPress={() => router.push({
+                    pathname: '/photo-viewer',
+                    params: {
+                      photos: JSON.stringify(spotPhotos),
+                      initialIndex: index + 1  // +1 because we're showing from slice(1)
+                    }
+                  })}
+                >
                   <Image source={{ uri: photoUrl }} style={styles.photo} />
                 </TouchableOpacity>
               ))}
@@ -951,6 +993,19 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     color: Colors.white,
+  },
+  saveButtonOverlay: {
+    position: 'absolute',
+    top: 70, // Below back button
+    right: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 20,
+    padding: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
   },
   adminEditButtonOverlay: {
     position: 'absolute',

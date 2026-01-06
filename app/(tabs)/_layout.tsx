@@ -17,6 +17,7 @@ export default function TabLayout() {
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [connectionRequestCount, setConnectionRequestCount] = useState(0);
   const [planNotificationCount, setPlanNotificationCount] = useState(0);
+  const [messageCount, setMessageCount] = useState(0);
 
   // Listen for incoming connection requests
   useEffect(() => {
@@ -52,8 +53,30 @@ export default function TabLayout() {
     return () => unsubscribe();
   }, [user]);
 
+  // Listen for unread messages
+  useEffect(() => {
+    if (!user) return;
+
+    const conversationsRef = collection(db, 'conversations');
+    const q = query(
+      conversationsRef,
+      where('participantIds', 'array-contains', user.uid)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      let totalUnread = 0;
+      snapshot.docs.forEach((doc) => {
+        const data = doc.data();
+        totalUnread += data.unreadCount?.[user.uid] || 0;
+      });
+      setMessageCount(totalUnread);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
   // Combine all notification counts
-  const totalUnreadCount = connectionRequestCount + planNotificationCount;
+  const totalUnreadCount = connectionRequestCount + planNotificationCount + messageCount;
 
   return (
     <>
@@ -100,6 +123,18 @@ export default function TabLayout() {
           }}
         />
         {/* Hidden tabs - accessible via routes but not in tab bar */}
+        <Tabs.Screen
+          name="messages"
+          options={{
+            href: null, // Hides from tab bar
+          }}
+        />
+        <Tabs.Screen
+          name="plans"
+          options={{
+            href: null, // Hides from tab bar
+          }}
+        />
         <Tabs.Screen
           name="connections"
           options={{

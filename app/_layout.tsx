@@ -8,6 +8,7 @@ import 'react-native-reanimated';
 import { db } from '@/config/firebase';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
+import { redirectToOnboardingIfNeeded } from '@/hooks/useOnboardingCheck';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -36,6 +37,13 @@ function RootLayoutNav() {
       //   return;
       // }
 
+      // Check if user needs onboarding
+      const needsOnboarding = await redirectToOnboardingIfNeeded(user.uid);
+      if (needsOnboarding) {
+        setCheckingProfile(false);
+        return; // User was redirected to onboarding
+      }
+
       // Check if profile exists in Firestore
       try {
         const userDoc = await getDoc(doc(db, 'users', user.uid));
@@ -63,6 +71,10 @@ function RootLayoutNav() {
         <Stack.Screen name="auth/signup" />
         <Stack.Screen name="auth/verify-email" />
         <Stack.Screen name="auth/create-profile" />
+        <Stack.Screen name="onboarding" />
+        <Stack.Screen name="setup-profile" />
+        <Stack.Screen name="tutorial" />
+        <Stack.Screen name="notifications" />
         <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
       </Stack>
       <StatusBar style={isDark ? "light" : "dark"} />

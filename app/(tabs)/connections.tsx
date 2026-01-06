@@ -16,6 +16,7 @@ import {
   onSnapshot,
   query,
   serverTimestamp,
+  setDoc,
   where
 } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
@@ -211,6 +212,46 @@ export default function ConnectionsScreen() {
     }
   };
 
+  const handleOpenChat = async (connection: Connection) => {
+    if (!user) return;
+    
+    try {
+      // Create conversation ID by sorting user IDs
+      const conversationId = [user.uid, connection.userId].sort().join('_');
+      
+      // Check if conversation exists, if not create it
+      const conversationRef = doc(db, 'conversations', conversationId);
+      const conversationSnap = await getDoc(conversationRef);
+      
+      if (!conversationSnap.exists()) {
+        // Create new conversation document
+        await setDoc(conversationRef, {
+          participantIds: [user.uid, connection.userId],
+          lastMessage: '',
+          lastMessageTime: serverTimestamp(),
+          unreadCount: {
+            [user.uid]: 0,
+            [connection.userId]: 0,
+          },
+          createdAt: serverTimestamp(),
+        });
+      }
+      
+      // Navigate to chat
+      router.push({
+        pathname: '/chat/[id]',
+        params: { 
+          id: conversationId, 
+          name: connection.displayName,
+          otherUserId: connection.userId,
+        }
+      });
+    } catch (error) {
+      console.error('Error opening chat:', error);
+      Alert.alert('Error', 'Failed to open chat. Please try again.');
+    }
+  };
+
   const handleDeleteConnection = (connection: Connection) => {
     Alert.alert(
       'Remove Connection',
@@ -345,10 +386,7 @@ export default function ConnectionsScreen() {
               <View key={connection.id} style={styles.connectionCard}>
                 <TouchableOpacity 
                   style={styles.connectionMain}
-                  onPress={() => router.push({
-                    pathname: '/chat/[id]',
-                    params: { id: connection.id, name: connection.displayName }
-                  })}
+                  onPress={() => handleOpenChat(connection)}
                 >
                   <View style={styles.avatarContainer}>
                     {connection.photoURL ? (
@@ -400,12 +438,12 @@ export default function ConnectionsScreen() {
 const styles = StyleSheet.create({
   scrollContainer: { 
     flex: 1,
-    backgroundColor: Colors.background, // Fix black background
+    backgroundColor: Colors.background,
   },
   container: { 
     flex: 1, 
     padding: 20,
-    paddingTop: 60,
+    paddingTop: 20,
     paddingBottom: 40,
   },
   titleContainer: {

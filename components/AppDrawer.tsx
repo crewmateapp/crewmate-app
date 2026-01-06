@@ -10,8 +10,11 @@ import { useEffect, useState } from 'react';
 import {
     Alert,
     Image,
+    Linking,
     Modal,
+    Platform,
     ScrollView,
+    Share,
     StyleSheet,
     TouchableOpacity,
     View,
@@ -29,6 +32,10 @@ type UserProfile = {
   position: string;
   photoURL?: string;
 };
+
+// App version info
+const APP_VERSION = '1.0.2';
+const BUILD_NUMBER = '3';
 
 export default function AppDrawer({ visible, onClose }: AppDrawerProps) {
   const { user, signOut } = useAuth();
@@ -76,6 +83,91 @@ export default function AppDrawer({ visible, onClose }: AppDrawerProps) {
     if (theme === 'light') return 'Light';
     if (theme === 'dark') return 'Dark';
     return 'Auto';
+  };
+
+  const handleMyReviews = () => {
+    handleNavigation('/my-reviews');
+  };
+
+  const handleReportProblem = async () => {
+    onClose();
+    
+    const subject = 'CrewMate - Report a Problem';
+    const body = `
+Hi CrewMate Team,
+
+I'd like to report the following issue:
+
+[Please describe the problem here]
+
+---
+App Version: ${APP_VERSION} (${BUILD_NUMBER})
+User ID: ${user?.uid}
+Device: ${Platform.OS} ${Platform.Version}
+    `.trim();
+
+    const emailUrl = `mailto:support@crewmate.app?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    
+    try {
+      const canOpen = await Linking.canOpenURL(emailUrl);
+      if (canOpen) {
+        await Linking.openURL(emailUrl);
+      } else {
+        Alert.alert(
+          'Email Not Available',
+          'Please email us at support@crewmate.app',
+          [{ text: 'OK' }]
+        );
+      }
+    } catch (error) {
+      Alert.alert(
+        'Error',
+        'Could not open email. Please contact support@crewmate.app',
+        [{ text: 'OK' }]
+      );
+    }
+  };
+
+  const handleInviteCrew = async () => {
+    onClose();
+    
+    try {
+      const inviteMessage = `Hey! I've been using CrewMate to connect with other crew during layovers. It's built by crew, for crew. Check it out!\n\n🔗 Download: [App Store/Play Store link coming soon]\n\nUse my referral: ${user?.uid?.substring(0, 8)}`;
+      
+      await Share.share({
+        message: inviteMessage,
+        title: 'Join me on CrewMate!',
+      });
+    } catch (error) {
+      console.error('Error sharing:', error);
+    }
+  };
+
+  const handleAboutCrewMate = () => {
+    onClose();
+    
+    const appVersion = Application.nativeApplicationVersion || 'Unknown';
+    const buildNumber = Application.nativeBuildVersion || 'Unknown';
+    
+    Alert.alert(
+      'About CrewMate',
+      `Built by crew, for crew ✈️\n\nVersion ${appVersion} (${buildNumber})\n\nCrewMate helps airline crew connect during layovers and discover crew-recommended spots worldwide.\n\nCreated by Zach & Johnny`,
+      [
+        {
+          text: 'Privacy Policy',
+          onPress: () => {
+            Linking.openURL('https://crewmate.beehiiv.com/privacy-policy');
+          }
+        },
+        {
+          text: 'Learn More',
+          onPress: () => {
+            Linking.openURL('https://crewmate.beehiiv.com');
+          }
+        },
+        { text: 'Close', style: 'cancel' }
+      ]
+    );
   };
 
   const handleSignOut = () => {
@@ -135,75 +227,100 @@ export default function AppDrawer({ visible, onClose }: AppDrawerProps) {
               <ThemedText style={[styles.profileRole, { color: colors.text.secondary }]}>
                 {profile?.position || 'Crew Member'}
               </ThemedText>
+
+              {/* Theme Toggle - Now under position */}
+              <TouchableOpacity 
+                style={[styles.themeToggle, { backgroundColor: colors.background }]}
+                onPress={handleThemeChange}
+              >
+                <Ionicons name={getThemeIcon()} size={20} color={colors.text.primary} />
+                <ThemedText style={styles.themeToggleText}>Theme: {getThemeLabel()}</ThemedText>
+              </TouchableOpacity>
             </View>
 
             {/* Menu Items */}
             <View style={styles.menuSection}>
+              {/* Profile */}
               <TouchableOpacity 
                 style={styles.menuItem}
                 onPress={() => handleNavigation('/profile')}
               >
                 <Ionicons name="person-outline" size={24} color={colors.text.primary} />
                 <ThemedText style={styles.menuText}>Profile</ThemedText>
+                <Ionicons name="chevron-forward" size={20} color={colors.text.secondary} />
               </TouchableOpacity>
 
+              {/* My Reviews */}
               <TouchableOpacity 
                 style={styles.menuItem}
-                onPress={() => handleNavigation('/explore')}
+                onPress={handleMyReviews}
               >
-                <Ionicons name="compass-outline" size={24} color={colors.text.primary} />
-                <ThemedText style={styles.menuText}>Explore Guide</ThemedText>
+                <Ionicons name="star-outline" size={24} color={colors.text.primary} />
+                <ThemedText style={styles.menuText}>My Reviews</ThemedText>
+                <Ionicons name="chevron-forward" size={20} color={colors.text.secondary} />
               </TouchableOpacity>
 
-              {/* Theme Toggle */}
+              {/* Saved Places */}
               <TouchableOpacity 
                 style={styles.menuItem}
-                onPress={handleThemeChange}
+                onPress={() => handleNavigation('/saved-places')}
               >
-                <Ionicons name={getThemeIcon()} size={24} color={colors.text.primary} />
-                <ThemedText style={styles.menuText}>Theme</ThemedText>
-                <View style={[styles.themeBadge, { backgroundColor: colors.primary }]}>
-                  <ThemedText style={styles.themeBadgeText}>{getThemeLabel()}</ThemedText>
-                </View>
+                <Ionicons name="bookmark-outline" size={24} color={colors.text.primary} />
+                <ThemedText style={styles.menuText}>Saved Places</ThemedText>
+                <Ionicons name="chevron-forward" size={20} color={colors.text.secondary} />
               </TouchableOpacity>
 
+              {/* Report a Problem */}
               <TouchableOpacity 
-                style={[styles.menuItem, styles.menuItemDisabled]}
-                onPress={() => Alert.alert('Coming Soon', 'Saved Places feature is coming soon!')}
+                style={styles.menuItem}
+                onPress={handleReportProblem}
               >
-                <Ionicons name="bookmark-outline" size={24} color={colors.text.disabled} />
-                <ThemedText style={[styles.menuText, { color: colors.text.disabled }]}>
-                  Saved Places
-                </ThemedText>
-                <View style={[styles.comingSoonBadge, { backgroundColor: colors.accent }]}>
-                  <ThemedText style={styles.comingSoonText}>Soon</ThemedText>
-                </View>
+                <Ionicons name="flag-outline" size={24} color={colors.text.primary} />
+                <ThemedText style={styles.menuText}>Report a Problem</ThemedText>
+                <Ionicons name="chevron-forward" size={20} color={colors.text.secondary} />
               </TouchableOpacity>
 
+              {/* Invite Crew */}
               <TouchableOpacity 
-                style={[styles.menuItem, styles.menuItemDisabled]}
-                onPress={() => Alert.alert('Coming Soon', 'Settings feature is coming soon!')}
+                style={styles.menuItem}
+                onPress={handleInviteCrew}
               >
-                <Ionicons name="settings-outline" size={24} color={colors.text.disabled} />
-                <ThemedText style={[styles.menuText, { color: colors.text.disabled }]}>
-                  Settings
-                </ThemedText>
-                <View style={[styles.comingSoonBadge, { backgroundColor: colors.accent }]}>
-                  <ThemedText style={styles.comingSoonText}>Soon</ThemedText>
-                </View>
+                <Ionicons name="paper-plane-outline" size={24} color={colors.text.primary} />
+                <ThemedText style={styles.menuText}>Invite Crew</ThemedText>
+                <Ionicons name="chevron-forward" size={20} color={colors.text.secondary} />
               </TouchableOpacity>
 
+              {/* Settings */}
               <TouchableOpacity 
-                style={[styles.menuItem, styles.menuItemDisabled]}
-                onPress={() => Alert.alert('Coming Soon', 'Help & Support feature is coming soon!')}
+                style={styles.menuItem}
+                onPress={() => handleNavigation('/settings')}
               >
-                <Ionicons name="help-circle-outline" size={24} color={colors.text.disabled} />
-                <ThemedText style={[styles.menuText, { color: colors.text.disabled }]}>
-                  Help & Support
-                </ThemedText>
-                <View style={[styles.comingSoonBadge, { backgroundColor: colors.accent }]}>
-                  <ThemedText style={styles.comingSoonText}>Soon</ThemedText>
-                </View>
+                <Ionicons name="settings-outline" size={24} color={colors.text.primary} />
+                <ThemedText style={styles.menuText}>Settings</ThemedText>
+                <Ionicons name="chevron-forward" size={20} color={colors.text.secondary} />
+              </TouchableOpacity>
+
+              {/* Help & Support */}
+              <TouchableOpacity 
+                style={styles.menuItem}
+                onPress={() => {
+                  onClose();
+                  Linking.openURL('https://crewmate.beehiiv.com/untitledcrewmate-faq---help');
+                }}
+              >
+                <Ionicons name="help-circle-outline" size={24} color={colors.text.primary} />
+                <ThemedText style={styles.menuText}>Help & Support</ThemedText>
+                <Ionicons name="chevron-forward" size={20} color={colors.text.secondary} />
+              </TouchableOpacity>
+
+              {/* About CrewMate */}
+              <TouchableOpacity 
+                style={styles.menuItem}
+                onPress={handleAboutCrewMate}
+              >
+                <Ionicons name="information-circle-outline" size={24} color={colors.text.primary} />
+                <ThemedText style={styles.menuText}>About CrewMate</ThemedText>
+                <Ionicons name="chevron-forward" size={20} color={colors.text.secondary} />
               </TouchableOpacity>
             </View>
 
@@ -255,6 +372,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 30,
     borderBottomWidth: 1,
+    paddingHorizontal: 20,
   },
   avatar: {
     width: 80,
@@ -282,9 +400,23 @@ const styles = StyleSheet.create({
   },
   profileRole: {
     fontSize: 14,
+    marginBottom: 16,
+  },
+  themeToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    gap: 8,
+    marginTop: 8,
+  },
+  themeToggleText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
   menuSection: {
-    paddingTop: 20,
+    paddingTop: 8,
   },
   menuItem: {
     flexDirection: 'row',
@@ -299,16 +431,6 @@ const styles = StyleSheet.create({
   menuText: {
     fontSize: 16,
     flex: 1,
-  },
-  themeBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  themeBadgeText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#FFFFFF',
   },
   comingSoonBadge: {
     paddingHorizontal: 8,

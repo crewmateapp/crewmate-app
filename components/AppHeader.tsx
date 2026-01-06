@@ -1,11 +1,11 @@
 // components/AppHeader.tsx
 import Logo from '@/components/Logo';
-import ProfileDropdown from '@/components/ProfileDropdown';
+import { ProfileMenu } from '@/components/ProfileMenu';
 import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
-import { doc, getDoc, onSnapshot, updateDoc } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import {
     Alert,
@@ -19,19 +19,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface AppHeaderProps {
   onMenuPress: () => void;
-  unreadCount?: number; // Combined notifications (connections + messages)
 }
 
 export default function AppHeader({ 
   onMenuPress,
-  unreadCount = 0 
 }: AppHeaderProps) {
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const [hasLayover, setHasLayover] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
-  const [displayName, setDisplayName] = useState('');
-  const [photoURL, setPhotoURL] = useState<string | undefined>();
 
   useEffect(() => {
     if (!user) return;
@@ -42,8 +38,6 @@ export default function AppHeader({
         const layover = data.currentLayover;
         setHasLayover(!!layover);
         setIsVisible(layover?.discoverable || false);
-        setDisplayName(data.displayName || '');
-        setPhotoURL(data.photoURL);
       }
     });
 
@@ -109,12 +103,8 @@ export default function AppHeader({
             />
           </View>
 
-          {/* Profile Dropdown (replaces Connections button) */}
-          <ProfileDropdown 
-            photoURL={photoURL}
-            displayName={displayName}
-            unreadCount={unreadCount}
-          />
+          {/* Profile Menu with Notifications */}
+          <ProfileMenu />
         </View>
       </View>
     </View>

@@ -205,42 +205,14 @@ export default function UserProfileScreen() {
   const handleConnectPress = async () => {
     if (!profile || !user) return;
 
-    Alert.alert(
-      `Connect with ${profile.displayName}?`,
-      `Send a connection request to ${profile.firstName}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Send Request',
-          onPress: async () => {
-            try {
-              // Get current user name
-              const currentUserDoc = await getDoc(doc(db, 'users', user.uid));
-              const currentUserName = currentUserDoc.data()?.displayName || 'Unknown';
-
-              await addDoc(collection(db, 'connectionRequests'), {
-                fromUserId: user.uid,
-                fromUserName: currentUserName,
-                toUserId: profile.id,
-                toUserName: profile.displayName,
-                status: 'pending',
-                createdAt: serverTimestamp(),
-              });
-
-              setConnectionStatus('pending_sent');
-
-              Alert.alert(
-                'Request Sent! ✈️',
-                `${profile.firstName} will be notified.`
-              );
-            } catch (error) {
-              console.error('Error sending request:', error);
-              Alert.alert('Error', 'Failed to send request. Try again.');
-            }
-          }
-        }
-      ]
-    );
+    // Navigate to enhanced connection request screen
+    router.push({
+      pathname: '/send-connection-request',
+      params: {
+        userId: profile.id,
+        userName: profile.displayName
+      }
+    });
   };
 
   const handleSpotPress = (spotId: string) => {

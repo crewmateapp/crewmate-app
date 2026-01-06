@@ -1,6 +1,4 @@
-// app/plans.tsx
-import AppHeader from '@/components/AppHeader';
-import AppDrawer from '@/components/AppDrawer';
+// app/(tabs)/plans.tsx
 import { PlanCard } from '@/components/PlanCard';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -38,7 +36,6 @@ export default function PlansScreen() {
   const [myPlans, setMyPlans] = useState<Plan[]>([]);
   const [allPlans, setAllPlans] = useState<Plan[]>([]);
   const [currentCity, setCurrentCity] = useState<string | null>(null);
-  const [drawerVisible, setDrawerVisible] = useState(false);
 
   // Get user's current layover city
   useEffect(() => {
@@ -136,100 +133,38 @@ export default function PlansScreen() {
 
   if (!currentCity) {
     return (
-      <>
-        <AppDrawer 
-          visible={drawerVisible}
-          onClose={() => setDrawerVisible(false)}
-        />
-        
-        <AppHeader 
-          onMenuPress={() => setDrawerVisible(true)}
-        />
-        
-        <ThemedView style={styles.container}>
-          <View style={styles.header}>
-            <TouchableOpacity 
-              style={styles.backButton}
-              onPress={() => router.back()}
-            >
-              <Ionicons name="arrow-back" size={24} color={Colors.primary} />
-              <ThemedText style={styles.backText}>Back</ThemedText>
-            </TouchableOpacity>
-            <ThemedText style={styles.headerTitle}>Plans</ThemedText>
-            <View style={styles.placeholder} />
-          </View>
-
-          <View style={styles.emptyState}>
-            <Ionicons name="map-outline" size={80} color={Colors.text.secondary} />
-            <ThemedText style={styles.emptyTitle}>No Layover Set</ThemedText>
-            <ThemedText style={styles.emptyText}>
-              Set your layover location to view and create plans
+      <ThemedView style={styles.container}>
+        <View style={styles.emptyState}>
+          <Ionicons name="map-outline" size={80} color={Colors.text.secondary} />
+          <ThemedText style={styles.emptyTitle}>No Layover Set</ThemedText>
+          <ThemedText style={styles.emptyText}>
+            Set your layover location to view and create plans
+          </ThemedText>
+          <TouchableOpacity 
+            style={styles.primaryButton}
+            onPress={() => router.push('/(tabs)/')}
+          >
+            <ThemedText style={styles.primaryButtonText}>
+              Go to My Layover
             </ThemedText>
-            <TouchableOpacity 
-              style={styles.primaryButton}
-              onPress={() => router.push('/(tabs)/')}
-            >
-              <ThemedText style={styles.primaryButtonText}>
-                Go to My Layover
-              </ThemedText>
-            </TouchableOpacity>
-          </View>
-        </ThemedView>
-      </>
+          </TouchableOpacity>
+        </View>
+      </ThemedView>
     );
   }
 
   if (loading) {
     return (
-      <>
-        <AppDrawer 
-          visible={drawerVisible}
-          onClose={() => setDrawerVisible(false)}
-        />
-        
-        <AppHeader 
-          onMenuPress={() => setDrawerVisible(true)}
-        />
-        
-        <ThemedView style={styles.container}>
-          <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: 100 }} />
-        </ThemedView>
-      </>
+      <ThemedView style={styles.container}>
+        <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: 100 }} />
+      </ThemedView>
     );
   }
 
   const displayedPlans = activeTab === 'my' ? myPlans : allPlans;
 
   return (
-    <>
-      <AppDrawer 
-        visible={drawerVisible}
-        onClose={() => setDrawerVisible(false)}
-      />
-      
-      <AppHeader 
-        onMenuPress={() => setDrawerVisible(true)}
-      />
-      
-      <ThemedView style={styles.container}>
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity 
-            style={styles.backButton}
-            onPress={() => router.back()}
-          >
-            <Ionicons name="arrow-back" size={24} color={Colors.primary} />
-            <ThemedText style={styles.backText}>Back</ThemedText>
-          </TouchableOpacity>
-          <ThemedText style={styles.headerTitle}>Plans in {currentCity}</ThemedText>
-          <TouchableOpacity 
-            style={styles.newButton}
-            onPress={handleCreatePlan}
-          >
-            <Ionicons name="add" size={20} color={Colors.white} />
-            <ThemedText style={styles.newButtonText}>New</ThemedText>
-          </TouchableOpacity>
-        </View>
+    <ThemedView style={styles.container}>
 
         {/* Tabs */}
         <View style={styles.tabs}>
@@ -295,7 +230,6 @@ export default function PlansScreen() {
           )}
         </ScrollView>
       </ThemedView>
-    </>
   );
 }
 
@@ -303,50 +237,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 20, // Reduced from 60 since AppHeader provides spacing
-    paddingBottom: 20,
-  },
-  backButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  backText: {
-    fontSize: 16,
-    color: Colors.primary,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: Colors.text.primary,
-  },
-  newButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-  },
-  newButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.white,
-  },
-  placeholder: {
-    width: 70,
-  },
   tabs: {
     flexDirection: 'row',
     paddingHorizontal: 20,
     gap: 12,
     marginBottom: 20,
+    marginTop: 20,
   },
   tab: {
     flex: 1,

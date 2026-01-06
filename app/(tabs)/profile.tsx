@@ -22,6 +22,8 @@ type UserProfile = {
   bio: string;
   email: string;
   photoURL?: string;
+  favoriteCities?: string[];
+  interests?: string[];
 };
 
 type Activity = {
@@ -311,7 +313,7 @@ export default function ProfileScreen() {
             </TouchableOpacity>
             <TouchableOpacity 
               style={styles.editButtonHeader}
-              onPress={() => router.push('/edit-profile')}
+              onPress={() => router.push('/edit-profile-enhanced')}
             >
               <Ionicons name="pencil" size={18} color={Colors.white} />
               <ThemedText style={styles.editButtonText}>Edit</ThemedText>
@@ -347,6 +349,40 @@ export default function ProfileScreen() {
             <ThemedText style={styles.bio}>
               {profile.bio}
             </ThemedText>
+          )}
+
+          {/* Favorite Cities */}
+          {profile?.favoriteCities && profile.favoriteCities.length > 0 && (
+            <View style={styles.favoriteCitiesContainer}>
+              <View style={styles.sectionHeaderRow}>
+                <Ionicons name="airplane" size={16} color={Colors.primary} />
+                <ThemedText style={styles.sectionHeaderText}>Favorite Layover Cities</ThemedText>
+              </View>
+              <View style={styles.tagsContainer}>
+                {profile.favoriteCities.map((city, index) => (
+                  <View key={index} style={styles.cityTag}>
+                    <ThemedText style={styles.cityTagText}>{city}</ThemedText>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+
+          {/* Interests */}
+          {profile?.interests && profile.interests.length > 0 && (
+            <View style={styles.interestsContainer}>
+              <View style={styles.sectionHeaderRow}>
+                <Ionicons name="heart" size={16} color={Colors.primary} />
+                <ThemedText style={styles.sectionHeaderText}>Interests</ThemedText>
+              </View>
+              <View style={styles.tagsContainer}>
+                {profile.interests.map((interest, index) => (
+                  <View key={index} style={styles.interestTag}>
+                    <ThemedText style={styles.interestTagText}>{interest}</ThemedText>
+                  </View>
+                ))}
+              </View>
+            </View>
           )}
         </View>
 
@@ -774,5 +810,55 @@ const styles = StyleSheet.create({
     color: Colors.white,
     fontSize: 16,
     fontWeight: '600',
+  },
+  favoriteCitiesContainer: {
+    marginTop: 20,
+    width: '100%',
+  },
+  interestsContainer: {
+    marginTop: 16,
+    width: '100%',
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  sectionHeaderText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Colors.text.primary,
+  },
+  tagsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  cityTag: {
+    backgroundColor: Colors.primary + '15',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.primary + '30',
+  },
+  cityTagText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.primary,
+  },
+  interestTag: {
+    backgroundColor: Colors.accent + '15',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.accent + '30',
+  },
+  interestTagText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.accent,
   },
 });
