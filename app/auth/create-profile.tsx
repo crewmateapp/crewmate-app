@@ -3,8 +3,8 @@ import { ThemedView } from '@/components/themed-view';
 import { db, storage } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
+import { useCities } from '@/hooks/useCities';
 import { getAirlineFromEmail } from '@/data/airlines';
-import { cities } from '@/data/cities';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
@@ -34,6 +34,7 @@ const POSITIONS = [
 
 export default function CreateProfileScreen() {
   const { user } = useAuth();
+  const { cities, loading: citiesLoading } = useCities();
   const [firstName, setFirstName] = useState('');
   const [lastInitial, setLastInitial] = useState('');
   const [position, setPosition] = useState('');

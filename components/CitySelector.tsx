@@ -1,15 +1,15 @@
-import React, { useState, useMemo } from 'react';
+import { ThemedText } from '@/components/themed-text';
+import { useCities } from '@/hooks/useCities';
+import { Ionicons } from '@expo/vector-icons';
+import React, { useMemo, useState } from 'react';
 import {
-  StyleSheet,
-  View,
-  TextInput,
-  TouchableOpacity,
   FlatList,
   Modal,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { ThemedText } from '@/components/themed-text';
-import { cities } from '@/data/cities';
 
 const COLORS = {
   primary: '#114878',
@@ -34,6 +34,7 @@ export default function CitySelector({
   recentCities,
   onSelectCity,
 }: CitySelectorProps) {
+  const { cities, loading: citiesLoading } = useCities();
   const [searchQuery, setSearchQuery] = useState('');
   const [showModal, setShowModal] = useState(false);
 

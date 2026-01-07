@@ -14,7 +14,7 @@ import { collection, query, where, orderBy, limit, getDocs } from 'firebase/fire
 import { db, auth } from '@/config/firebase';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { cities } from '@/data/cities';
+import { useCities } from '@/hooks/useCities';
 import CitySelector from '@/components/CitySelector';
 import CategoryTabs from '@/components/CategoryTabs';
 import SpotCard from '@/components/SpotCard';
@@ -64,6 +64,7 @@ type FilterSettings = {
 };
 
 export default function ExploreScreen() {
+  const { cities, loading: citiesLoading } = useCities();
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
   const [userLayoverCity, setUserLayoverCity] = useState<string | null>(null);
   const [recentCities, setRecentCities] = useState<string[]>([]);

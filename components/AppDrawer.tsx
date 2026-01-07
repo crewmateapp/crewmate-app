@@ -3,21 +3,22 @@ import { ThemedText } from '@/components/themed-text';
 import { db } from '@/config/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { isAdmin, useAdminRole } from '@/hooks/useAdminRole';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { doc, getDoc } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import {
-    Alert,
-    Image,
-    Linking,
-    Modal,
-    Platform,
-    ScrollView,
-    Share,
-    StyleSheet,
-    TouchableOpacity,
-    View,
+  Alert,
+  Image,
+  Linking,
+  Modal,
+  Platform,
+  ScrollView,
+  Share,
+  StyleSheet,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
 interface AppDrawerProps {
@@ -40,6 +41,7 @@ const BUILD_NUMBER = '3';
 export default function AppDrawer({ visible, onClose }: AppDrawerProps) {
   const { user, signOut } = useAuth();
   const { theme, setTheme, colors } = useTheme();
+  const { role } = useAdminRole();
   const [profile, setProfile] = useState<UserProfile | null>(null);
 
   useEffect(() => {
@@ -106,7 +108,7 @@ User ID: ${user?.uid}
 Device: ${Platform.OS} ${Platform.Version}
     `.trim();
 
-    const emailUrl = `mailto:support@crewmate.app?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    const emailUrl = `mailto:crewmateapphq@gmail.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     
     try {
       const canOpen = await Linking.canOpenURL(emailUrl);
@@ -115,14 +117,14 @@ Device: ${Platform.OS} ${Platform.Version}
       } else {
         Alert.alert(
           'Email Not Available',
-          'Please email us at support@crewmate.app',
+          'Please email us at crewmateapphq@gmail.com',
           [{ text: 'OK' }]
         );
       }
     } catch (error) {
       Alert.alert(
         'Error',
-        'Could not open email. Please contact support@crewmate.app',
+        'Could not open email. Please contact crewmateapphq@gmail.com',
         [{ text: 'OK' }]
       );
     }
@@ -249,6 +251,18 @@ Device: ${Platform.OS} ${Platform.Version}
                 <ThemedText style={styles.menuText}>Profile</ThemedText>
                 <Ionicons name="chevron-forward" size={20} color={colors.text.secondary} />
               </TouchableOpacity>
+
+              {/* Admin Panel - Only visible to admins */}
+              {isAdmin(role) && (
+                <TouchableOpacity 
+                  style={styles.menuItem}
+                  onPress={() => handleNavigation('/admin')}
+                >
+                  <Ionicons name="shield-checkmark" size={24} color={colors.primary} />
+                  <ThemedText style={[styles.menuText, { color: colors.primary }]}>Admin Panel</ThemedText>
+                  <Ionicons name="chevron-forward" size={20} color={colors.primary} />
+                </TouchableOpacity>
+              )}
 
               {/* My Reviews */}
               <TouchableOpacity 

@@ -4,7 +4,6 @@ import { ThemedView } from '@/components/themed-view';
 import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
-import { cities } from '@/data/cities';
 import { isSuperAdmin, useAdminRole } from '@/hooks/useAdminRole';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';

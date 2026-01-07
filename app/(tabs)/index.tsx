@@ -5,7 +5,7 @@ import { ThemedView } from '@/components/themed-view';
 import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
-import { cities } from '@/data/cities';
+import { useCities } from '@/hooks/useCities';
 import { Plan } from '@/types/plan';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -72,6 +72,7 @@ const getDistance = (
 
 export default function MyLayoverScreen() {
   const { user } = useAuth();
+  const { cities, loading: citiesLoading } = useCities();
   const [loading, setLoading] = useState(true);
   const [myLayover, setMyLayover] = useState<UserLayover | null>(null);
   const [crewLiveCount, setCrewLiveCount] = useState(0);

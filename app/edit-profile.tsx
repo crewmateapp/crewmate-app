@@ -3,7 +3,7 @@ import { ThemedView } from '@/components/themed-view';
 import { db, storage } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
-import { cities } from '@/data/cities';
+import { useCities } from '@/hooks/useCities';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
@@ -45,6 +45,7 @@ const POSITIONS = [
 ];
 
 export default function EditProfileScreen() {
+  const { cities, loading: citiesLoading } = useCities();
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);

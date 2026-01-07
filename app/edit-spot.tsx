@@ -3,13 +3,13 @@ import { ThemedView } from '@/components/themed-view';
 import { db, storage } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
-import { cities } from '@/data/cities';
+import { useCities } from '@/hooks/useCities';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
-import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -39,6 +39,7 @@ const categories = [
 const ADMIN_EMAILS = ['zachary.tillman@aa.com', 'johnny.guzman@aa.com'];
 
 export default function EditSpotScreen() {
+  const { cities, loading: citiesLoading } = useCities();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useAuth();
   

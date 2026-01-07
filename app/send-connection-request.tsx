@@ -141,14 +141,26 @@ export default function SendConnectionRequestScreen() {
   };
 
   const handleSendRequest = async () => {
-    if (!user || !userId) return;
+    if (!user || !userId || !profile) return;
 
     setSending(true);
     try {
-      // Create connection request
+      // Get current user's profile for name
+      const myProfileDoc = await getDoc(doc(db, 'users', user.uid));
+      const myProfile = myProfileDoc.data();
+      
+      if (!myProfile) {
+        Alert.alert('Error', 'Could not load your profile. Please try again.');
+        setSending(false);
+        return;
+      }
+
+      // Create connection request with user names
       await addDoc(collection(db, 'connectionRequests'), {
         fromUserId: user.uid,
+        fromUserName: myProfile.displayName || 'Crew Member',
         toUserId: userId,
+        toUserName: profile.displayName || 'Crew Member',
         message: message.trim() || null,
         status: 'pending',
         createdAt: serverTimestamp(),
