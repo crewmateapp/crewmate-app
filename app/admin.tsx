@@ -4,6 +4,7 @@ import { ThemedView } from '@/components/themed-view';
 import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
+import { cities as citiesData } from '@/data/cities';
 import { isSuperAdmin, useAdminRole } from '@/hooks/useAdminRole';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -243,11 +244,32 @@ export default function AdminScreen() {
 
     setAddingCity(true);
     try {
-      // Fetch airport data from OpenSky Network (FREE API)
-      const code = newAirportCode.toUpperCase().trim();
-      const response = await fetch(
-        `https://opensky-network.org/api/airports/?icao=${code}`
+      const inputCode = newAirportCode.toUpperCase().trim();
+      
+      // Convert IATA (3-letter) to ICAO (4-letter) for US airports
+      // OpenSky API requires ICAO codes
+      let icaoCode = inputCode;
+      
+      if (inputCode.length === 3) {
+        // US airports: Add 'K' prefix (e.g., ATL → KATL)
+        icaoCode = 'K' + inputCode;
+        console.log(`Converting IATA "${inputCode}" to ICAO "${icaoCode}"`);
+      }
+      
+      // Try the converted code first
+      console.log('Fetching airport data for:', icaoCode);
+      let response = await fetch(
+        `https://opensky-network.org/api/airports/?icao=${icaoCode}`
       );
+      
+      // If that fails and we added a K prefix, try without it (international airports)
+      if (!response.ok && icaoCode.startsWith('K')) {
+        console.log('US code failed, trying without K prefix...');
+        icaoCode = inputCode;
+        response = await fetch(
+          `https://opensky-network.org/api/airports/?icao=${icaoCode}`
+        );
+      }
       
       if (!response.ok) {
         throw new Error('Airport not found');
@@ -256,32 +278,38 @@ export default function AdminScreen() {
       const data = await response.json();
       
       if (!data || data.length === 0) {
-        Alert.alert('Not Found', 'Could not find airport with that code. Please add manually.');
+        Alert.alert(
+          'Not Found', 
+          `Could not find airport with code "${inputCode}". Try:\n• Using ICAO code (e.g., KATL instead of ATL)\n• Checking the spelling\n• A different airport`
+        );
         setAddingCity(false);
         return;
       }
 
       const airport = data[0];
+      
+      // Use the original 3-letter code if that's what user entered
+      const displayCode = inputCode.length === 3 ? inputCode : icaoCode;
 
       // Create city document with your structure
       const newCity: Partial<City> = {
         name: airport.city || airport.name,
-        code: code,
+        code: displayCode, // Use IATA code for display
         lat: airport.latitude,
         lng: airport.longitude,
-        areas: [`${code} Airport Area`, 'Downtown'], // Default areas
+        areas: [`${displayCode} Airport Area`, 'Downtown'], // Default areas
         status: 'active',
         createdAt: serverTimestamp(),
       };
 
-      await setDoc(doc(db, 'cities', code), newCity);
+      await setDoc(doc(db, 'cities', displayCode), newCity);
 
       Alert.alert('Success', `Added ${newCity.name}! You can now edit to add neighborhoods.`);
       setNewAirportCode('');
       loadCities();
     } catch (error) {
       console.error('Error adding city:', error);
-      Alert.alert('Error', 'Failed to add city. Please try again.');
+      Alert.alert('Error', 'Failed to add city. Please check the code and try again.');
     } finally {
       setAddingCity(false);
     }
@@ -418,8 +446,12 @@ export default function AdminScreen() {
             setMigrationStatus('Starting migration...');
 
             try {
-              // Import the cities data from the correct location
-              const { cities } = await import('@/data/cities');
+              // Use the cities data imported at the top of the file
+              const cities = citiesData;
+              
+              if (!cities || cities.length === 0) {
+                throw new Error('Cities data is empty or undefined');
+              }
               
               let successCount = 0;
               let errorCount = 0;
