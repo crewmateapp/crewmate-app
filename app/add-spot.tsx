@@ -61,6 +61,7 @@ interface PlaceDetails {
   place_id: string;
 }
 
+// FIXED: Removed 'async' keyword - React components cannot be async functions
 export default function AddSpotScreen() {
   const { cities, loading: citiesLoading } = useCities();
   const { city: cityParam } = useLocalSearchParams<{ city?: string }>();
@@ -108,7 +109,8 @@ export default function AddSpotScreen() {
         return name.includes(q) || airportCode.startsWith(q);
       })
       .slice(0, 30);
-  }, [searchQuery]);
+  }, [searchQuery, cities]);
+  
 
   // Fetch place predictions from Google Places Autocomplete API
   const fetchPlacePredictions = async (input: string) => {
@@ -517,7 +519,7 @@ export default function AddSpotScreen() {
                 )}
               </View>
               <ThemedText style={styles.hint}>
-                Start typing to search for a business
+                Start typing to search Google Places
               </ThemedText>
             </View>
 
@@ -531,12 +533,12 @@ export default function AddSpotScreen() {
               </View>
             )}
 
-            {/* Selected Business Display */}
+            {/* Selected Spot Display */}
             {name && !loadingDetails && (
               <View style={styles.selectedSpot}>
                 <Ionicons name="checkmark-circle" size={24} color="#4caf50" />
                 <ThemedText style={styles.selectedSpotName}>{name}</ThemedText>
-                <Pressable 
+                <Pressable
                   onPress={() => {
                     setName('');
                     setPlaceId('');
@@ -545,10 +547,11 @@ export default function AddSpotScreen() {
                     setWebsite('');
                     setLatitude(null);
                     setLongitude(null);
+                    setCategory('');
                     setPlaceSearchQuery('');
                   }}
                 >
-                  <Ionicons name="close-circle" size={24} color="#888" />
+                  <Ionicons name="close-circle" size={24} color="#666" />
                 </Pressable>
               </View>
             )}
@@ -573,20 +576,22 @@ export default function AddSpotScreen() {
               </View>
             </View>
 
-            {/* City Picker */}
+            {/* City Selection */}
             <View style={styles.inputContainer}>
               <ThemedText style={styles.label}>City *</ThemedText>
               <Pressable style={styles.pickerButton} onPress={openCityPicker}>
-                <ThemedText style={city ? styles.pickerText : styles.pickerPlaceholder}>
-                  {city || 'Select city'}
-                </ThemedText>
+                {city ? (
+                  <ThemedText style={styles.pickerText}>{city}</ThemedText>
+                ) : (
+                  <ThemedText style={styles.pickerPlaceholder}>Select a city</ThemedText>
+                )}
               </Pressable>
             </View>
 
-            {/* Area Display (if selected) */}
-            {area && (
+            {/* Area Selection (if city selected and has areas) */}
+            {city && selectedCityObj?.areas?.length > 0 && (
               <View style={styles.inputContainer}>
-                <ThemedText style={styles.label}>Area</ThemedText>
+                <ThemedText style={styles.label}>Area (Optional)</ThemedText>
                 <Pressable 
                   style={styles.pickerButton} 
                   onPress={() => selectedCityObj && setAreaModalVisible(true)}

@@ -1,6 +1,7 @@
 import React from 'react';
 import { StyleSheet, View, TouchableOpacity, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { SaveButton } from '@/components/SaveButton';
 import { ThemedText } from '@/components/themed-text';
 
@@ -118,7 +119,6 @@ export default function SpotCard({
           if (photoUrl && (spot.photos || spot.photoURLs)) {
             const photos = spot.photoURLs || spot.photos || [];
             if (photos.length > 0) {
-              // @ts-ignore
               router.push({
                 pathname: '/photo-viewer',
                 params: {

@@ -67,8 +67,8 @@ export default function ChatScreen() {
         setMessages(loadedMessages);
         setLoading(false);
         
-        // Mark conversation as read for current user
-        markConversationAsRead();
+        // Mark connection as read for current user
+        markConnectionAsRead();
       },
       (error) => {
         console.error('Error loading messages:', error);
@@ -79,12 +79,13 @@ export default function ChatScreen() {
     return () => unsubscribe();
   }, [id, user]);
 
-  const markConversationAsRead = async () => {
+  // FIXED: Changed from 'conversations' to 'connections'
+  const markConnectionAsRead = async () => {
     if (!id || !user) return;
     
     try {
-      const conversationRef = doc(db, 'conversations', id);
-      await updateDoc(conversationRef, {
+      const connectionRef = doc(db, 'connections', id);
+      await updateDoc(connectionRef, {
         [`unreadCount.${user.uid}`]: 0,
       });
     } catch (error) {
@@ -107,15 +108,15 @@ export default function ChatScreen() {
         read: false,
       });
 
-      // Update conversation metadata
-      const conversationRef = doc(db, 'conversations', id);
-      const conversationSnap = await getDoc(conversationRef);
+      // FIXED: Changed from 'conversations' to 'connections' and 'participantIds' to 'userIds'
+      const connectionRef = doc(db, 'connections', id);
+      const connectionSnap = await getDoc(connectionRef);
       
-      if (conversationSnap.exists()) {
-        const data = conversationSnap.data();
-        const otherUserId = data.participantIds.find((uid: string) => uid !== user.uid);
+      if (connectionSnap.exists()) {
+        const data = connectionSnap.data();
+        const otherUserId = data.userIds.find((uid: string) => uid !== user.uid);
         
-        await updateDoc(conversationRef, {
+        await updateDoc(connectionRef, {
           lastMessage: newMessage.trim(),
           lastMessageTime: serverTimestamp(),
           [`unreadCount.${otherUserId}`]: (data.unreadCount?.[otherUserId] || 0) + 1,

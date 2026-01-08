@@ -53,14 +53,14 @@ export default function TabLayout() {
     return () => unsubscribe();
   }, [user]);
 
-  // Listen for unread messages
+  // Listen for unread messages - FIXED: use connections with userIds
   useEffect(() => {
     if (!user) return;
 
-    const conversationsRef = collection(db, 'conversations');
+    const connectionsRef = collection(db, 'connections');
     const q = query(
-      conversationsRef,
-      where('participantIds', 'array-contains', user.uid)
+      connectionsRef,
+      where('userIds', 'array-contains', user.uid)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {

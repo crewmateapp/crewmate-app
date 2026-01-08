@@ -11,7 +11,6 @@ import {
   doc,
   getDoc,
   onSnapshot,
-  orderBy,
   query,
   where,
 } from 'firebase/firestore';
@@ -45,12 +44,11 @@ export default function MessagesScreen() {
   useEffect(() => {
     if (!user) return;
 
-    // Listen for conversations where user is participant
-    const conversationsRef = collection(db, 'conversations');
+    // FIXED: Listen for connections where user is in userIds
+    const connectionsRef = collection(db, 'connections');
     const q = query(
-      conversationsRef,
-      where('participantIds', 'array-contains', user.uid),
-      orderBy('lastMessageTime', 'desc')
+      connectionsRef,
+      where('userIds', 'array-contains', user.uid)
     );
 
     const unsubscribe = onSnapshot(
@@ -61,27 +59,48 @@ export default function MessagesScreen() {
         for (const docSnap of snapshot.docs) {
           const data = docSnap.data();
           
-          // Get the other user's ID
-          const otherUserId = data.participantIds.find(
+          // Only show connections that have messages (lastMessage exists and isn't empty)
+          if (!data.lastMessage && data.lastMessage !== '') continue;
+          
+          // FIXED: Get the other user's ID from userIds array
+          const otherUserId = data.userIds.find(
             (id: string) => id !== user.uid
           );
 
           if (!otherUserId) continue;
 
-          // Fetch other user's data
-          const otherUserDoc = await getDoc(doc(db, 'users', otherUserId));
-          const otherUserData = otherUserDoc.data();
+          // Get other user's name from userNames map, or fetch from users collection
+          let otherUserName = data.userNames?.[otherUserId] || 'Unknown User';
+          let otherUserPhoto: string | undefined;
+
+          // Fetch other user's photo
+          try {
+            const otherUserDoc = await getDoc(doc(db, 'users', otherUserId));
+            const otherUserData = otherUserDoc.data();
+            if (otherUserData) {
+              otherUserPhoto = otherUserData.photoURL;
+              // Update name if we have a better one from the user doc
+              if (otherUserData.displayName) {
+                otherUserName = otherUserData.displayName;
+              }
+            }
+          } catch (error) {
+            console.error('Error fetching user data:', error);
+          }
 
           convos.push({
             id: docSnap.id,
             otherUserId,
-            otherUserName: otherUserData?.displayName || 'Unknown User',
-            otherUserPhoto: otherUserData?.photoURL,
+            otherUserName,
+            otherUserPhoto,
             lastMessage: data.lastMessage || 'No messages yet',
             lastMessageTime: data.lastMessageTime?.toDate() || new Date(),
             unreadCount: data.unreadCount?.[user.uid] || 0,
           });
         }
+
+        // Sort by lastMessageTime (most recent first)
+        convos.sort((a, b) => b.lastMessageTime.getTime() - a.lastMessageTime.getTime());
 
         setConversations(convos);
         setLoading(false);
