@@ -41,7 +41,7 @@ export default function CitySelector({
   // Get all city names for searching
   const allCityNames = useMemo(() => {
     return cities.map(city => `${city.name} (${city.code})`);
-  }, []);
+  }, [cities]);
 
   // Filter cities based on search query
   const filteredCities = useMemo(() => {

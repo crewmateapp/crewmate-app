@@ -146,8 +146,14 @@ export default function ConnectionsScreen() {
   }, [user]);
 
   const handleAccept = async (request: ConnectionRequest) => {
+    console.log('=== ACCEPT CONNECTION DEBUG ===');
+    console.log('Request object:', JSON.stringify(request, null, 2));
+    console.log('fromUserName:', request.fromUserName);
+    console.log('toUserName:', request.toUserName);
+    
     try {
       // First check if connection already exists
+      console.log('Checking for existing connection...');
       const existingConnectionQuery = query(
         collection(db, 'connections'),
         where('userIds', 'array-contains', user!.uid)
@@ -160,6 +166,7 @@ export default function ConnectionsScreen() {
       });
       
       if (alreadyConnected) {
+        console.log('Already connected - removing duplicate request');
         // Already connected - just remove the request
         setIncomingRequests(prev => prev.filter(r => r.id !== request.id));
         
@@ -173,28 +180,40 @@ export default function ConnectionsScreen() {
       }
       
       // Create the connection
-      await addDoc(collection(db, 'connections'), {
+      console.log('Creating connection...');
+      const connectionData = {
         userIds: [request.fromUserId, request.toUserId],
         userNames: {
           [request.fromUserId]: request.fromUserName,
           [request.toUserId]: request.toUserName,
         },
         createdAt: serverTimestamp(),
-      });
+      };
+      console.log('Connection data:', JSON.stringify(connectionData, null, 2));
+      
+      await addDoc(collection(db, 'connections'), connectionData);
+      console.log('Connection created successfully!');
       
       // Immediately remove from UI for better UX
       setIncomingRequests(prev => prev.filter(r => r.id !== request.id));
       
       // Then delete the request from Firestore
       try {
+        console.log('Deleting connection request...');
         await deleteDoc(doc(db, 'connectionRequests', request.id));
+        console.log('Request deleted successfully!');
       } catch (deleteError) {
         console.error('Error deleting connection request:', deleteError);
         // UI already updated, this is just cleanup
       }
-    } catch (error) {
-      console.error('Error accepting request:', error);
-      Alert.alert('Error', 'Failed to accept connection request. Please try again.');
+      
+      Alert.alert('Success!', `You're now connected!`);
+    } catch (error: any) {
+      console.error('=== ERROR ACCEPTING CONNECTION ===');
+      console.error('Error message:', error.message);
+      console.error('Error code:', error.code);
+      console.error('Full error:', error);
+      Alert.alert('Error', `Failed to accept connection: ${error.message || 'Unknown error'}`);
     }
   };
 
