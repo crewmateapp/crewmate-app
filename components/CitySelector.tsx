@@ -1,8 +1,16 @@
+// components/CitySelector.tsx
+// Updated to search airport database and allow requesting new cities
+
 import { ThemedText } from '@/components/themed-text';
+import { db, auth } from '@/config/firebase';
 import { useCities } from '@/hooks/useCities';
+import { searchAirports, AirportData } from '@/utils/airportData';
 import { Ionicons } from '@expo/vector-icons';
+import { collection, addDoc, serverTimestamp, query, where, getDocs } from 'firebase/firestore';
 import React, { useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   FlatList,
   Modal,
   StyleSheet,
@@ -19,6 +27,7 @@ const COLORS = {
   mediumGray: '#999999',
   darkGray: '#333333',
   border: '#E0E0E0',
+  success: '#34C759',
 };
 
 type CitySelectorProps = {
@@ -26,6 +35,14 @@ type CitySelectorProps = {
   userLayoverCity: string | null;
   recentCities: string[];
   onSelectCity: (city: string) => void;
+};
+
+type CityListItem = {
+  type: 'city' | 'airport' | 'request';
+  name: string;
+  code: string;
+  displayName: string;
+  airportData?: AirportData;
 };
 
 export default function CitySelector({
@@ -37,35 +54,345 @@ export default function CitySelector({
   const { cities, loading: citiesLoading } = useCities();
   const [searchQuery, setSearchQuery] = useState('');
   const [showModal, setShowModal] = useState(false);
+  const [requestingCity, setRequestingCity] = useState<string | null>(null);
 
-  // Get all city names for searching
-  const allCityNames = useMemo(() => {
-    return cities.map(city => `${city.name} (${city.code})`);
+  // Get existing city codes for comparison
+  const existingCityCodes = useMemo(() => {
+    return new Set(cities.map(city => city.code.toUpperCase()));
   }, [cities]);
 
-  // Filter cities based on search query
-  const filteredCities = useMemo(() => {
-    if (!searchQuery.trim()) {
-      return allCityNames;
-    }
-    const query = searchQuery.toLowerCase();
-    return allCityNames.filter(cityName =>
-      cityName.toLowerCase().includes(query)
-    );
-  }, [searchQuery, allCityNames]);
+  // Combined search results: Firestore cities + airport database suggestions
+  const searchResults = useMemo((): CityListItem[] => {
+    const results: CityListItem[] = [];
+    const query = searchQuery.trim().toLowerCase();
 
-  const handleSelectCity = (cityFullName: string) => {
-    // Extract just the city name (before the parenthesis)
-    // Format: "San Diego (SAN)" -> "San Diego"
-    const cityName = cityFullName.split('(')[0].trim();
-    onSelectCity(cityName);
-    setShowModal(false);
-    setSearchQuery('');
+    // First, add matching Firestore cities
+    cities.forEach(city => {
+      const matchesName = city.name.toLowerCase().includes(query);
+      const matchesCode = city.code.toLowerCase().includes(query);
+      
+      if (!query || matchesName || matchesCode) {
+        results.push({
+          type: 'city',
+          name: city.name,
+          code: city.code,
+          displayName: `${city.name} (${city.code})`,
+        });
+      }
+    });
+
+    // If there's a search query, also search the airport database
+    if (query.length >= 2) {
+      const airportMatches = searchAirports(searchQuery);
+      
+      airportMatches.forEach(airport => {
+        // Only show airports NOT already in Firestore
+        if (!existingCityCodes.has(airport.code.toUpperCase())) {
+          results.push({
+            type: 'airport',
+            name: airport.name,
+            code: airport.code,
+            displayName: `${airport.name} (${airport.code})`,
+            airportData: airport,
+          });
+        }
+      });
+    }
+
+    return results;
+  }, [searchQuery, cities, existingCityCodes]);
+
+  // Check if we should show "request city" prompt
+  const showRequestPrompt = useMemo(() => {
+    const query = searchQuery.trim();
+    if (query.length < 2) return false;
+    
+    // Show if no exact matches in results
+    const hasExactMatch = searchResults.some(
+      r => r.type === 'city' && (
+        r.name.toLowerCase() === query.toLowerCase() ||
+        r.code.toLowerCase() === query.toLowerCase()
+      )
+    );
+    
+    return !hasExactMatch && searchResults.length === 0;
+  }, [searchQuery, searchResults]);
+
+  const handleSelectCity = (item: CityListItem) => {
+    if (item.type === 'city') {
+      // Existing city - just select it
+      onSelectCity(item.name);
+      setShowModal(false);
+      setSearchQuery('');
+    } else if (item.type === 'airport') {
+      // Airport not in system - ask to request it
+      Alert.alert(
+        'City Not Available Yet',
+        `${item.name} (${item.code}) hasn't been added to CrewMate yet. Would you like to request it?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Request City',
+            onPress: () => handleRequestCity(item.airportData!),
+          },
+        ]
+      );
+    }
+  };
+
+  const handleRequestCity = async (airport: AirportData) => {
+    const user = auth.currentUser;
+    if (!user) {
+      Alert.alert('Sign In Required', 'Please sign in to request a city.');
+      return;
+    }
+
+    setRequestingCity(airport.code);
+
+    try {
+      // Check if already requested
+      const existingQuery = query(
+        collection(db, 'cityRequests'),
+        where('airportCode', '==', airport.code),
+        where('status', '==', 'pending')
+      );
+      const existing = await getDocs(existingQuery);
+      
+      if (!existing.empty) {
+        Alert.alert(
+          'Already Requested',
+          `${airport.name} (${airport.code}) has already been requested and is pending review.`
+        );
+        setRequestingCity(null);
+        return;
+      }
+
+      // Submit the request with full airport data
+      await addDoc(collection(db, 'cityRequests'), {
+        airportCode: airport.code,
+        cityName: airport.name,
+        fullName: airport.fullName,
+        lat: airport.lat,
+        lng: airport.lng,
+        suggestedAreas: airport.areas,
+        country: airport.country,
+        requestedBy: user.uid,
+        requestedByName: user.displayName || 'Anonymous',
+        requestedByEmail: user.email || '',
+        status: 'pending',
+        createdAt: serverTimestamp(),
+      });
+
+      Alert.alert(
+        'Request Submitted! ✈️',
+        `Thanks for requesting ${airport.name}! Our team will review and add it soon.`,
+        [{ text: 'OK', onPress: () => setShowModal(false) }]
+      );
+      setSearchQuery('');
+    } catch (error) {
+      console.error('Error requesting city:', error);
+      Alert.alert('Error', 'Failed to submit request. Please try again.');
+    } finally {
+      setRequestingCity(null);
+    }
+  };
+
+  const handleManualRequest = async () => {
+    const user = auth.currentUser;
+    if (!user) {
+      Alert.alert('Sign In Required', 'Please sign in to request a city.');
+      return;
+    }
+
+    const code = searchQuery.toUpperCase().trim();
+    
+    // Check if it looks like a valid airport code
+    if (code.length < 3 || code.length > 4) {
+      Alert.alert(
+        'Enter Airport Code',
+        'Please enter a valid 3 or 4 letter airport code (e.g., LAX, JFK, KJFK)'
+      );
+      return;
+    }
+
+    setRequestingCity(code);
+
+    try {
+      // Check if already requested or exists
+      const existingQuery = query(
+        collection(db, 'cityRequests'),
+        where('airportCode', '==', code),
+        where('status', '==', 'pending')
+      );
+      const existing = await getDocs(existingQuery);
+      
+      if (!existing.empty) {
+        Alert.alert(
+          'Already Requested',
+          `${code} has already been requested and is pending review.`
+        );
+        setRequestingCity(null);
+        return;
+      }
+
+      // Submit request without full data - admin will need to fill in
+      await addDoc(collection(db, 'cityRequests'), {
+        airportCode: code,
+        cityName: code, // Placeholder
+        requestedBy: user.uid,
+        requestedByName: user.displayName || 'Anonymous',
+        requestedByEmail: user.email || '',
+        status: 'pending',
+        needsData: true, // Flag that this needs manual data entry
+        createdAt: serverTimestamp(),
+      });
+
+      Alert.alert(
+        'Request Submitted! ✈️',
+        `Thanks for requesting ${code}! Our team will review and add it soon.`,
+        [{ text: 'OK', onPress: () => setShowModal(false) }]
+      );
+      setSearchQuery('');
+    } catch (error) {
+      console.error('Error requesting city:', error);
+      Alert.alert('Error', 'Failed to submit request. Please try again.');
+    } finally {
+      setRequestingCity(null);
+    }
   };
 
   const openSearch = () => {
     setShowModal(true);
   };
+
+  const renderItem = ({ item }: { item: CityListItem }) => {
+    const cityName = item.name;
+    const isLayover = cityName === userLayoverCity;
+    const isRecent = recentCities.includes(cityName);
+    const isAirport = item.type === 'airport';
+    const isRequesting = requestingCity === item.code;
+
+    return (
+      <TouchableOpacity
+        style={[styles.cityItem, isAirport && styles.airportItem]}
+        onPress={() => handleSelectCity(item)}
+        disabled={isRequesting}
+      >
+        <View style={styles.cityItemLeft}>
+          {isAirport ? (
+            <View style={styles.requestBadge}>
+              <Ionicons name="add-circle" size={18} color={COLORS.accent} />
+            </View>
+          ) : isLayover ? (
+            <Ionicons
+              name="airplane"
+              size={18}
+              color={COLORS.primary}
+              style={styles.cityIcon}
+            />
+          ) : isRecent ? (
+            <Ionicons
+              name="time-outline"
+              size={18}
+              color={COLORS.mediumGray}
+              style={styles.cityIcon}
+            />
+          ) : null}
+          
+          <View style={styles.cityTextContainer}>
+            <ThemedText style={[styles.cityItemText, isAirport && styles.airportItemText]}>
+              {item.displayName}
+            </ThemedText>
+            {isAirport && (
+              <ThemedText style={styles.requestHint}>
+                Tap to request this city
+              </ThemedText>
+            )}
+          </View>
+        </View>
+        
+        {isRequesting ? (
+          <ActivityIndicator size="small" color={COLORS.primary} />
+        ) : (
+          <Ionicons 
+            name={isAirport ? "add" : "chevron-forward"} 
+            size={20} 
+            color={isAirport ? COLORS.accent : COLORS.mediumGray} 
+          />
+        )}
+      </TouchableOpacity>
+    );
+  };
+
+  const renderEmptyOrRequest = () => {
+    if (citiesLoading) {
+      return (
+        <View style={styles.emptyState}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+          <ThemedText style={styles.emptyText}>Loading cities...</ThemedText>
+        </View>
+      );
+    }
+
+    if (showRequestPrompt && searchQuery.length >= 3) {
+      return (
+        <View style={styles.requestContainer}>
+          <View style={styles.requestCard}>
+            <Ionicons name="airplane-outline" size={48} color={COLORS.primary} />
+            <ThemedText style={styles.requestTitle}>City not found</ThemedText>
+            <ThemedText style={styles.requestSubtitle}>
+              Can't find "{searchQuery}"? Request it to be added!
+            </ThemedText>
+            <TouchableOpacity
+              style={styles.requestButton}
+              onPress={handleManualRequest}
+              disabled={requestingCity !== null}
+            >
+              {requestingCity ? (
+                <ActivityIndicator size="small" color={COLORS.white} />
+              ) : (
+                <>
+                  <Ionicons name="add-circle" size={20} color={COLORS.white} />
+                  <ThemedText style={styles.requestButtonText}>
+                    Request "{searchQuery.toUpperCase()}"
+                  </ThemedText>
+                </>
+              )}
+            </TouchableOpacity>
+            <ThemedText style={styles.requestNote}>
+              Enter a 3-letter airport code (e.g., GSP, AVL)
+            </ThemedText>
+          </View>
+        </View>
+      );
+    }
+
+    if (searchResults.length === 0 && searchQuery.length > 0) {
+      return (
+        <View style={styles.emptyState}>
+          <Ionicons name="search-outline" size={48} color={COLORS.mediumGray} />
+          <ThemedText style={styles.emptyText}>
+            Keep typing to search...
+          </ThemedText>
+        </View>
+      );
+    }
+
+    if (searchResults.length === 0) {
+      return (
+        <View style={styles.emptyState}>
+          <Ionicons name="location-outline" size={48} color={COLORS.mediumGray} />
+          <ThemedText style={styles.emptyText}>No cities available</ThemedText>
+        </View>
+      );
+    }
+
+    return null;
+  };
+
+  // Separate existing cities and requestable airports for display
+  const existingCities = searchResults.filter(r => r.type === 'city');
+  const requestableAirports = searchResults.filter(r => r.type === 'airport');
 
   return (
     <View style={styles.container}>
@@ -73,7 +400,7 @@ export default function CitySelector({
       <TouchableOpacity style={styles.searchBar} onPress={openSearch}>
         <Ionicons name="search" size={20} color={COLORS.mediumGray} />
         <ThemedText style={styles.searchPlaceholder}>
-          {selectedCity || 'Search city or area...'}
+          {selectedCity || 'Search city or airport code...'}
         </ThemedText>
         {selectedCity && (
           <TouchableOpacity onPress={() => onSelectCity('')}>
@@ -145,12 +472,12 @@ export default function CitySelector({
             <Ionicons name="search" size={20} color={COLORS.mediumGray} />
             <TextInput
               style={styles.modalSearchInput}
-              placeholder="Search cities..."
+              placeholder="Search city name or airport code..."
               placeholderTextColor={COLORS.mediumGray}
               value={searchQuery}
               onChangeText={setSearchQuery}
               autoFocus
-              autoCapitalize="words"
+              autoCapitalize="characters"
             />
             {searchQuery.length > 0 && (
               <TouchableOpacity onPress={() => setSearchQuery('')}>
@@ -159,52 +486,42 @@ export default function CitySelector({
             )}
           </View>
 
-          {/* Cities List */}
-          <FlatList
-            data={filteredCities}
-            keyExtractor={(item, index) => `${item}-${index}`}
-            renderItem={({ item }) => {
-              const cityName = item.split(',')[0].trim();
-              const isLayover = cityName === userLayoverCity;
-              const isRecent = recentCities.includes(cityName);
-
-              return (
-                <TouchableOpacity
-                  style={styles.cityItem}
-                  onPress={() => handleSelectCity(item)}
-                >
-                  <View style={styles.cityItemLeft}>
-                    {isLayover && (
-                      <Ionicons
-                        name="airplane"
-                        size={18}
-                        color={COLORS.primary}
-                        style={styles.cityIcon}
-                      />
-                    )}
-                    {!isLayover && isRecent && (
-                      <Ionicons
-                        name="time-outline"
-                        size={18}
-                        color={COLORS.mediumGray}
-                        style={styles.cityIcon}
-                      />
-                    )}
-                    <ThemedText style={styles.cityItemText}>{item}</ThemedText>
+          {/* Results */}
+          {searchResults.length > 0 ? (
+            <FlatList
+              data={searchResults}
+              keyExtractor={(item, index) => `${item.type}-${item.code}-${index}`}
+              renderItem={renderItem}
+              ItemSeparatorComponent={() => <View style={styles.separator} />}
+              contentContainerStyle={styles.citiesList}
+              ListHeaderComponent={
+                requestableAirports.length > 0 && existingCities.length > 0 ? (
+                  <View style={styles.sectionHeader}>
+                    <ThemedText style={styles.sectionHeaderText}>
+                      Available Cities
+                    </ThemedText>
                   </View>
-                  <Ionicons name="chevron-forward" size={20} color={COLORS.mediumGray} />
-                </TouchableOpacity>
-              );
-            }}
-            ItemSeparatorComponent={() => <View style={styles.separator} />}
-            ListEmptyComponent={
-              <View style={styles.emptyState}>
-                <Ionicons name="location-outline" size={48} color={COLORS.mediumGray} />
-                <ThemedText style={styles.emptyText}>No cities found</ThemedText>
-              </View>
-            }
-            contentContainerStyle={styles.citiesList}
-          />
+                ) : null
+              }
+              ListFooterComponent={
+                requestableAirports.length > 0 ? (
+                  <View>
+                    <View style={styles.sectionHeader}>
+                      <ThemedText style={styles.sectionHeaderText}>
+                        Request New City
+                      </ThemedText>
+                      <ThemedText style={styles.sectionHeaderSubtext}>
+                        These airports can be added to CrewMate
+                      </ThemedText>
+                    </View>
+                  </View>
+                ) : null
+              }
+              stickyHeaderIndices={existingCities.length > 0 && requestableAirports.length > 0 ? [0] : []}
+            />
+          ) : (
+            renderEmptyOrRequest()
+          )}
         </View>
       </Modal>
     </View>
@@ -337,6 +654,25 @@ const styles = StyleSheet.create({
   citiesList: {
     paddingBottom: 32,
   },
+  sectionHeader: {
+    backgroundColor: COLORS.lightGray,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  sectionHeaderText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: COLORS.darkGray,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  sectionHeaderSubtext: {
+    fontSize: 12,
+    color: COLORS.mediumGray,
+    marginTop: 2,
+  },
   cityItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -344,17 +680,34 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 16,
   },
+  airportItem: {
+    backgroundColor: COLORS.accent + '10',
+  },
   cityItemLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
   },
+  cityTextContainer: {
+    flex: 1,
+  },
   cityIcon: {
+    marginRight: 12,
+  },
+  requestBadge: {
     marginRight: 12,
   },
   cityItemText: {
     fontSize: 16,
     color: COLORS.darkGray,
+  },
+  airportItemText: {
+    fontWeight: '600',
+  },
+  requestHint: {
+    fontSize: 12,
+    color: COLORS.accent,
+    marginTop: 2,
   },
   separator: {
     height: 1,
@@ -370,5 +723,56 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: COLORS.mediumGray,
     marginTop: 12,
+  },
+  // Request city styles
+  requestContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  requestCard: {
+    backgroundColor: COLORS.lightGray,
+    borderRadius: 16,
+    padding: 32,
+    alignItems: 'center',
+    width: '100%',
+    maxWidth: 320,
+  },
+  requestTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: COLORS.darkGray,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  requestSubtitle: {
+    fontSize: 14,
+    color: COLORS.mediumGray,
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 20,
+  },
+  requestButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 12,
+    gap: 8,
+    width: '100%',
+  },
+  requestButtonText: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  requestNote: {
+    fontSize: 12,
+    color: COLORS.mediumGray,
+    marginTop: 16,
+    textAlign: 'center',
   },
 });

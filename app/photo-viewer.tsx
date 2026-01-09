@@ -1,87 +1,126 @@
 // app/photo-viewer.tsx
-import { ThemedText } from '@/components/themed-text';
-import { useTheme } from '@/contexts/ThemeContext';
+import { Colors } from '@/constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-    Dimensions,
-    Image,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    TouchableOpacity,
-    View,
+  Dimensions,
+  FlatList,
+  Image,
+  Platform,
+  StatusBar,
+  StyleSheet,
+  TouchableOpacity,
+  View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ThemedText } from '@/components/themed-text';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 export default function PhotoViewerScreen() {
-  const { photos: photosParam, initialIndex: initialIndexParam } = useLocalSearchParams();
-  const { colors } = useTheme();
-  
-  // Parse photos array and initial index
-  const photos = typeof photosParam === 'string' ? JSON.parse(photosParam) : [];
-  const initialIndex = parseInt(initialIndexParam as string) || 0;
-  
-  const [currentIndex, setCurrentIndex] = useState(initialIndex);
+  const { photos, initialIndex } = useLocalSearchParams<{ 
+    photos: string; 
+    initialIndex: string;
+  }>();
+  const insets = useSafeAreaInsets();
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [parsedPhotos, setParsedPhotos] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (photos) {
+      try {
+        const photoArray = JSON.parse(photos);
+        setParsedPhotos(photoArray);
+        
+        // Set initial index
+        if (initialIndex) {
+          setCurrentIndex(parseInt(initialIndex, 10));
+        }
+      } catch (error) {
+        console.error('Error parsing photos:', error);
+        setParsedPhotos([]);
+      }
+    }
+  }, [photos, initialIndex]);
 
   const handleScroll = (event: any) => {
-    const contentOffsetX = event.nativeEvent.contentOffset.x;
-    const index = Math.round(contentOffsetX / SCREEN_WIDTH);
-    setCurrentIndex(index);
+    const slideIndex = Math.round(event.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+    setCurrentIndex(slideIndex);
   };
+
+  if (parsedPhotos.length === 0) {
+    return (
+      <View style={styles.container}>
+        <StatusBar barStyle="light-content" />
+        <TouchableOpacity
+          style={[styles.closeButton, { top: insets.top + 10 }]}
+          onPress={() => router.back()}
+        >
+          <Ionicons name="close" size={28} color={Colors.white} />
+        </TouchableOpacity>
+        <View style={styles.errorContainer}>
+          <Ionicons name="image-outline" size={64} color={Colors.white} />
+          <ThemedText style={styles.errorText}>No photos to display</ThemedText>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.closeButton}
-        >
-          <Ionicons name="close" size={32} color="#FFFFFF" />
-        </TouchableOpacity>
+      <StatusBar barStyle="light-content" />
+      
+      {/* Close Button */}
+      <TouchableOpacity
+        style={[styles.closeButton, { top: insets.top + 10 }]}
+        onPress={() => router.back()}
+      >
+        <Ionicons name="close" size={28} color={Colors.white} />
+      </TouchableOpacity>
 
-        <View style={styles.counterContainer}>
-          <ThemedText style={styles.counter}>
-            {currentIndex + 1} / {photos.length}
-          </ThemedText>
-        </View>
+      {/* Photo Counter */}
+      <View style={[styles.counter, { top: insets.top + 16 }]}>
+        <ThemedText style={styles.counterText}>
+          {currentIndex + 1} / {parsedPhotos.length}
+        </ThemedText>
       </View>
 
-      {/* Photo Carousel */}
-      <ScrollView
+      {/* Photo Gallery */}
+      <FlatList
+        data={parsedPhotos}
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
         onScroll={handleScroll}
         scrollEventThrottle={16}
-        contentOffset={{ x: initialIndex * SCREEN_WIDTH, y: 0 }}
-      >
-        {photos.map((photo: string, index: number) => (
-          <View key={index} style={styles.photoContainer}>
+        initialScrollIndex={parseInt(initialIndex || '0', 10)}
+        getItemLayout={(_, index) => ({
+          length: SCREEN_WIDTH,
+          offset: SCREEN_WIDTH * index,
+          index,
+        })}
+        keyExtractor={(item, index) => `${item}-${index}`}
+        renderItem={({ item }) => (
+          <View style={styles.imageContainer}>
             <Image
-              source={{ uri: photo }}
-              style={styles.photo}
+              source={{ uri: item }}
+              style={styles.image}
               resizeMode="contain"
             />
           </View>
-        ))}
-      </ScrollView>
+        )}
+      />
 
-      {/* Dot Indicators */}
-      {photos.length > 1 && (
-        <View style={styles.dotsContainer}>
-          {photos.map((_, index: number) => (
+      {/* Dots Indicator */}
+      {parsedPhotos.length > 1 && parsedPhotos.length <= 10 && (
+        <View style={[styles.dotsContainer, { bottom: insets.bottom + 30 }]}>
+          {parsedPhotos.map((_, index) => (
             <View
               key={index}
               style={[
                 styles.dot,
-                {
-                  backgroundColor: index === currentIndex ? '#FFFFFF' : 'rgba(255, 255, 255, 0.4)',
-                  width: index === currentIndex ? 24 : 8,
-                }
+                currentIndex === index && styles.dotActive,
               ]}
             />
           ))}
@@ -94,58 +133,64 @@ export default function PhotoViewerScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
-  },
-  header: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 20,
-    zIndex: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: '#000',
   },
   closeButton: {
+    position: 'absolute',
+    left: 16,
+    zIndex: 10,
     padding: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 20,
   },
-  counterContainer: {
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+  counter: {
+    position: 'absolute',
+    alignSelf: 'center',
+    zIndex: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
   },
-  counter: {
+  counterText: {
+    color: Colors.white,
     fontSize: 16,
-    fontWeight: '700',
-    color: '#FFFFFF',
+    fontWeight: '600',
   },
-  photoContainer: {
+  imageContainer: {
     width: SCREEN_WIDTH,
     height: SCREEN_HEIGHT,
-    alignItems: 'center',
     justifyContent: 'center',
+    alignItems: 'center',
   },
-  photo: {
+  image: {
     width: SCREEN_WIDTH,
-    height: SCREEN_HEIGHT,
+    height: SCREEN_HEIGHT * 0.8,
   },
   dotsContainer: {
     position: 'absolute',
-    bottom: 40,
-    left: 0,
-    right: 0,
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignSelf: 'center',
     gap: 8,
   },
   dot: {
+    width: 8,
     height: 8,
     borderRadius: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+  },
+  dotActive: {
+    backgroundColor: Colors.white,
+    width: 24,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 16,
+  },
+  errorText: {
+    color: Colors.white,
+    fontSize: 18,
   },
 });

@@ -1,10 +1,13 @@
 // components/AppDrawer.tsx
 import { ThemedText } from '@/components/themed-text';
 import { db } from '@/config/firebase';
+import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { isAdmin, useAdminRole } from '@/hooks/useAdminRole';
+import { useAdminNotifications } from '@/hooks/useAdminNotifications';
 import { Ionicons } from '@expo/vector-icons';
+import * as Application from 'expo-application';
 import { router } from 'expo-router';
 import { doc, getDoc } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
@@ -42,6 +45,7 @@ export default function AppDrawer({ visible, onClose }: AppDrawerProps) {
   const { user, signOut } = useAuth();
   const { theme, setTheme, colors } = useTheme();
   const { role } = useAdminRole();
+  const { counts: adminCounts } = useAdminNotifications();
   const [profile, setProfile] = useState<UserProfile | null>(null);
 
   useEffect(() => {
@@ -148,8 +152,8 @@ Device: ${Platform.OS} ${Platform.Version}
   const handleAboutCrewMate = () => {
     onClose();
     
-    const appVersion = Application.nativeApplicationVersion || 'Unknown';
-    const buildNumber = Application.nativeBuildVersion || 'Unknown';
+    const appVersion = Application.nativeApplicationVersion || APP_VERSION;
+    const buildNumber = Application.nativeBuildVersion || BUILD_NUMBER;
     
     Alert.alert(
       'About CrewMate',
@@ -252,15 +256,32 @@ Device: ${Platform.OS} ${Platform.Version}
                 <Ionicons name="chevron-forward" size={20} color={colors.text.secondary} />
               </TouchableOpacity>
 
-              {/* Admin Panel - Only visible to admins */}
+              {/* Admin Panel - Only visible to admins - WITH BADGE */}
               {isAdmin(role) && (
                 <TouchableOpacity 
                   style={styles.menuItem}
                   onPress={() => handleNavigation('/admin')}
                 >
-                  <Ionicons name="shield-checkmark" size={24} color={colors.primary} />
+                  <View style={styles.menuIconContainer}>
+                    <Ionicons name="shield-checkmark" size={24} color={colors.primary} />
+                    {adminCounts.total > 0 && (
+                      <View style={styles.adminBadge}>
+                        <ThemedText style={styles.adminBadgeText}>
+                          {adminCounts.total > 99 ? '99+' : adminCounts.total}
+                        </ThemedText>
+                      </View>
+                    )}
+                  </View>
                   <ThemedText style={[styles.menuText, { color: colors.primary }]}>Admin Panel</ThemedText>
-                  <Ionicons name="chevron-forward" size={20} color={colors.primary} />
+                  {adminCounts.total > 0 ? (
+                    <View style={styles.pendingBadge}>
+                      <ThemedText style={styles.pendingBadgeText}>
+                        {adminCounts.total} pending
+                      </ThemedText>
+                    </View>
+                  ) : (
+                    <Ionicons name="chevron-forward" size={20} color={colors.primary} />
+                  )}
                 </TouchableOpacity>
               )}
 
@@ -282,6 +303,18 @@ Device: ${Platform.OS} ${Platform.Version}
                 <Ionicons name="bookmark-outline" size={24} color={colors.text.primary} />
                 <ThemedText style={styles.menuText}>Saved Places</ThemedText>
                 <Ionicons name="chevron-forward" size={20} color={colors.text.secondary} />
+              </TouchableOpacity>
+
+              {/* Send Feedback - Alpha Testers */}
+              <TouchableOpacity 
+                style={styles.menuItem}
+                onPress={() => handleNavigation('/feedback')}
+              >
+                <Ionicons name="chatbubble-ellipses-outline" size={24} color={Colors.accent} />
+                <ThemedText style={[styles.menuText, { color: Colors.accent }]}>Send Feedback</ThemedText>
+                <View style={styles.alphaBadge}>
+                  <ThemedText style={styles.alphaBadgeText}>ALPHA</ThemedText>
+                </View>
               </TouchableOpacity>
 
               {/* Report a Problem */}
@@ -438,6 +471,51 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 24,
     gap: 16,
+  },
+  menuIconContainer: {
+    position: 'relative',
+    width: 24,
+    height: 24,
+  },
+  adminBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -10,
+    backgroundColor: '#E53935',
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  adminBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  pendingBadge: {
+    backgroundColor: '#E53935',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  pendingBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  alphaBadge: {
+    backgroundColor: Colors.accent,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  alphaBadgeText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
   },
   menuItemDisabled: {
     opacity: 0.6,

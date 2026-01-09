@@ -5,7 +5,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useNotifications } from '@/hooks/useNotifications';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { doc, getDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, onSnapshot, query, where } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import {
     Image,
@@ -27,11 +27,37 @@ export function ProfileMenu() {
   const [menuVisible, setMenuVisible] = useState(false);
   const [photoURL, setPhotoURL] = useState<string | null>(null);
   const [initials, setInitials] = useState<string>('');
+  const [unreadMessages, setUnreadMessages] = useState(0);
 
   // Calculate notification counts by type
   const connectionNotifications = notifications.filter(n => n.type === 'connection' && !n.read).length;
   const planNotifications = notifications.filter(n => n.type === 'plan' && !n.read).length;
-  const messageNotifications = notifications.filter(n => n.type === 'message' && !n.read).length;
+
+  // Listen for unread messages from conversations
+  useEffect(() => {
+    if (!user) return;
+
+    // Listen to conversations where user is participant
+    const conversationsQuery = query(
+      collection(db, 'conversations'),
+      where('participantIds', 'array-contains', user.uid)
+    );
+
+    const unsubscribe = onSnapshot(conversationsQuery, (snapshot) => {
+      let totalUnread = 0;
+      snapshot.docs.forEach(doc => {
+        const data = doc.data();
+        const userUnread = data.unreadCount?.[user.uid] || 0;
+        totalUnread += userUnread;
+      });
+      setUnreadMessages(totalUnread);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // Total badge count including messages
+  const totalBadgeCount = unreadCount + unreadMessages;
 
   useEffect(() => {
     if (!user) return;
@@ -75,11 +101,11 @@ export function ProfileMenu() {
           </View>
         )}
 
-        {/* Total Notification Badge */}
-        {unreadCount > 0 && (
+        {/* Total Notification Badge (includes messages) */}
+        {totalBadgeCount > 0 && (
           <View style={[styles.totalBadge, { backgroundColor: colors.error }]}>
             <ThemedText style={styles.totalBadgeText}>
-              {unreadCount > 99 ? '99+' : unreadCount}
+              {totalBadgeCount > 99 ? '99+' : totalBadgeCount}
             </ThemedText>
           </View>
         )}
@@ -166,10 +192,10 @@ export function ProfileMenu() {
             >
               <Ionicons name="chatbubble" size={22} color={colors.text.primary} />
               <ThemedText style={styles.menuItemText}>Messages</ThemedText>
-              {messageNotifications > 0 && (
+              {unreadMessages > 0 && (
                 <View style={[styles.itemBadge, { backgroundColor: colors.error }]}>
                   <ThemedText style={styles.itemBadgeText}>
-                    {messageNotifications}
+                    {unreadMessages}
                   </ThemedText>
                 </View>
               )}

@@ -1,25 +1,24 @@
-import React, { useState, useEffect } from 'react';
-import {
-  StyleSheet,
-  View,
-  ScrollView,
-  TextInput,
-  TouchableOpacity,
-  FlatList,
-  ActivityIndicator,
-  RefreshControl,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
-import { db, auth } from '@/config/firebase';
+import CategoryTabs from '@/components/CategoryTabs';
+import CitySelector from '@/components/CitySelector';
+import SortAndFilter from '@/components/SortAndFilter';
+import SpotCard from '@/components/SpotCard';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { auth, db } from '@/config/firebase';
 import { useCities } from '@/hooks/useCities';
-import CitySelector from '@/components/CitySelector';
-import CategoryTabs from '@/components/CategoryTabs';
-import SpotCard from '@/components/SpotCard';
-import SortAndFilter from '@/components/SortAndFilter';
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+import { collection, getDocs, limit, query, where } from 'firebase/firestore';
+import React, { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  FlatList,
+  RefreshControl,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  View
+} from 'react-native';
 
 const COLORS = {
   primary: '#114878',
@@ -341,7 +340,7 @@ export default function ExploreScreen() {
         </ThemedText>
         <TouchableOpacity
           style={styles.addSpotButton}
-          onPress={() => router.push('/submit-spot')}
+          onPress={() => router.push('/add-spot')}
         >
           <Ionicons name="add-circle" size={20} color={COLORS.white} />
           <ThemedText style={styles.addSpotButtonText}>Add a Spot</ThemedText>

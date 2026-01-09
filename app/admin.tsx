@@ -1,25 +1,26 @@
-// app/admin.tsx - Enhanced Admin Portal with City Migration
+// app/admin.tsx - Enhanced Admin Portal with City Management
+// Fixed: Uses local airport database instead of external API
+
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
-import { cities as citiesData } from '@/data/cities';
 import { isSuperAdmin, useAdminRole } from '@/hooks/useAdminRole';
+import { AirportData, getAirportByCode, searchAirports } from '@/utils/airportData';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import {
   collection,
   deleteDoc,
   doc,
-  getDoc,
   getDocs,
   onSnapshot,
   query,
   serverTimestamp,
   setDoc,
   updateDoc,
-  where,
+  where
 } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import {
@@ -34,7 +35,7 @@ import {
   View,
 } from 'react-native';
 
-type TabType = 'spots' | 'reports' | 'removals' | 'cities' | 'cityRequests' | 'analytics' | 'migration';
+type TabType = 'spots' | 'reports' | 'removals' | 'cities' | 'cityRequests' | 'analytics' | 'feedback' | 'migration';
 
 type Spot = {
   id: string;
@@ -94,10 +95,25 @@ type CityRequest = {
   createdAt: any;
 };
 
+type Feedback = {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  userAirline: string;
+  category: 'bug' | 'feature' | 'general' | 'other';
+  title: string;
+  description: string;
+  status: 'new' | 'reviewed' | 'resolved' | 'archived';
+  platform: string;
+  appVersion: string;
+  createdAt: any;
+};
+
 export default function AdminScreen() {
   const { user } = useAuth();
   const { role, cities, loading: roleLoading } = useAdminRole();
-  const [activeTab, setActiveTab] = useState<TabType>('spots');
+  const [activeTab, setActiveTab] = useState<TabType>('analytics');
   const [loading, setLoading] = useState(true);
 
   // Spot moderation data
@@ -108,12 +124,18 @@ export default function AdminScreen() {
   // City management data
   const [allCities, setAllCities] = useState<City[]>([]);
   const [cityRequests, setCityRequests] = useState<CityRequest[]>([]);
-  const [newAirportCode, setNewAirportCode] = useState('');
+  const [airportSearch, setAirportSearch] = useState('');
+  const [searchResults, setSearchResults] = useState<AirportData[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [selectedAirport, setSelectedAirport] = useState<AirportData | null>(null);
   const [addingCity, setAddingCity] = useState(false);
   
   // City edit modal
   const [editingCity, setEditingCity] = useState<City | null>(null);
   const [editModalVisible, setEditModalVisible] = useState(false);
+
+  // Feedback data
+  const [feedbackList, setFeedbackList] = useState<Feedback[]>([]);
 
   // Migration
   const [migrating, setMigrating] = useState(false);
@@ -121,11 +143,35 @@ export default function AdminScreen() {
 
   // Analytics data
   const [stats, setStats] = useState({
+    // User stats
     totalUsers: 0,
+    newUsersToday: 0,
+    newUsersThisWeek: 0,
+    newUsersThisMonth: 0,
     activeThisWeek: 0,
-    totalSpots: 0,
+    usersByAirline: [] as { airline: string; count: number }[],
+    usersByPosition: { flightAttendants: 0, pilots: 0, other: 0 },
+    
+    // Engagement stats
+    layoversThisWeek: 0,
+    plansThisWeek: 0,
+    connectionsThisWeek: 0,
+    messagesThisWeek: 0,
     totalConnections: 0,
-    totalMessages: 0,
+    
+    // Content stats
+    totalSpots: 0,
+    spotsByCity: [] as { city: string; count: number }[],
+    reviewsThisWeek: 0,
+    photosThisWeek: 0,
+    topSavedSpots: [] as { name: string; city: string; saves: number }[],
+    
+    // Growth - signups per day for last 7 days
+    signupsLast7Days: [] as { date: string; count: number }[],
+    
+    // City stats
+    totalCities: 0,
+    citiesWithSpots: 0,
   });
 
   // Check admin access
@@ -139,37 +185,69 @@ export default function AdminScreen() {
     setLoading(false);
   }, [user, role, roleLoading]);
 
-  // Load data based on active tab
+  // Load ALL tab counts on mount (for accurate badge numbers)
   useEffect(() => {
     if (!user || !role) return;
 
-    let unsubscribe: (() => void) | undefined;
+    const unsubscribes: (() => void)[] = [];
+
+    // Always load spots count
+    unsubscribes.push(loadPendingSpots());
+
+    // Always load reports count
+    unsubscribes.push(loadReports());
+
+    // Always load removals count
+    unsubscribes.push(loadRemovalRequests());
+
+    // Super admin: load city requests count and feedback
+    if (isSuperAdmin(role)) {
+      unsubscribes.push(loadCityRequests());
+      unsubscribes.push(loadFeedback());
+    }
+
+    return () => {
+      unsubscribes.forEach(unsub => unsub && unsub());
+    };
+  }, [user, role]);
+
+  // Load full data for active tab (cities and analytics need full load)
+  useEffect(() => {
+    if (!user || !role) return;
 
     switch (activeTab) {
-      case 'spots':
-        unsubscribe = loadPendingSpots();
-        break;
-      case 'reports':
-        unsubscribe = loadReports();
-        break;
-      case 'removals':
-        unsubscribe = loadRemovalRequests();
-        break;
       case 'cities':
         loadCities();
-        break;
-      case 'cityRequests':
-        unsubscribe = loadCityRequests();
         break;
       case 'analytics':
         loadAnalytics();
         break;
+      case 'feedback':
+        if (!isSuperAdmin(role)) return;
+        loadFeedback();
+        break;
     }
-
-    return () => {
-      if (unsubscribe) unsubscribe();
-    };
   }, [activeTab, user, role]);
+
+  // Search airports when input changes - uses local database only
+  useEffect(() => {
+    if (airportSearch.trim().length >= 2) {
+      setSearchLoading(true);
+      const results = searchAirports(airportSearch);
+      setSearchResults(results);
+      setSearchLoading(false);
+    } else {
+      setSearchResults([]);
+      setSearchLoading(false);
+    }
+  }, [airportSearch]);
+
+  // Filter function for city admins
+  const filterByCity = <T extends { city?: string }>(items: T[]): T[] => {
+    if (isSuperAdmin(role)) return items;
+    if (!cities || cities.length === 0) return [];
+    return items.filter(item => cities.includes(item.city || ''));
+  };
 
   // Spot Moderation Functions
   const loadPendingSpots = () => {
@@ -236,83 +314,127 @@ export default function AdminScreen() {
     });
   };
 
-  const handleAddCityByCode = async () => {
-    if (!newAirportCode.trim()) {
-      Alert.alert('Error', 'Please enter an airport code');
+  // Load feedback (super admin only)
+  const loadFeedback = () => {
+    const q = query(collection(db, 'feedback'));
+    return onSnapshot(q, (snapshot) => {
+      const items: Feedback[] = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      } as Feedback));
+      // Sort by createdAt descending, new items first
+      items.sort((a, b) => {
+        const aTime = a.createdAt?.toDate?.() || new Date(0);
+        const bTime = b.createdAt?.toDate?.() || new Date(0);
+        return bTime.getTime() - aTime.getTime();
+      });
+      setFeedbackList(items);
+    });
+  };
+
+  // Update feedback status
+  const handleUpdateFeedbackStatus = async (feedbackId: string, newStatus: Feedback['status']) => {
+    try {
+      await updateDoc(doc(db, 'feedback', feedbackId), {
+        status: newStatus,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      console.error('Error updating feedback:', error);
+      Alert.alert('Error', 'Failed to update feedback status.');
+    }
+  };
+
+  // Delete feedback
+  const handleDeleteFeedback = async (feedbackId: string) => {
+    Alert.alert(
+      'Delete Feedback',
+      'Are you sure you want to delete this feedback?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteDoc(doc(db, 'feedback', feedbackId));
+            } catch (error) {
+              console.error('Error deleting feedback:', error);
+              Alert.alert('Error', 'Failed to delete feedback.');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // Add city from selected airport
+  const handleAddCity = async () => {
+    if (!selectedAirport) {
+      Alert.alert('Error', 'Please select an airport from the search results');
+      return;
+    }
+
+    // Check if city already exists
+    const existingCity = allCities.find(c => c.code === selectedAirport.code);
+    if (existingCity) {
+      Alert.alert('Already Exists', `${selectedAirport.name} (${selectedAirport.code}) is already in the system.`);
       return;
     }
 
     setAddingCity(true);
     try {
-      const inputCode = newAirportCode.toUpperCase().trim();
-      
-      // Convert IATA (3-letter) to ICAO (4-letter) for US airports
-      // OpenSky API requires ICAO codes
-      let icaoCode = inputCode;
-      
-      if (inputCode.length === 3) {
-        // US airports: Add 'K' prefix (e.g., ATL → KATL)
-        icaoCode = 'K' + inputCode;
-        console.log(`Converting IATA "${inputCode}" to ICAO "${icaoCode}"`);
-      }
-      
-      // Try the converted code first
-      console.log('Fetching airport data for:', icaoCode);
-      let response = await fetch(
-        `https://opensky-network.org/api/airports/?icao=${icaoCode}`
-      );
-      
-      // If that fails and we added a K prefix, try without it (international airports)
-      if (!response.ok && icaoCode.startsWith('K')) {
-        console.log('US code failed, trying without K prefix...');
-        icaoCode = inputCode;
-        response = await fetch(
-          `https://opensky-network.org/api/airports/?icao=${icaoCode}`
-        );
-      }
-      
-      if (!response.ok) {
-        throw new Error('Airport not found');
-      }
-
-      const data = await response.json();
-      
-      if (!data || data.length === 0) {
-        Alert.alert(
-          'Not Found', 
-          `Could not find airport with code "${inputCode}". Try:\n• Using ICAO code (e.g., KATL instead of ATL)\n• Checking the spelling\n• A different airport`
-        );
-        setAddingCity(false);
-        return;
-      }
-
-      const airport = data[0];
-      
-      // Use the original 3-letter code if that's what user entered
-      const displayCode = inputCode.length === 3 ? inputCode : icaoCode;
-
-      // Create city document with your structure
       const newCity: Partial<City> = {
-        name: airport.city || airport.name,
-        code: displayCode, // Use IATA code for display
-        lat: airport.latitude,
-        lng: airport.longitude,
-        areas: [`${displayCode} Airport Area`, 'Downtown'], // Default areas
+        name: selectedAirport.name,
+        code: selectedAirport.code,
+        lat: selectedAirport.lat,
+        lng: selectedAirport.lng,
+        areas: selectedAirport.areas,
         status: 'active',
         createdAt: serverTimestamp(),
       };
 
-      await setDoc(doc(db, 'cities', displayCode), newCity);
+      await setDoc(doc(db, 'cities', selectedAirport.code), newCity);
 
-      Alert.alert('Success', `Added ${newCity.name}! You can now edit to add neighborhoods.`);
-      setNewAirportCode('');
+      Alert.alert('Success', `Added ${selectedAirport.name} (${selectedAirport.code})! You can edit to customize neighborhoods.`);
+      setAirportSearch('');
+      setSelectedAirport(null);
+      setSearchResults([]);
       loadCities();
     } catch (error) {
       console.error('Error adding city:', error);
-      Alert.alert('Error', 'Failed to add city. Please check the code and try again.');
+      Alert.alert('Error', 'Failed to add city. Please try again.');
     } finally {
       setAddingCity(false);
     }
+  };
+
+  // Add city manually (for airports not in database)
+  const handleAddCityManually = () => {
+    const code = airportSearch.toUpperCase().trim();
+    if (code.length < 3 || code.length > 4) {
+      Alert.alert('Invalid Code', 'Airport code must be 3-4 letters');
+      return;
+    }
+
+    // Check if already exists
+    const existingCity = allCities.find(c => c.code === code);
+    if (existingCity) {
+      Alert.alert('Already Exists', `${code} is already in the system.`);
+      return;
+    }
+
+    // Set up for manual entry
+    setEditingCity({
+      id: code,
+      name: '',
+      code: code,
+      lat: 0,
+      lng: 0,
+      areas: [`${code} Airport Area`, 'Downtown'],
+      createdAt: null,
+    });
+    setEditModalVisible(true);
   };
 
   const handleEditCity = (city: City) => {
@@ -323,29 +445,49 @@ export default function AdminScreen() {
   const handleSaveCity = async () => {
     if (!editingCity) return;
 
+    if (!editingCity.name.trim()) {
+      Alert.alert('Error', 'City name is required');
+      return;
+    }
+
     try {
-      await updateDoc(doc(db, 'cities', editingCity.id), {
+      const cityData = {
         name: editingCity.name,
         code: editingCity.code,
         lat: editingCity.lat,
         lng: editingCity.lng,
         areas: editingCity.areas,
-      });
+        status: 'active',
+      };
 
-      Alert.alert('Success', 'City updated!');
+      // Check if this is a new city or edit
+      const existingCity = allCities.find(c => c.id === editingCity.id);
+      
+      if (existingCity) {
+        await updateDoc(doc(db, 'cities', editingCity.id), cityData);
+        Alert.alert('Success', 'City updated!');
+      } else {
+        await setDoc(doc(db, 'cities', editingCity.code), {
+          ...cityData,
+          createdAt: serverTimestamp(),
+        });
+        Alert.alert('Success', `Added ${editingCity.name}!`);
+      }
+
       setEditModalVisible(false);
       setEditingCity(null);
+      setAirportSearch('');
       loadCities();
     } catch (error) {
-      console.error('Error updating city:', error);
-      Alert.alert('Error', 'Failed to update city');
+      console.error('Error saving city:', error);
+      Alert.alert('Error', 'Failed to save city');
     }
   };
 
   const handleDeleteCity = async (city: City) => {
     Alert.alert(
       'Delete City',
-      `Are you sure you want to delete ${city.name}? This cannot be undone.`,
+      `Are you sure you want to delete ${city.name}? This will affect all spots and users in this city.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -366,31 +508,40 @@ export default function AdminScreen() {
     );
   };
 
+  // Approve city request using local database
   const handleApproveCityRequest = async (request: CityRequest) => {
     try {
-      // Fetch airport data
-      const response = await fetch(
-        `https://opensky-network.org/api/airports/?icao=${request.airportCode.toUpperCase()}`
-      );
+      const code = request.airportCode.toUpperCase().trim();
       
-      if (!response.ok) {
-        throw new Error('Airport not found');
+      // Try to find in local database
+      const airport = getAirportByCode(code);
+      
+      if (airport) {
+        // Found in database - use that data
+        await setDoc(doc(db, 'cities', code), {
+          name: airport.name,
+          code: airport.code,
+          lat: airport.lat,
+          lng: airport.lng,
+          areas: airport.areas,
+          status: 'active',
+          createdAt: serverTimestamp(),
+          requestedBy: request.requestedBy,
+        });
+      } else {
+        // Not in database - create with minimal data, admin can edit later
+        await setDoc(doc(db, 'cities', code), {
+          name: code, // Use code as placeholder name
+          code: code,
+          lat: 0,
+          lng: 0,
+          areas: [`${code} Airport Area`, 'Downtown'],
+          status: 'active',
+          createdAt: serverTimestamp(),
+          requestedBy: request.requestedBy,
+          needsReview: true, // Flag for admin to update
+        });
       }
-
-      const data = await response.json();
-      const airport = data[0];
-
-      // Create city document
-      await setDoc(doc(db, 'cities', request.airportCode.toUpperCase()), {
-        name: airport.city || airport.name,
-        code: request.airportCode.toUpperCase(),
-        lat: airport.latitude,
-        lng: airport.longitude,
-        areas: [`${request.airportCode.toUpperCase()} Airport Area`, 'Downtown'],
-        status: 'active',
-        createdAt: serverTimestamp(),
-        requestedBy: request.requestedBy,
-      });
 
       // Update request status
       await updateDoc(doc(db, 'cityRequests', request.id), {
@@ -399,7 +550,11 @@ export default function AdminScreen() {
         approvedAt: serverTimestamp(),
       });
 
-      Alert.alert('Success', `City request approved! You can now edit to add neighborhoods.`);
+      if (airport) {
+        Alert.alert('Success', `Added ${airport.name}! You can edit to customize neighborhoods.`);
+      } else {
+        Alert.alert('Success', `Added ${code}. Please edit to add city name and coordinates.`);
+      }
       loadCities();
     } catch (error) {
       console.error('Error approving city request:', error);
@@ -432,107 +587,7 @@ export default function AdminScreen() {
     );
   };
 
-  // Migration Functions
-  const handleMigrateCities = async () => {
-    Alert.alert(
-      'Migrate Cities to Firestore',
-      'This will copy all 50 cities from cities.ts to Firestore. Run this ONCE only. Continue?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Migrate',
-          onPress: async () => {
-            setMigrating(true);
-            setMigrationStatus('Starting migration...');
-
-            try {
-              // Use the cities data imported at the top of the file
-              const cities = citiesData;
-              
-              if (!cities || cities.length === 0) {
-                throw new Error('Cities data is empty or undefined');
-              }
-              
-              let successCount = 0;
-              let errorCount = 0;
-
-              for (const city of cities) {
-                try {
-                  await setDoc(doc(db, 'cities', city.code), {
-                    name: city.name,
-                    code: city.code,
-                    lat: city.lat,
-                    lng: city.lng,
-                    areas: city.areas,
-                    status: 'active',
-                    createdAt: serverTimestamp(),
-                    migratedFrom: 'cities.ts',
-                  });
-
-                  successCount++;
-                  setMigrationStatus(`Migrated ${successCount}/${cities.length}: ${city.name}`);
-                } catch (error) {
-                  errorCount++;
-                  console.error(`Failed to migrate ${city.name}:`, error);
-                }
-              }
-
-              setMigrationStatus('');
-              Alert.alert(
-                'Migration Complete!',
-                `✓ Success: ${successCount}\n✗ Errors: ${errorCount}\nTotal: ${cities.length}`,
-                [{ text: 'OK', onPress: () => loadCities() }]
-              );
-            } catch (error) {
-              console.error('Migration error:', error);
-              Alert.alert('Error', 'Migration failed. Check console for details.');
-            } finally {
-              setMigrating(false);
-            }
-          }
-        }
-      ]
-    );
-  };
-
-  // Analytics Functions
-  const loadAnalytics = async () => {
-    try {
-      const [usersSnap, spotsSnap, connectionsSnap] = await Promise.all([
-        getDocs(collection(db, 'users')),
-        getDocs(query(collection(db, 'spots'), where('status', '==', 'approved'))),
-        getDocs(collection(db, 'connections')),
-      ]);
-
-      const oneWeekAgo = new Date();
-      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-      
-      let activeCount = 0;
-      usersSnap.docs.forEach(doc => {
-        const data = doc.data();
-        if (data.lastActive && data.lastActive.toDate() > oneWeekAgo) {
-          activeCount++;
-        }
-      });
-
-      setStats({
-        totalUsers: usersSnap.size,
-        activeThisWeek: activeCount,
-        totalSpots: spotsSnap.size,
-        totalConnections: connectionsSnap.size,
-        totalMessages: 0,
-      });
-    } catch (error) {
-      console.error('Error loading analytics:', error);
-    }
-  };
-
-  // Helper Functions
-  const filterByCity = <T extends { city: string }>(items: T[]): T[] => {
-    if (isSuperAdmin(role)) return items;
-    return items.filter(item => cities.includes(item.city));
-  };
-
+  // Spot moderation handlers
   const handleApproveSpot = async (spot: Spot) => {
     try {
       await updateDoc(doc(db, 'spots', spot.id), {
@@ -540,16 +595,16 @@ export default function AdminScreen() {
         approvedBy: user!.uid,
         approvedAt: serverTimestamp(),
       });
+      Alert.alert('Approved', `${spot.name} is now live!`);
     } catch (error) {
       console.error('Error approving spot:', error);
-      Alert.alert('Error', 'Failed to approve spot');
     }
   };
 
   const handleRejectSpot = async (spot: Spot) => {
     Alert.alert(
       'Reject Spot',
-      `Are you sure you want to reject "${spot.name}"?`,
+      `Reject "${spot.name}"? The submitter will not be notified.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -565,6 +620,28 @@ export default function AdminScreen() {
         }
       ]
     );
+  };
+
+  const handleApproveRemoval = async (request: RemovalRequest) => {
+    try {
+      await deleteDoc(doc(db, 'spots', request.spotId));
+      await deleteDoc(doc(db, 'deleteRequests', request.id));
+      Alert.alert('Deleted', 'Spot has been removed');
+    } catch (error) {
+      console.error('Error approving removal:', error);
+    }
+  };
+
+  const handleRejectRemoval = async (request: RemovalRequest) => {
+    try {
+      await updateDoc(doc(db, 'deleteRequests', request.id), {
+        status: 'rejected',
+        rejectedBy: user!.uid,
+        rejectedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      console.error('Error rejecting removal:', error);
+    }
   };
 
   const handleDeleteReportedSpot = async (report: Report) => {
@@ -596,6 +673,237 @@ export default function AdminScreen() {
     } catch (error) {
       console.error('Error dismissing report:', error);
     }
+  };
+
+  // Analytics Functions
+  const loadAnalytics = async () => {
+    try {
+      // Time boundaries
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const oneWeekAgo = new Date(now);
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+      const oneMonthAgo = new Date(now);
+      oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+
+      // Fetch all data in parallel
+      const [
+        usersSnap,
+        spotsSnap,
+        connectionsSnap,
+        plansSnap,
+        reviewsSnap,
+        activitiesSnap,
+        citiesSnap,
+        savedSpotsSnap,
+      ] = await Promise.all([
+        getDocs(collection(db, 'users')),
+        getDocs(query(collection(db, 'spots'), where('status', '==', 'approved'))),
+        getDocs(collection(db, 'connections')),
+        getDocs(collection(db, 'plans')),
+        getDocs(collection(db, 'reviews')),
+        getDocs(collection(db, 'activities')),
+        getDocs(collection(db, 'cities')),
+        getDocs(collection(db, 'savedSpots')),
+      ]);
+
+      // ===== USER ANALYTICS =====
+      let newUsersToday = 0;
+      let newUsersThisWeek = 0;
+      let newUsersThisMonth = 0;
+      let activeThisWeek = 0;
+      const airlineCounts: Record<string, number> = {};
+      const positionCounts = { flightAttendants: 0, pilots: 0, other: 0 };
+      const signupsByDay: Record<string, number> = {};
+
+      // Initialize last 7 days
+      for (let i = 6; i >= 0; i--) {
+        const date = new Date(now);
+        date.setDate(date.getDate() - i);
+        const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        signupsByDay[dateStr] = 0;
+      }
+
+      usersSnap.docs.forEach(doc => {
+        const data = doc.data();
+        
+        // Count by signup date
+        if (data.createdAt) {
+          const createdDate = data.createdAt.toDate ? data.createdAt.toDate() : new Date(data.createdAt);
+          
+          if (createdDate >= todayStart) newUsersToday++;
+          if (createdDate >= oneWeekAgo) newUsersThisWeek++;
+          if (createdDate >= oneMonthAgo) newUsersThisMonth++;
+          
+          // Signups by day for chart
+          const dateStr = createdDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          if (signupsByDay[dateStr] !== undefined) {
+            signupsByDay[dateStr]++;
+          }
+        }
+        
+        // Active users (check lastActive or currentLayover)
+        const lastActive = data.lastActive?.toDate ? data.lastActive.toDate() : null;
+        const hasRecentLayover = data.currentLayover?.updatedAt?.toDate ? 
+          data.currentLayover.updatedAt.toDate() > oneWeekAgo : false;
+        
+        if ((lastActive && lastActive > oneWeekAgo) || hasRecentLayover) {
+          activeThisWeek++;
+        }
+        
+        // Count by airline
+        if (data.airline) {
+          airlineCounts[data.airline] = (airlineCounts[data.airline] || 0) + 1;
+        }
+        
+        // Count by position
+        const position = (data.position || '').toLowerCase();
+        if (position.includes('flight attendant') || position.includes('fa') || position.includes('cabin')) {
+          positionCounts.flightAttendants++;
+        } else if (position.includes('pilot') || position.includes('captain') || position.includes('first officer') || position.includes('fo')) {
+          positionCounts.pilots++;
+        } else if (position) {
+          positionCounts.other++;
+        }
+      });
+
+      // Sort airlines by count
+      const usersByAirline = Object.entries(airlineCounts)
+        .map(([airline, count]) => ({ airline, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5);
+
+      // Convert signups to array
+      const signupsLast7Days = Object.entries(signupsByDay)
+        .map(([date, count]) => ({ date, count }));
+
+      // ===== ENGAGEMENT ANALYTICS =====
+      let layoversThisWeek = 0;
+      let plansThisWeek = 0;
+      let connectionsThisWeek = 0;
+
+      // Count layovers set this week (from activities)
+      activitiesSnap.docs.forEach(doc => {
+        const data = doc.data();
+        const createdAt = data.createdAt?.toDate ? data.createdAt.toDate() : null;
+        if (createdAt && createdAt >= oneWeekAgo) {
+          if (data.type === 'layover_set') layoversThisWeek++;
+        }
+      });
+
+      // Plans created this week
+      plansSnap.docs.forEach(doc => {
+        const data = doc.data();
+        const createdAt = data.createdAt?.toDate ? data.createdAt.toDate() : null;
+        if (createdAt && createdAt >= oneWeekAgo) {
+          plansThisWeek++;
+        }
+      });
+
+      // Connections made this week
+      connectionsSnap.docs.forEach(doc => {
+        const data = doc.data();
+        const createdAt = data.createdAt?.toDate ? data.createdAt.toDate() : null;
+        if (createdAt && createdAt >= oneWeekAgo) {
+          connectionsThisWeek++;
+        }
+      });
+
+      // ===== CONTENT ANALYTICS =====
+      const cityCounts: Record<string, number> = {};
+      let reviewsThisWeek = 0;
+      let photosThisWeek = 0;
+
+      // Spots by city
+      spotsSnap.docs.forEach(doc => {
+        const data = doc.data();
+        if (data.city) {
+          cityCounts[data.city] = (cityCounts[data.city] || 0) + 1;
+        }
+      });
+
+      const spotsByCity = Object.entries(cityCounts)
+        .map(([city, count]) => ({ city, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5);
+
+      // Reviews this week
+      reviewsSnap.docs.forEach(doc => {
+        const data = doc.data();
+        const createdAt = data.createdAt?.toDate ? data.createdAt.toDate() : null;
+        if (createdAt && createdAt >= oneWeekAgo) {
+          reviewsThisWeek++;
+        }
+      });
+
+      // Photos this week (from activities)
+      activitiesSnap.docs.forEach(doc => {
+        const data = doc.data();
+        const createdAt = data.createdAt?.toDate ? data.createdAt.toDate() : null;
+        if (createdAt && createdAt >= oneWeekAgo && data.type === 'photo_posted') {
+          photosThisWeek++;
+        }
+      });
+
+      // Top saved spots
+      const spotSaveCounts: Record<string, { name: string; city: string; saves: number }> = {};
+      savedSpotsSnap.docs.forEach(doc => {
+        const data = doc.data();
+        if (data.spotId && data.spotName) {
+          if (!spotSaveCounts[data.spotId]) {
+            spotSaveCounts[data.spotId] = {
+              name: data.spotName,
+              city: data.city || 'Unknown',
+              saves: 0
+            };
+          }
+          spotSaveCounts[data.spotId].saves++;
+        }
+      });
+
+      const topSavedSpots = Object.values(spotSaveCounts)
+        .sort((a, b) => b.saves - a.saves)
+        .slice(0, 5);
+
+      // ===== CITY STATS =====
+      const citiesWithSpots = new Set(spotsSnap.docs.map(doc => doc.data().city)).size;
+
+      // Set all stats
+      setStats({
+        totalUsers: usersSnap.size,
+        newUsersToday,
+        newUsersThisWeek,
+        newUsersThisMonth,
+        activeThisWeek,
+        usersByAirline,
+        usersByPosition: positionCounts,
+        
+        layoversThisWeek,
+        plansThisWeek,
+        connectionsThisWeek,
+        messagesThisWeek: 0, // Would need to count from messages collection
+        totalConnections: connectionsSnap.size,
+        
+        totalSpots: spotsSnap.size,
+        spotsByCity,
+        reviewsThisWeek,
+        photosThisWeek,
+        topSavedSpots,
+        
+        signupsLast7Days,
+        
+        totalCities: citiesSnap.size,
+        citiesWithSpots,
+      });
+    } catch (error) {
+      console.error('Error loading analytics:', error);
+    }
+  };
+
+  // Migration function (kept from original)
+  const handleMigrateCities = async () => {
+    // This would migrate from hardcoded cities - keeping as placeholder
+    Alert.alert('Info', 'Migration feature - use Add City to add new cities');
   };
 
   if (loading || roleLoading) {
@@ -687,11 +995,11 @@ export default function AdminScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.tab, activeTab === 'migration' && styles.tabActive]}
-              onPress={() => setActiveTab('migration')}
+              style={[styles.tab, activeTab === 'feedback' && styles.tabActive]}
+              onPress={() => setActiveTab('feedback')}
             >
-              <ThemedText style={[styles.tabText, activeTab === 'migration' && styles.tabTextActive]}>
-                Migration
+              <ThemedText style={[styles.tabText, activeTab === 'feedback' && styles.tabTextActive]}>
+                Feedback {feedbackList.filter(f => f.status === 'new').length > 0 && `(${feedbackList.filter(f => f.status === 'new').length})`}
               </ThemedText>
             </TouchableOpacity>
           </>
@@ -774,6 +1082,7 @@ export default function AdminScreen() {
                     style={[styles.actionButton, styles.dismissButton]}
                     onPress={() => handleDismissReport(item)}
                   >
+                    <Ionicons name="close" size={20} color={Colors.white} />
                     <ThemedText style={styles.actionButtonText}>Dismiss</ThemedText>
                   </TouchableOpacity>
                 </View>
@@ -781,8 +1090,50 @@ export default function AdminScreen() {
             )}
             ListEmptyComponent={
               <View style={styles.emptyState}>
-                <Ionicons name="shield-checkmark" size={60} color={Colors.text.secondary} />
+                <Ionicons name="checkmark-circle" size={60} color={Colors.text.secondary} />
                 <ThemedText style={styles.emptyText}>No reports</ThemedText>
+              </View>
+            }
+          />
+        )}
+
+        {/* Removals Tab */}
+        {activeTab === 'removals' && (
+          <FlatList
+            data={removalRequests}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
+              <View style={styles.card}>
+                <View style={styles.cardHeader}>
+                  <ThemedText style={styles.cardTitle}>{item.spotName}</ThemedText>
+                  <ThemedText style={styles.cardMeta}>{item.city}</ThemedText>
+                </View>
+                <ThemedText style={styles.cardReason}>Reason: {item.reason}</ThemedText>
+                <ThemedText style={styles.cardFooter}>
+                  Requested by {item.requestedByName}
+                </ThemedText>
+                <View style={styles.cardActions}>
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.approveButton]}
+                    onPress={() => handleApproveRemoval(item)}
+                  >
+                    <Ionicons name="checkmark" size={20} color={Colors.white} />
+                    <ThemedText style={styles.actionButtonText}>Approve</ThemedText>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.rejectButton]}
+                    onPress={() => handleRejectRemoval(item)}
+                  >
+                    <Ionicons name="close" size={20} color={Colors.white} />
+                    <ThemedText style={styles.actionButtonText}>Reject</ThemedText>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+            ListEmptyComponent={
+              <View style={styles.emptyState}>
+                <Ionicons name="checkmark-circle" size={60} color={Colors.text.secondary} />
+                <ThemedText style={styles.emptyText}>No removal requests</ThemedText>
               </View>
             }
           />
@@ -791,43 +1142,152 @@ export default function AdminScreen() {
         {/* Cities Tab */}
         {activeTab === 'cities' && (
           <ScrollView style={styles.scrollContent}>
-            {/* Add City Form */}
+            {/* Add City Section */}
             <View style={styles.addCityForm}>
               <ThemedText style={styles.sectionTitle}>Add New City</ThemedText>
-              <View style={styles.inputRow}>
+              
+              {/* Search Input */}
+              <View style={styles.searchContainer}>
+                <Ionicons name="search" size={20} color={Colors.text.secondary} />
                 <TextInput
-                  style={styles.input}
-                  value={newAirportCode}
-                  onChangeText={setNewAirportCode}
-                  placeholder="Airport Code (e.g., CLT, DEN)"
+                  style={styles.searchInput}
+                  value={airportSearch}
+                  onChangeText={setAirportSearch}
+                  placeholder="Search by code, city, or airport name..."
                   placeholderTextColor={Colors.text.secondary}
                   autoCapitalize="characters"
-                  maxLength={4}
                 />
+                {airportSearch.length > 0 && (
+                  <TouchableOpacity onPress={() => {
+                    setAirportSearch('');
+                    setSelectedAirport(null);
+                    setSearchResults([]);
+                  }}>
+                    <Ionicons name="close-circle" size={20} color={Colors.text.secondary} />
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {/* Search Results */}
+              {searchLoading && (
+                <View style={styles.searchLoading}>
+                  <ActivityIndicator size="small" color={Colors.primary} />
+                  <ThemedText style={styles.searchLoadingText}>Searching airports...</ThemedText>
+                </View>
+              )}
+
+              {!searchLoading && searchResults.length > 0 && (
+                <View style={styles.searchResults}>
+                  {searchResults.slice(0, 5).map((airport) => (
+                    <TouchableOpacity
+                      key={airport.code}
+                      style={[
+                        styles.searchResultItem,
+                        selectedAirport?.code === airport.code && styles.searchResultItemSelected
+                      ]}
+                      onPress={() => setSelectedAirport(airport)}
+                    >
+                      <View style={styles.searchResultMain}>
+                        <ThemedText style={styles.searchResultCode}>{airport.code}</ThemedText>
+                        <View style={styles.searchResultInfo}>
+                          <ThemedText style={styles.searchResultName}>{airport.name}</ThemedText>
+                          <ThemedText style={styles.searchResultAirport} numberOfLines={1}>
+                            {airport.fullName}
+                          </ThemedText>
+                        </View>
+                      </View>
+                      {selectedAirport?.code === airport.code && (
+                        <Ionicons name="checkmark-circle" size={24} color={Colors.primary} />
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
+              {/* No results message */}
+              {!searchLoading && airportSearch.length >= 3 && searchResults.length === 0 && (
+                <View style={styles.noResults}>
+                  <Ionicons name="airplane-outline" size={24} color={Colors.text.secondary} />
+                  <ThemedText style={styles.noResultsText}>
+                    No airports found for "{airportSearch}"
+                  </ThemedText>
+                  <ThemedText style={styles.noResultsHint}>
+                    Try the 3-letter IATA code or add manually below
+                  </ThemedText>
+                </View>
+              )}
+
+              {/* Selected Airport Preview */}
+              {selectedAirport && (
+                <View style={styles.selectedAirport}>
+                  <ThemedText style={styles.selectedLabel}>Selected:</ThemedText>
+                  <ThemedText style={styles.selectedName}>
+                    {selectedAirport.name} ({selectedAirport.code})
+                  </ThemedText>
+                  <ThemedText style={styles.selectedDetails}>
+                    📍 {selectedAirport.lat.toFixed(4)}, {selectedAirport.lng.toFixed(4)}
+                  </ThemedText>
+                  <ThemedText style={styles.selectedDetails}>
+                    Areas: {selectedAirport.areas.join(', ')}
+                  </ThemedText>
+                </View>
+              )}
+
+              {/* Action Buttons */}
+              <View style={styles.addCityActions}>
                 <TouchableOpacity
-                  style={[styles.addButton, addingCity && styles.addButtonDisabled]}
-                  onPress={handleAddCityByCode}
-                  disabled={addingCity}
+                  style={[
+                    styles.addCityButton,
+                    (!selectedAirport || addingCity) && styles.addCityButtonDisabled
+                  ]}
+                  onPress={handleAddCity}
+                  disabled={!selectedAirport || addingCity}
                 >
                   {addingCity ? (
                     <ActivityIndicator size="small" color={Colors.white} />
                   ) : (
-                    <Ionicons name="add" size={24} color={Colors.white} />
+                    <>
+                      <Ionicons name="add" size={20} color={Colors.white} />
+                      <ThemedText style={styles.addCityButtonText}>Add City</ThemedText>
+                    </>
                   )}
                 </TouchableOpacity>
+
+                {airportSearch.length >= 3 && searchResults.length === 0 && (
+                  <TouchableOpacity
+                    style={styles.manualAddButton}
+                    onPress={handleAddCityManually}
+                  >
+                    <Ionicons name="create-outline" size={20} color={Colors.primary} />
+                    <ThemedText style={styles.manualAddButtonText}>
+                      Add "{airportSearch.toUpperCase()}" Manually
+                    </ThemedText>
+                  </TouchableOpacity>
+                )}
               </View>
+
               <ThemedText style={styles.hint}>
-                Enter airport code - city data will be fetched automatically
+                Search for airports in our database, or add manually if not found
               </ThemedText>
             </View>
 
             {/* Cities List */}
             <ThemedText style={styles.sectionTitle}>All Cities ({allCities.length})</ThemedText>
             {allCities.map((city) => (
-              <View key={city.id} style={styles.cityCard}>
+              <View key={city.id} style={[
+                styles.cityCard,
+                city.needsReview && styles.cityCardNeedsReview
+              ]}>
                 <View style={styles.cityHeader}>
-                  <View>
-                    <ThemedText style={styles.cityName}>{city.name}</ThemedText>
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.cityNameRow}>
+                      <ThemedText style={styles.cityName}>{city.name}</ThemedText>
+                      {city.needsReview && (
+                        <View style={styles.needsReviewBadge}>
+                          <ThemedText style={styles.needsReviewText}>Needs Review</ThemedText>
+                        </View>
+                      )}
+                    </View>
                     <ThemedText style={styles.cityCode}>{city.code}</ThemedText>
                   </View>
                   <View style={styles.cityActions}>
@@ -846,7 +1306,7 @@ export default function AdminScreen() {
                   </View>
                 </View>
                 <ThemedText style={styles.cityCoords}>
-                  📍 {city.lat.toFixed(4)}, {city.lng.toFixed(4)}
+                  📍 {city.lat?.toFixed(4) || '0'}, {city.lng?.toFixed(4) || '0'}
                 </ThemedText>
                 <ThemedText style={styles.cityAreas}>
                   Areas: {city.areas?.join(', ') || 'None'}
@@ -861,34 +1321,47 @@ export default function AdminScreen() {
           <FlatList
             data={cityRequests}
             keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <View style={styles.card}>
-                <View style={styles.cardHeader}>
-                  <ThemedText style={styles.cardTitle}>
-                    Airport: {item.airportCode}
+            renderItem={({ item }) => {
+              const knownAirport = getAirportByCode(item.airportCode);
+              return (
+                <View style={styles.card}>
+                  <View style={styles.cardHeader}>
+                    <ThemedText style={styles.cardTitle}>
+                      Airport: {item.airportCode}
+                    </ThemedText>
+                    {knownAirport && (
+                      <ThemedText style={styles.cardMeta}>
+                        {knownAirport.name} - Found in database ✓
+                      </ThemedText>
+                    )}
+                    {!knownAirport && (
+                      <ThemedText style={[styles.cardMeta, { color: Colors.warning }]}>
+                        Not in database - will need manual entry
+                      </ThemedText>
+                    )}
+                  </View>
+                  <ThemedText style={styles.cardFooter}>
+                    Requested by {item.requestedByName} ({item.requestedByEmail})
                   </ThemedText>
+                  <View style={styles.cardActions}>
+                    <TouchableOpacity
+                      style={[styles.actionButton, styles.approveButton]}
+                      onPress={() => handleApproveCityRequest(item)}
+                    >
+                      <Ionicons name="checkmark" size={20} color={Colors.white} />
+                      <ThemedText style={styles.actionButtonText}>Approve & Add</ThemedText>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.actionButton, styles.rejectButton]}
+                      onPress={() => handleRejectCityRequest(item)}
+                    >
+                      <Ionicons name="close" size={20} color={Colors.white} />
+                      <ThemedText style={styles.actionButtonText}>Reject</ThemedText>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-                <ThemedText style={styles.cardFooter}>
-                  Requested by {item.requestedByName} ({item.requestedByEmail})
-                </ThemedText>
-                <View style={styles.cardActions}>
-                  <TouchableOpacity
-                    style={[styles.actionButton, styles.approveButton]}
-                    onPress={() => handleApproveCityRequest(item)}
-                  >
-                    <Ionicons name="checkmark" size={20} color={Colors.white} />
-                    <ThemedText style={styles.actionButtonText}>Approve & Add</ThemedText>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.actionButton, styles.rejectButton]}
-                    onPress={() => handleRejectCityRequest(item)}
-                  >
-                    <Ionicons name="close" size={20} color={Colors.white} />
-                    <ThemedText style={styles.actionButtonText}>Reject</ThemedText>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
+              );
+            }}
             ListEmptyComponent={
               <View style={styles.emptyState}>
                 <Ionicons name="checkmark-circle" size={60} color={Colors.text.secondary} />
@@ -900,74 +1373,321 @@ export default function AdminScreen() {
 
         {/* Analytics Tab */}
         {activeTab === 'analytics' && (
-          <ScrollView style={styles.scrollContent}>
+          <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
+            {/* Section: User Overview */}
+            <ThemedText style={styles.analyticsSection}>👥 User Overview</ThemedText>
             <View style={styles.statsGrid}>
               <View style={styles.statCard}>
-                <Ionicons name="people" size={32} color={Colors.primary} />
+                <Ionicons name="people" size={28} color={Colors.primary} />
                 <ThemedText style={styles.statNumber}>{stats.totalUsers}</ThemedText>
                 <ThemedText style={styles.statLabel}>Total Users</ThemedText>
               </View>
 
               <View style={styles.statCard}>
-                <Ionicons name="flash" size={32} color={Colors.accent} />
+                <Ionicons name="flash" size={28} color={Colors.success} />
                 <ThemedText style={styles.statNumber}>{stats.activeThisWeek}</ThemedText>
                 <ThemedText style={styles.statLabel}>Active This Week</ThemedText>
               </View>
 
               <View style={styles.statCard}>
-                <Ionicons name="location" size={32} color={Colors.primary} />
+                <Ionicons name="today" size={28} color={Colors.accent} />
+                <ThemedText style={styles.statNumber}>{stats.newUsersToday}</ThemedText>
+                <ThemedText style={styles.statLabel}>New Today</ThemedText>
+              </View>
+
+              <View style={styles.statCard}>
+                <Ionicons name="calendar" size={28} color={Colors.primary} />
+                <ThemedText style={styles.statNumber}>{stats.newUsersThisWeek}</ThemedText>
+                <ThemedText style={styles.statLabel}>New This Week</ThemedText>
+              </View>
+            </View>
+
+            {/* Signups Chart */}
+            <ThemedText style={styles.analyticsSection}>📈 Signups (Last 7 Days)</ThemedText>
+            <View style={styles.chartContainer}>
+              <View style={styles.barChart}>
+                {stats.signupsLast7Days.map((day, index) => {
+                  const maxCount = Math.max(...stats.signupsLast7Days.map(d => d.count), 1);
+                  const barHeight = Math.max((day.count / maxCount) * 80, 4); // Max 80px height
+                  return (
+                    <View key={index} style={styles.barWrapper}>
+                      <ThemedText style={styles.barValue}>{day.count}</ThemedText>
+                      <View style={[styles.bar, { height: barHeight }]} />
+                      <ThemedText style={styles.barLabel}>{day.date.split(' ')[1]}</ThemedText>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* Users by Position */}
+            <ThemedText style={styles.analyticsSection}>✈️ Users by Position</ThemedText>
+            <View style={styles.breakdownCard}>
+              <View style={styles.breakdownRow}>
+                <View style={styles.breakdownLabelRow}>
+                  <View style={[styles.breakdownDot, { backgroundColor: Colors.primary }]} />
+                  <ThemedText style={styles.breakdownLabel}>Flight Attendants</ThemedText>
+                </View>
+                <ThemedText style={styles.breakdownValue}>{stats.usersByPosition.flightAttendants}</ThemedText>
+              </View>
+              <View style={styles.breakdownRow}>
+                <View style={styles.breakdownLabelRow}>
+                  <View style={[styles.breakdownDot, { backgroundColor: Colors.accent }]} />
+                  <ThemedText style={styles.breakdownLabel}>Pilots</ThemedText>
+                </View>
+                <ThemedText style={styles.breakdownValue}>{stats.usersByPosition.pilots}</ThemedText>
+              </View>
+              <View style={styles.breakdownRow}>
+                <View style={styles.breakdownLabelRow}>
+                  <View style={[styles.breakdownDot, { backgroundColor: Colors.text.secondary }]} />
+                  <ThemedText style={styles.breakdownLabel}>Other</ThemedText>
+                </View>
+                <ThemedText style={styles.breakdownValue}>{stats.usersByPosition.other}</ThemedText>
+              </View>
+            </View>
+
+            {/* Top Airlines */}
+            {stats.usersByAirline.length > 0 && (
+              <>
+                <ThemedText style={styles.analyticsSection}>🏢 Top Airlines</ThemedText>
+                <View style={styles.breakdownCard}>
+                  {stats.usersByAirline.map((item, index) => (
+                    <View key={index} style={styles.breakdownRow}>
+                      <ThemedText style={styles.breakdownLabel}>
+                        {index + 1}. {item.airline}
+                      </ThemedText>
+                      <ThemedText style={styles.breakdownValue}>{item.count}</ThemedText>
+                    </View>
+                  ))}
+                </View>
+              </>
+            )}
+
+            {/* Section: Engagement */}
+            <ThemedText style={styles.analyticsSection}>🔥 Engagement (This Week)</ThemedText>
+            <View style={styles.statsGrid}>
+              <View style={styles.statCard}>
+                <Ionicons name="airplane" size={28} color={Colors.primary} />
+                <ThemedText style={styles.statNumber}>{stats.layoversThisWeek}</ThemedText>
+                <ThemedText style={styles.statLabel}>Layovers Set</ThemedText>
+              </View>
+
+              <View style={styles.statCard}>
+                <Ionicons name="calendar-outline" size={28} color={Colors.accent} />
+                <ThemedText style={styles.statNumber}>{stats.plansThisWeek}</ThemedText>
+                <ThemedText style={styles.statLabel}>Plans Created</ThemedText>
+              </View>
+
+              <View style={styles.statCard}>
+                <Ionicons name="link" size={28} color={Colors.success} />
+                <ThemedText style={styles.statNumber}>{stats.connectionsThisWeek}</ThemedText>
+                <ThemedText style={styles.statLabel}>New Connections</ThemedText>
+              </View>
+
+              <View style={styles.statCard}>
+                <Ionicons name="people-circle" size={28} color={Colors.primary} />
+                <ThemedText style={styles.statNumber}>{stats.totalConnections}</ThemedText>
+                <ThemedText style={styles.statLabel}>Total Connections</ThemedText>
+              </View>
+            </View>
+
+            {/* Section: Content */}
+            <ThemedText style={styles.analyticsSection}>📍 Content</ThemedText>
+            <View style={styles.statsGrid}>
+              <View style={styles.statCard}>
+                <Ionicons name="location" size={28} color={Colors.primary} />
                 <ThemedText style={styles.statNumber}>{stats.totalSpots}</ThemedText>
                 <ThemedText style={styles.statLabel}>Approved Spots</ThemedText>
               </View>
 
               <View style={styles.statCard}>
-                <Ionicons name="link" size={32} color={Colors.accent} />
-                <ThemedText style={styles.statNumber}>{stats.totalConnections}</ThemedText>
-                <ThemedText style={styles.statLabel}>Connections</ThemedText>
+                <Ionicons name="globe" size={28} color={Colors.accent} />
+                <ThemedText style={styles.statNumber}>{stats.citiesWithSpots}</ThemedText>
+                <ThemedText style={styles.statLabel}>Cities with Spots</ThemedText>
+              </View>
+
+              <View style={styles.statCard}>
+                <Ionicons name="star" size={28} color={Colors.accent} />
+                <ThemedText style={styles.statNumber}>{stats.reviewsThisWeek}</ThemedText>
+                <ThemedText style={styles.statLabel}>Reviews This Week</ThemedText>
+              </View>
+
+              <View style={styles.statCard}>
+                <Ionicons name="camera" size={28} color={Colors.primary} />
+                <ThemedText style={styles.statNumber}>{stats.photosThisWeek}</ThemedText>
+                <ThemedText style={styles.statLabel}>Photos This Week</ThemedText>
               </View>
             </View>
+
+            {/* Top Cities by Spots */}
+            {stats.spotsByCity.length > 0 && (
+              <>
+                <ThemedText style={styles.analyticsSection}>🏙️ Top Cities by Spots</ThemedText>
+                <View style={styles.breakdownCard}>
+                  {stats.spotsByCity.map((item, index) => (
+                    <View key={index} style={styles.breakdownRow}>
+                      <ThemedText style={styles.breakdownLabel}>
+                        {index + 1}. {item.city}
+                      </ThemedText>
+                      <ThemedText style={styles.breakdownValue}>{item.count} spots</ThemedText>
+                    </View>
+                  ))}
+                </View>
+              </>
+            )}
+
+            {/* Top Saved Spots */}
+            {stats.topSavedSpots.length > 0 && (
+              <>
+                <ThemedText style={styles.analyticsSection}>❤️ Most Saved Spots</ThemedText>
+                <View style={styles.breakdownCard}>
+                  {stats.topSavedSpots.map((item, index) => (
+                    <View key={index} style={styles.breakdownRow}>
+                      <View style={{ flex: 1 }}>
+                        <ThemedText style={styles.breakdownLabel}>
+                          {index + 1}. {item.name}
+                        </ThemedText>
+                        <ThemedText style={styles.breakdownSubLabel}>{item.city}</ThemedText>
+                      </View>
+                      <ThemedText style={styles.breakdownValue}>{item.saves} saves</ThemedText>
+                    </View>
+                  ))}
+                </View>
+              </>
+            )}
+
+            {/* Bottom Spacer */}
+            <View style={{ height: 40 }} />
           </ScrollView>
         )}
 
-        {/* Migration Tab */}
-        {activeTab === 'migration' && (
-          <ScrollView style={styles.scrollContent}>
-            <View style={styles.migrationCard}>
-              <Ionicons name="cloud-upload" size={48} color={Colors.primary} />
-              <ThemedText style={styles.migrationTitle}>
-                Migrate Cities to Firestore
-              </ThemedText>
-              <ThemedText style={styles.migrationText}>
-                This will copy all 50 cities from your hardcoded cities.ts file into Firestore.
-                {'\n\n'}
-                Run this ONCE only. After migration, your app will read cities from Firestore,
-                allowing you to add/edit cities without app updates.
-                {'\n\n'}
-                Current cities in Firestore: {allCities.length}
-              </ThemedText>
-              
-              {migrationStatus && (
-                <ThemedText style={styles.migrationStatus}>{migrationStatus}</ThemedText>
-              )}
-
-              <TouchableOpacity
-                style={[styles.migrationButton, migrating && styles.migrationButtonDisabled]}
-                onPress={handleMigrateCities}
-                disabled={migrating}
-              >
-                {migrating ? (
-                  <ActivityIndicator size="small" color={Colors.white} />
-                ) : (
-                  <>
-                    <Ionicons name="rocket" size={20} color={Colors.white} />
-                    <ThemedText style={styles.migrationButtonText}>
-                      Start Migration
-                    </ThemedText>
-                  </>
-                )}
-              </TouchableOpacity>
-            </View>
-          </ScrollView>
+        {/* Feedback Tab */}
+        {activeTab === 'feedback' && (
+          <FlatList
+            data={feedbackList}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
+              <View style={[styles.card, item.status === 'new' && styles.cardNew]}>
+                <View style={styles.cardHeader}>
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.feedbackHeader}>
+                      <View style={[
+                        styles.feedbackCategoryBadge,
+                        { backgroundColor: 
+                          item.category === 'bug' ? Colors.error + '20' :
+                          item.category === 'feature' ? Colors.accent + '20' :
+                          item.category === 'general' ? Colors.primary + '20' :
+                          Colors.text.secondary + '20'
+                        }
+                      ]}>
+                        <Ionicons 
+                          name={
+                            item.category === 'bug' ? 'bug' :
+                            item.category === 'feature' ? 'bulb' :
+                            item.category === 'general' ? 'chatbubble' : 'ellipsis-horizontal'
+                          } 
+                          size={14} 
+                          color={
+                            item.category === 'bug' ? Colors.error :
+                            item.category === 'feature' ? Colors.accent :
+                            item.category === 'general' ? Colors.primary :
+                            Colors.text.secondary
+                          } 
+                        />
+                        <ThemedText style={[
+                          styles.feedbackCategoryText,
+                          { color: 
+                            item.category === 'bug' ? Colors.error :
+                            item.category === 'feature' ? Colors.accent :
+                            item.category === 'general' ? Colors.primary :
+                            Colors.text.secondary
+                          }
+                        ]}>
+                          {item.category === 'bug' ? 'Bug' : 
+                           item.category === 'feature' ? 'Feature' : 
+                           item.category === 'general' ? 'General' : 'Other'}
+                        </ThemedText>
+                      </View>
+                      <View style={[
+                        styles.feedbackStatusBadge,
+                        { backgroundColor: 
+                          item.status === 'new' ? Colors.accent :
+                          item.status === 'reviewed' ? Colors.primary :
+                          item.status === 'resolved' ? Colors.success :
+                          Colors.text.secondary
+                        }
+                      ]}>
+                        <ThemedText style={styles.feedbackStatusText}>
+                          {item.status.toUpperCase()}
+                        </ThemedText>
+                      </View>
+                    </View>
+                    <ThemedText style={styles.cardTitle}>{item.title}</ThemedText>
+                  </View>
+                </View>
+                <ThemedText style={styles.cardDescription}>{item.description}</ThemedText>
+                <View style={styles.feedbackMeta}>
+                  <ThemedText style={styles.feedbackMetaText}>
+                    👤 {item.userName} • {item.userAirline}
+                  </ThemedText>
+                  <ThemedText style={styles.feedbackMetaText}>
+                    📧 {item.userEmail}
+                  </ThemedText>
+                  <ThemedText style={styles.feedbackMetaText}>
+                    📱 {item.platform} • v{item.appVersion}
+                  </ThemedText>
+                  <ThemedText style={styles.feedbackMetaText}>
+                    🕐 {item.createdAt?.toDate?.().toLocaleDateString() || 'Unknown'}
+                  </ThemedText>
+                </View>
+                <View style={styles.feedbackActions}>
+                  {item.status === 'new' && (
+                    <TouchableOpacity
+                      style={[styles.feedbackActionButton, { backgroundColor: Colors.primary }]}
+                      onPress={() => handleUpdateFeedbackStatus(item.id, 'reviewed')}
+                    >
+                      <Ionicons name="eye" size={16} color={Colors.white} />
+                      <ThemedText style={styles.feedbackActionText}>Mark Reviewed</ThemedText>
+                    </TouchableOpacity>
+                  )}
+                  {item.status === 'reviewed' && (
+                    <TouchableOpacity
+                      style={[styles.feedbackActionButton, { backgroundColor: Colors.success }]}
+                      onPress={() => handleUpdateFeedbackStatus(item.id, 'resolved')}
+                    >
+                      <Ionicons name="checkmark-circle" size={16} color={Colors.white} />
+                      <ThemedText style={styles.feedbackActionText}>Mark Resolved</ThemedText>
+                    </TouchableOpacity>
+                  )}
+                  {item.status !== 'archived' && (
+                    <TouchableOpacity
+                      style={[styles.feedbackActionButton, { backgroundColor: Colors.text.secondary }]}
+                      onPress={() => handleUpdateFeedbackStatus(item.id, 'archived')}
+                    >
+                      <Ionicons name="archive" size={16} color={Colors.white} />
+                      <ThemedText style={styles.feedbackActionText}>Archive</ThemedText>
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity
+                    style={[styles.feedbackActionButton, { backgroundColor: Colors.error }]}
+                    onPress={() => handleDeleteFeedback(item.id)}
+                  >
+                    <Ionicons name="trash" size={16} color={Colors.white} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+            contentContainerStyle={styles.listContent}
+            ListEmptyComponent={
+              <View style={styles.emptyState}>
+                <Ionicons name="chatbubbles-outline" size={60} color={Colors.text.secondary} />
+                <ThemedText style={styles.emptyStateText}>No feedback yet</ThemedText>
+                <ThemedText style={styles.emptyStateSubtext}>
+                  Feedback from alpha testers will appear here
+                </ThemedText>
+              </View>
+            }
+          />
         )}
       </View>
 
@@ -981,61 +1701,57 @@ export default function AdminScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <ThemedText style={styles.modalTitle}>Edit City</ThemedText>
+              <ThemedText style={styles.modalTitle}>
+                {allCities.find(c => c.id === editingCity?.id) ? 'Edit City' : 'Add City Manually'}
+              </ThemedText>
               <TouchableOpacity onPress={() => setEditModalVisible(false)}>
                 <Ionicons name="close" size={24} color={Colors.text.primary} />
               </TouchableOpacity>
             </View>
 
             <ScrollView style={styles.modalBody}>
-              <ThemedText style={styles.inputLabel}>City Name</ThemedText>
+              <ThemedText style={styles.inputLabel}>Airport Code</ThemedText>
+              <TextInput
+                style={[styles.modalInput, { backgroundColor: Colors.background + '50' }]}
+                value={editingCity?.code || ''}
+                editable={false}
+              />
+
+              <ThemedText style={styles.inputLabel}>City Name *</ThemedText>
               <TextInput
                 style={styles.modalInput}
                 value={editingCity?.name || ''}
                 onChangeText={(text) => setEditingCity(prev => prev ? { ...prev, name: text } : null)}
-                placeholder="City Name"
+                placeholder="e.g., Charlotte"
                 placeholderTextColor={Colors.text.secondary}
               />
 
-              <ThemedText style={styles.inputLabel}>Airport Code</ThemedText>
-              <TextInput
-                style={styles.modalInput}
-                value={editingCity?.code || ''}
-                onChangeText={(text) => setEditingCity(prev => prev ? { ...prev, code: text.toUpperCase() } : null)}
-                placeholder="Code"
-                placeholderTextColor={Colors.text.secondary}
-                autoCapitalize="characters"
-                maxLength={4}
-              />
-
-              <ThemedText style={styles.inputLabel}>Latitude</ThemedText>
+              <ThemedText style={styles.inputLabel}>Latitude *</ThemedText>
               <TextInput
                 style={styles.modalInput}
                 value={editingCity?.lat?.toString() || ''}
                 onChangeText={(text) => setEditingCity(prev => prev ? { ...prev, lat: parseFloat(text) || 0 } : null)}
-                placeholder="Latitude"
+                placeholder="e.g., 35.2140"
                 placeholderTextColor={Colors.text.secondary}
                 keyboardType="numeric"
               />
 
-              <ThemedText style={styles.inputLabel}>Longitude</ThemedText>
+              <ThemedText style={styles.inputLabel}>Longitude *</ThemedText>
               <TextInput
                 style={styles.modalInput}
                 value={editingCity?.lng?.toString() || ''}
                 onChangeText={(text) => setEditingCity(prev => prev ? { ...prev, lng: parseFloat(text) || 0 } : null)}
-                placeholder="Longitude"
+                placeholder="e.g., -80.9431"
                 placeholderTextColor={Colors.text.secondary}
                 keyboardType="numeric"
               />
 
-              <ThemedText style={styles.inputLabel}>
-                Areas/Neighborhoods (comma-separated)
-              </ThemedText>
+              <ThemedText style={styles.inputLabel}>Areas (one per line)</ThemedText>
               <TextInput
                 style={[styles.modalInput, styles.modalTextArea]}
-                value={editingCity?.areas?.join(', ') || ''}
-                onChangeText={(text) => setEditingCity(prev => prev ? { ...prev, areas: text.split(',').map(a => a.trim()) } : null)}
-                placeholder="Downtown, Airport Area, Midtown"
+                value={editingCity?.areas?.join('\n') || ''}
+                onChangeText={(text) => setEditingCity(prev => prev ? { ...prev, areas: text.split('\n').filter(a => a.trim()) } : null)}
+                placeholder="CLT Airport Area&#10;Uptown Charlotte&#10;South End"
                 placeholderTextColor={Colors.text.secondary}
                 multiline
                 numberOfLines={4}
@@ -1085,9 +1801,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   tabBar: {
+    flexGrow: 0,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
-    paddingHorizontal: 20,
   },
   tab: {
     paddingVertical: 12,
@@ -1204,48 +1920,174 @@ const styles = StyleSheet.create({
     marginTop: 16,
     color: Colors.text.secondary,
   },
+  // Add City Form
   addCityForm: {
     backgroundColor: Colors.card,
     padding: 16,
     borderRadius: 12,
     marginBottom: 24,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '700',
     marginBottom: 16,
   },
-  inputRow: {
+  searchContainer: {
     flexDirection: 'row',
-    gap: 12,
-  },
-  input: {
-    flex: 1,
+    alignItems: 'center',
     backgroundColor: Colors.background,
     borderWidth: 1,
     borderColor: Colors.border,
     borderRadius: 8,
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
+  },
+  searchInput: {
+    flex: 1,
     paddingVertical: 12,
+    paddingHorizontal: 8,
     fontSize: 16,
     color: Colors.text.primary,
   },
-  addButton: {
-    backgroundColor: Colors.primary,
-    width: 48,
-    height: 48,
-    borderRadius: 8,
+  searchLoading: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 16,
   },
-  addButtonDisabled: {
-    opacity: 0.6,
+  searchLoadingText: {
+    fontSize: 14,
+    color: Colors.text.secondary,
+  },
+  noResults: {
+    alignItems: 'center',
+    paddingVertical: 20,
+    gap: 8,
+  },
+  noResultsText: {
+    fontSize: 14,
+    color: Colors.text.secondary,
+    textAlign: 'center',
+  },
+  noResultsHint: {
+    fontSize: 12,
+    color: Colors.text.secondary,
+    textAlign: 'center',
+  },
+  searchResults: {
+    marginTop: 12,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  searchResultItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    backgroundColor: Colors.background,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  searchResultItemSelected: {
+    backgroundColor: Colors.primary + '15',
+    borderColor: Colors.primary,
+  },
+  searchResultMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  searchResultCode: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Colors.primary,
+    backgroundColor: Colors.primary + '20',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    marginRight: 12,
+    minWidth: 50,
+    textAlign: 'center',
+  },
+  searchResultInfo: {
+    flex: 1,
+  },
+  searchResultName: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  searchResultAirport: {
+    fontSize: 13,
+    color: Colors.text.secondary,
+  },
+  selectedAirport: {
+    marginTop: 16,
+    padding: 12,
+    backgroundColor: Colors.primary + '10',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.primary + '30',
+  },
+  selectedLabel: {
+    fontSize: 12,
+    color: Colors.text.secondary,
+    marginBottom: 4,
+  },
+  selectedName: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  selectedDetails: {
+    fontSize: 13,
+    color: Colors.text.secondary,
+  },
+  addCityActions: {
+    marginTop: 16,
+    gap: 12,
+  },
+  addCityButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: Colors.primary,
+    paddingVertical: 14,
+    borderRadius: 8,
+  },
+  addCityButtonDisabled: {
+    opacity: 0.5,
+  },
+  addCityButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.white,
+  },
+  manualAddButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: Colors.background,
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+  },
+  manualAddButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.primary,
   },
   hint: {
     fontSize: 12,
     color: Colors.text.secondary,
-    marginTop: 8,
+    marginTop: 12,
+    textAlign: 'center',
   },
+  // City Card
   cityCard: {
     backgroundColor: Colors.card,
     padding: 16,
@@ -1254,16 +2096,36 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
   },
+  cityCardNeedsReview: {
+    borderColor: Colors.warning,
+    backgroundColor: Colors.warning + '10',
+  },
   cityHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     marginBottom: 8,
   },
+  cityNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   cityName: {
     fontSize: 16,
     fontWeight: '700',
     marginBottom: 4,
+  },
+  needsReviewBadge: {
+    backgroundColor: Colors.warning,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  needsReviewText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: Colors.white,
   },
   cityCode: {
     fontSize: 14,
@@ -1286,77 +2148,121 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.text.secondary,
   },
+  // Stats
   statsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
+    marginBottom: 20,
   },
   statCard: {
     flex: 1,
     minWidth: '45%',
     backgroundColor: Colors.card,
-    padding: 20,
+    padding: 16,
     borderRadius: 12,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: Colors.border,
   },
   statNumber: {
-    fontSize: 32,
+    fontSize: 24,
     fontWeight: '700',
-    marginVertical: 8,
+    marginVertical: 6,
   },
   statLabel: {
-    fontSize: 12,
+    fontSize: 11,
     color: Colors.text.secondary,
     textAlign: 'center',
   },
-  migrationCard: {
+  // Analytics Section
+  analyticsSection: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 12,
+    marginTop: 8,
+    color: Colors.text.primary,
+  },
+  // Chart styles
+  chartContainer: {
     backgroundColor: Colors.card,
-    padding: 24,
     borderRadius: 12,
-    alignItems: 'center',
+    padding: 16,
+    marginBottom: 20,
     borderWidth: 1,
     borderColor: Colors.border,
   },
-  migrationTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    marginTop: 16,
-    marginBottom: 12,
-    textAlign: 'center',
+  barChart: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    height: 120,
+    paddingTop: 20, // Room for the value labels
   },
-  migrationText: {
-    fontSize: 14,
+  barWrapper: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  bar: {
+    width: 24,
+    backgroundColor: Colors.primary,
+    borderRadius: 4,
+    minHeight: 4,
+  },
+  barValue: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: Colors.text.primary,
+    marginBottom: 4,
+  },
+  barLabel: {
+    fontSize: 10,
     color: Colors.text.secondary,
-    textAlign: 'center',
-    lineHeight: 22,
-    marginBottom: 24,
+    marginTop: 6,
   },
-  migrationStatus: {
-    fontSize: 12,
-    color: Colors.primary,
-    marginBottom: 16,
-    textAlign: 'center',
+  // Breakdown card styles
+  breakdownCard: {
+    backgroundColor: Colors.card,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
-  migrationButton: {
+  breakdownRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  breakdownLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    backgroundColor: Colors.primary,
-    paddingVertical: 16,
-    paddingHorizontal: 32,
-    borderRadius: 12,
+    gap: 8,
   },
-  migrationButtonDisabled: {
-    opacity: 0.6,
+  breakdownDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
   },
-  migrationButtonText: {
-    fontSize: 16,
+  breakdownLabel: {
+    fontSize: 14,
+    color: Colors.text.primary,
+  },
+  breakdownSubLabel: {
+    fontSize: 12,
+    color: Colors.text.secondary,
+    marginTop: 2,
+  },
+  breakdownValue: {
+    fontSize: 14,
     fontWeight: '700',
-    color: Colors.white,
+    color: Colors.primary,
   },
+  // Modal
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -1431,6 +2337,69 @@ const styles = StyleSheet.create({
   modalSaveButtonText: {
     fontSize: 16,
     fontWeight: '700',
+    color: Colors.white,
+  },
+  // Feedback styles
+  cardNew: {
+    borderLeftWidth: 4,
+    borderLeftColor: Colors.accent,
+  },
+  feedbackHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  feedbackCategoryBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  feedbackCategoryText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  feedbackStatusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  feedbackStatusText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: Colors.white,
+  },
+  feedbackMeta: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+    gap: 4,
+  },
+  feedbackMetaText: {
+    fontSize: 12,
+    color: Colors.text.secondary,
+  },
+  feedbackActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 12,
+  },
+  feedbackActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  feedbackActionText: {
+    fontSize: 12,
+    fontWeight: '600',
     color: Colors.white,
   },
 });

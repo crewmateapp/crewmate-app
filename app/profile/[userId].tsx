@@ -67,6 +67,7 @@ export default function UserProfileScreen() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('none');
+  const [connectionId, setConnectionId] = useState<string | null>(null);
   const [recentActivities, setRecentActivities] = useState<Activity[]>([]);
   const [stats, setStats] = useState({ spotsAdded: 0, photosPosted: 0, reviewsLeft: 0 });
 
@@ -105,15 +106,18 @@ export default function UserProfileScreen() {
       );
 
       const connectionsSnapshot = await getDocs(connectionsQuery);
-      const connected = connectionsSnapshot.docs.some(doc => {
+      let foundConnection = false;
+      
+      connectionsSnapshot.docs.forEach(doc => {
         const data = doc.data();
-        return data.userIds.includes(userId);
+        if (data.userIds.includes(userId)) {
+          foundConnection = true;
+          setConnectionId(doc.id);
+          setConnectionStatus('connected');
+        }
       });
 
-      if (connected) {
-        setConnectionStatus('connected');
-        return;
-      }
+      if (foundConnection) return;
 
       // Check for pending requests
       const sentRequestQuery = query(
@@ -215,6 +219,18 @@ export default function UserProfileScreen() {
     });
   };
 
+  const handleMessagePress = () => {
+    if (!connectionId || !profile) return;
+
+    router.push({
+      pathname: '/chat/[id]',
+      params: {
+        id: connectionId,
+        name: profile.displayName,
+      },
+    });
+  };
+
   const handleSpotPress = (spotId: string) => {
     router.push({
       pathname: '/spot/[id]',
@@ -299,9 +315,21 @@ export default function UserProfileScreen() {
     switch (connectionStatus) {
       case 'connected':
         return (
-          <View style={styles.connectedButton}>
-            <Ionicons name="checkmark-circle" size={20} color={Colors.success} />
-            <ThemedText style={styles.connectedButtonText}>Connected</ThemedText>
+          <View style={styles.connectedActions}>
+            {/* Connected Badge */}
+            <View style={styles.connectedButton}>
+              <Ionicons name="checkmark-circle" size={20} color={Colors.success} />
+              <ThemedText style={styles.connectedButtonText}>Connected</ThemedText>
+            </View>
+            
+            {/* Message Button */}
+            <TouchableOpacity
+              style={styles.messageButton}
+              onPress={handleMessagePress}
+            >
+              <Ionicons name="chatbubble" size={20} color={Colors.white} />
+              <ThemedText style={styles.messageButtonText}>Message</ThemedText>
+            </TouchableOpacity>
           </View>
         );
 
@@ -415,20 +443,47 @@ export default function UserProfileScreen() {
 
         {/* Stats */}
         <View style={styles.statsContainer}>
-          <View style={styles.statBox}>
-            <ThemedText style={styles.statNumber}>{stats.spotsAdded}</ThemedText>
+          <TouchableOpacity 
+            style={styles.statBox}
+            onPress={() => stats.spotsAdded > 0 && router.push({
+              pathname: '/profile/user-activity',
+              params: { userId: profile.id, userName: profile.displayName, type: 'spots' }
+            })}
+            activeOpacity={stats.spotsAdded > 0 ? 0.7 : 1}
+          >
+            <ThemedText style={[styles.statNumber, stats.spotsAdded > 0 && styles.statClickable]}>
+              {stats.spotsAdded}
+            </ThemedText>
             <ThemedText style={styles.statLabel}>Spots</ThemedText>
-          </View>
+          </TouchableOpacity>
           <View style={styles.statDivider} />
-          <View style={styles.statBox}>
-            <ThemedText style={styles.statNumber}>{stats.reviewsLeft}</ThemedText>
+          <TouchableOpacity 
+            style={styles.statBox}
+            onPress={() => stats.reviewsLeft > 0 && router.push({
+              pathname: '/profile/user-activity',
+              params: { userId: profile.id, userName: profile.displayName, type: 'reviews' }
+            })}
+            activeOpacity={stats.reviewsLeft > 0 ? 0.7 : 1}
+          >
+            <ThemedText style={[styles.statNumber, stats.reviewsLeft > 0 && styles.statClickable]}>
+              {stats.reviewsLeft}
+            </ThemedText>
             <ThemedText style={styles.statLabel}>Reviews</ThemedText>
-          </View>
+          </TouchableOpacity>
           <View style={styles.statDivider} />
-          <View style={styles.statBox}>
-            <ThemedText style={styles.statNumber}>{stats.photosPosted}</ThemedText>
+          <TouchableOpacity 
+            style={styles.statBox}
+            onPress={() => stats.photosPosted > 0 && router.push({
+              pathname: '/profile/user-activity',
+              params: { userId: profile.id, userName: profile.displayName, type: 'photos' }
+            })}
+            activeOpacity={stats.photosPosted > 0 ? 0.7 : 1}
+          >
+            <ThemedText style={[styles.statNumber, stats.photosPosted > 0 && styles.statClickable]}>
+              {stats.photosPosted}
+            </ThemedText>
             <ThemedText style={styles.statLabel}>Photos</ThemedText>
-          </View>
+          </TouchableOpacity>
         </View>
 
         {/* Recent Activity */}
@@ -599,6 +654,9 @@ const styles = StyleSheet.create({
     color: Colors.primary,
     marginBottom: 4,
   },
+  statClickable: {
+    textDecorationLine: 'underline',
+  },
   statLabel: {
     fontSize: 13,
     color: Colors.text.secondary,
@@ -655,6 +713,9 @@ const styles = StyleSheet.create({
   actionButtonContainer: {
     paddingHorizontal: 20,
   },
+  connectedActions: {
+    gap: 12,
+  },
   connectButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -682,6 +743,20 @@ const styles = StyleSheet.create({
   },
   connectedButtonText: {
     color: Colors.success,
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  messageButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: Colors.primary,
+    paddingVertical: 16,
+    borderRadius: 12,
+  },
+  messageButtonText: {
+    color: Colors.white,
     fontSize: 17,
     fontWeight: '700',
   },

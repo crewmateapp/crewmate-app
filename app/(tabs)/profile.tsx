@@ -5,6 +5,7 @@ import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { isAdmin, useAdminRole } from '@/hooks/useAdminRole';
+import { useAdminNotifications } from '@/hooks/useAdminNotifications';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
@@ -45,6 +46,7 @@ type UserStats = {
 export default function ProfileScreen() {
   const { user, signOut } = useAuth();
   const { role, cities, loading: adminLoading } = useAdminRole();
+  const { counts: adminCounts } = useAdminNotifications();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [currentLocation, setCurrentLocation] = useState<{ city: string; area: string } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -328,35 +330,27 @@ export default function ProfileScreen() {
           ) : (
             <View style={styles.avatarFallback}>
               <ThemedText style={styles.avatarText}>
-                {profile?.firstName?.[0]}{profile?.lastInitial}
+                {profile?.firstName?.charAt(0) || '?'}
               </ThemedText>
             </View>
           )}
-
           <ThemedText style={styles.name}>
-            {profile?.displayName}
+            {profile?.firstName} {profile?.lastInitial}.
           </ThemedText>
-          
           <ThemedText style={styles.position}>
             {profile?.position} • {profile?.airline}
           </ThemedText>
-          
-          <ThemedText style={styles.base}>
-            📍 {profile?.base}
-          </ThemedText>
-
+          <ThemedText style={styles.base}>Based in {profile?.base}</ThemedText>
           {profile?.bio && (
-            <ThemedText style={styles.bio}>
-              {profile.bio}
-            </ThemedText>
+            <ThemedText style={styles.bio}>{profile.bio}</ThemedText>
           )}
 
           {/* Favorite Cities */}
           {profile?.favoriteCities && profile.favoriteCities.length > 0 && (
             <View style={styles.favoriteCitiesContainer}>
               <View style={styles.sectionHeaderRow}>
-                <Ionicons name="airplane" size={16} color={Colors.primary} />
-                <ThemedText style={styles.sectionHeaderText}>Favorite Layover Cities</ThemedText>
+                <Ionicons name="heart" size={16} color={Colors.primary} />
+                <ThemedText style={styles.sectionHeaderText}>Favorite Layovers</ThemedText>
               </View>
               <View style={styles.tagsContainer}>
                 {profile.favoriteCities.map((city, index) => (
@@ -372,7 +366,7 @@ export default function ProfileScreen() {
           {profile?.interests && profile.interests.length > 0 && (
             <View style={styles.interestsContainer}>
               <View style={styles.sectionHeaderRow}>
-                <Ionicons name="heart" size={16} color={Colors.primary} />
+                <Ionicons name="sparkles" size={16} color={Colors.accent} />
                 <ThemedText style={styles.sectionHeaderText}>Interests</ThemedText>
               </View>
               <View style={styles.tagsContainer}>
@@ -386,7 +380,7 @@ export default function ProfileScreen() {
           )}
         </View>
 
-        {/* Stats Row */}
+        {/* Stats */}
         <View style={styles.statsContainer}>
           <TouchableOpacity 
             style={styles.statBox}
@@ -430,14 +424,23 @@ export default function ProfileScreen() {
           </View>
         </TouchableOpacity>
 
-        {/* Admin Panel - Now using Firestore check */}
+        {/* Admin Panel - With notification badge */}
         {isAdmin(role) && (
           <TouchableOpacity
             style={styles.adminCard}
             onPress={() => router.push('/admin')}
           >
             <View style={styles.adminLeft}>
-              <Ionicons name="shield-checkmark" size={22} color="#9C27B0" />
+              <View style={styles.adminIconContainer}>
+                <Ionicons name="shield-checkmark" size={22} color="#9C27B0" />
+                {adminCounts.total > 0 && (
+                  <View style={styles.adminBadge}>
+                    <ThemedText style={styles.adminBadgeText}>
+                      {adminCounts.total > 99 ? '99+' : adminCounts.total}
+                    </ThemedText>
+                  </View>
+                )}
+              </View>
               <View>
                 <ThemedText style={styles.adminTitle}>Admin Panel</ThemedText>
                 <ThemedText style={styles.adminSubtitle}>
@@ -445,7 +448,16 @@ export default function ProfileScreen() {
                 </ThemedText>
               </View>
             </View>
-            <Ionicons name="chevron-forward" size={20} color={Colors.text.secondary} />
+            <View style={styles.adminRight}>
+              {adminCounts.total > 0 && (
+                <View style={styles.adminPendingBadge}>
+                  <ThemedText style={styles.adminPendingText}>
+                    {adminCounts.total} pending
+                  </ThemedText>
+                </View>
+              )}
+              <Ionicons name="chevron-forward" size={20} color={Colors.text.secondary} />
+            </View>
           </TouchableOpacity>
         )}
 
@@ -480,6 +492,9 @@ export default function ProfileScreen() {
           <Ionicons name="log-out-outline" size={20} color={Colors.white} />
           <ThemedText style={styles.signOutText}>Sign Out</ThemedText>
         </TouchableOpacity>
+
+        {/* Bottom spacer */}
+        <View style={{ height: 40 }} />
       </ThemedView>
     </ScrollView>
   );
@@ -488,50 +503,45 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   scrollContainer: {
     flex: 1,
+    backgroundColor: Colors.background,
   },
   container: {
     flex: 1,
-    paddingTop: 10,
-    paddingBottom: 40,
+    paddingBottom: 20,
   },
   topSection: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    marginBottom: 20,
+    paddingTop: 60,
+    paddingBottom: 20,
   },
   currentlyInContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: Colors.card,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    gap: 10,
   },
   activeIndicator: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
     backgroundColor: Colors.success,
   },
   locationInfo: {
-    gap: 2,
+    flexDirection: 'column',
   },
   currentlyInLabel: {
-    fontSize: 10,
+    fontSize: 11,
     color: Colors.text.secondary,
-    fontWeight: '600',
+    fontWeight: '500',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   currentlyInCity: {
-    fontSize: 13,
-    color: Colors.text.primary,
+    fontSize: 16,
     fontWeight: '700',
+    color: Colors.text.primary,
   },
   offlineEmoji: {
     fontSize: 20,
@@ -690,6 +700,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Colors.white,
   },
+  // Admin Card with badge
   adminCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -707,6 +718,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
   },
+  adminIconContainer: {
+    position: 'relative',
+  },
+  adminBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -8,
+    backgroundColor: Colors.error,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  adminBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: Colors.white,
+  },
   adminTitle: {
     fontSize: 16,
     fontWeight: '600',
@@ -716,6 +747,22 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.text.secondary,
     marginTop: 2,
+  },
+  adminRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  adminPendingBadge: {
+    backgroundColor: Colors.error,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  adminPendingText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.white,
   },
   activitySection: {
     marginHorizontal: 20,

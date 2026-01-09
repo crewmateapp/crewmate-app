@@ -620,13 +620,7 @@ export default function SpotDetailScreen() {
           {/* Hero Image with Overlays */}
           {spotPhotos.length > 0 ? (
             <View style={styles.heroContainer}>
-              <TouchableOpacity onPress={() => router.push({
-                pathname: '/photo-viewer',
-                params: {
-                  photos: JSON.stringify(spotPhotos),
-                  initialIndex: 0
-                }
-              })}>
+              <TouchableOpacity onPress={() => setSelectedImage(spotPhotos[0])}>
                 <Image
                   source={{ uri: spotPhotos[0] }}
                   style={styles.heroImage}
@@ -761,13 +755,7 @@ export default function SpotDetailScreen() {
               {spotPhotos.slice(1).map((photoUrl, index) => (
                 <TouchableOpacity 
                   key={index} 
-                  onPress={() => router.push({
-                    pathname: '/photo-viewer',
-                    params: {
-                      photos: JSON.stringify(spotPhotos),
-                      initialIndex: index + 1  // +1 because we're showing from slice(1)
-                    }
-                  })}
+                  onPress={() => setSelectedImage(photoUrl)}
                 >
                   <Image source={{ uri: photoUrl }} style={styles.photo} />
                 </TouchableOpacity>
