@@ -28,7 +28,7 @@ export function useAdminNotifications() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user || roleLoading) return;
+    if (!user?.uid || roleLoading) return;
     
     // Not an admin - no notifications
     if (!isAdmin(role)) {

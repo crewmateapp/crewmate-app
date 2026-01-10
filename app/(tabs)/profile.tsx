@@ -56,7 +56,7 @@ export default function ProfileScreen() {
 
   useEffect(() => {
     const fetchProfile = async () => {
-      if (!user) return;
+      if (!user?.uid) return;
       
       try {
         const userDoc = await getDoc(doc(db, 'users', user.uid));
@@ -75,7 +75,7 @@ export default function ProfileScreen() {
 
   // Listen to friend count
   useEffect(() => {
-    if (!user) return;
+    if (!user?.uid) return;
 
     const connectionsQuery = query(
       collection(db, 'connections'),
@@ -91,7 +91,7 @@ export default function ProfileScreen() {
 
   // Listen to recent activities and calculate stats
   useEffect(() => {
-    if (!user) return;
+    if (!user?.uid) return;
 
     const activitiesQuery = query(
       collection(db, 'activities'),
@@ -117,7 +117,7 @@ export default function ProfileScreen() {
   // Calculate stats
   useEffect(() => {
     const fetchStats = async () => {
-      if (!user) return;
+      if (!user?.uid) return;
 
       try {
         // Get all activities to calculate stats
@@ -147,7 +147,7 @@ export default function ProfileScreen() {
 
   // Listen to current layover location
   useEffect(() => {
-    if (!user) return;
+    if (!user?.uid) return;
 
     const userDoc = doc(db, 'users', user.uid);
     const unsubscribe = onSnapshot(userDoc, (snapshot) => {
@@ -171,7 +171,7 @@ export default function ProfileScreen() {
   useFocusEffect(
     useCallback(() => {
       const refreshProfile = async () => {
-        if (!user) return;
+        if (!user?.uid) return;
         
         try {
           const userDoc = await getDoc(doc(db, 'users', user.uid));

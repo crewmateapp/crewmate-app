@@ -39,7 +39,7 @@ export default function PlansScreen() {
 
   // Get user's current layover city
   useEffect(() => {
-    if (!user) return;
+    if (!user?.uid) return;
 
     const unsubscribe = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
       if (docSnap.exists()) {
@@ -53,7 +53,7 @@ export default function PlansScreen() {
 
   // Fetch user's plans (hosting or attending)
   useEffect(() => {
-    if (!user || !currentCity) {
+    if (!user?.uid || !currentCity) {
       setMyPlans([]);
       return;
     }
@@ -87,7 +87,7 @@ export default function PlansScreen() {
 
   // Fetch all public plans in current city (excluding user's plans)
   useEffect(() => {
-    if (!currentCity || !user) {
+    if (!currentCity || !user?.uid) {
       setAllPlans([]);
       return;
     }

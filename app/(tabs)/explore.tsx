@@ -97,7 +97,7 @@ export default function ExploreScreen() {
   const loadUserLayoverCity = async () => {
     try {
       const user = auth.currentUser;
-      if (!user) return;
+      if (!user?.uid) return;
 
       // Query just by userId to avoid needing composite index
       const layoversQuery = query(
@@ -417,13 +417,24 @@ export default function ExploreScreen() {
                   />
                 }
               />
-            ) : (
+                        ) : (
               renderEmptyState()
             )}
           </>
         )}
 
         {!selectedCity && renderEmptyState()}
+
+        {/* Floating Add Spot Button - always visible when city is selected */}
+        {selectedCity && spots.length > 0 && (
+          <TouchableOpacity
+            style={styles.floatingAddButton}
+            onPress={() => router.push('/add-spot')}
+          >
+            <Ionicons name="add-circle-outline" size={22} color={COLORS.white} />
+            <ThemedText style={styles.floatingAddButtonText}>Add Spot</ThemedText>
+          </TouchableOpacity>
+        )}
       </View>
     </ThemedView>
   );
@@ -497,5 +508,27 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginLeft: 8,
+  },
+  floatingAddButton: {
+    position: 'absolute',
+    bottom: 100,
+    right: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 24,
+    backgroundColor: COLORS.primary,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  floatingAddButtonText: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 6,
   },
 });

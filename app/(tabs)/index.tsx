@@ -135,7 +135,7 @@ export default function MyLayoverScreen() {
   };
 
   const handleGoLive = async () => {
-    if (!user || !myLayover) return;
+    if (!user?.uid || !myLayover?.city) return;
 
     setVerifying(true);
     const verified = await verifyLocation(myLayover.city);
@@ -183,7 +183,7 @@ export default function MyLayoverScreen() {
 
   // Fetch user's layover
   useEffect(() => {
-    if (!user) return;
+    if (!user?.uid) return;
 
     const unsubscribe = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
       if (docSnap.exists()) {
@@ -199,7 +199,7 @@ export default function MyLayoverScreen() {
 
   // Count crew members live (same area, discoverable)
   useEffect(() => {
-    if (!user || !myLayover) {
+    if (!user?.uid || !myLayover?.city) {
       setCrewLiveCount(0);
       return;
     }
@@ -221,7 +221,7 @@ export default function MyLayoverScreen() {
 
   // Count crew members nearby (same city)
   useEffect(() => {
-    if (!user || !myLayover) {
+    if (!user?.uid || !myLayover?.city) {
       setCrewNearbyCount(0);
       return;
     }
@@ -242,7 +242,7 @@ export default function MyLayoverScreen() {
 
   // Fetch user's plans in current city
   useEffect(() => {
-    if (!user || !myLayover) {
+    if (!user?.uid || !myLayover?.city) {
       setMyPlans([]);
       return;
     }
@@ -285,7 +285,7 @@ export default function MyLayoverScreen() {
 
   // Check for layover expiration
   useEffect(() => {
-    if (!user || !myLayover || !myLayover.expiresAt) return;
+    if (!user?.uid || !myLayover?.city || !myLayover.expiresAt) return;
 
     const checkExpiration = () => {
       const now = new Date();
@@ -309,7 +309,7 @@ export default function MyLayoverScreen() {
 
   // Check for inactivity and require re-verification
   useEffect(() => {
-    if (!user || !myLayover?.isLive) return;
+    if (!user?.uid || !myLayover?.city || !myLayover?.isLive) return;
 
     const subscription = AppState.addEventListener('change', async (nextAppState) => {
       if (nextAppState === 'active') {
@@ -375,7 +375,7 @@ export default function MyLayoverScreen() {
   };
 
   const selectArea = async (areaName: string) => {
-    if (!user) return;
+    if (!user?.uid) return;
 
     try {
       const expiresAt = new Date();
@@ -401,7 +401,7 @@ export default function MyLayoverScreen() {
   };
 
   const handleClearLayover = async () => {
-    if (!user) return;
+    if (!user?.uid) return;
 
     Alert.alert(
       'Clear Layover',

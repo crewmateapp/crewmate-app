@@ -19,7 +19,7 @@ export function useAdminRole(): AdminStatus {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user) {
+    if (!user?.uid) {
       setRole(null);
       setCities([]);
       setLoading(false);

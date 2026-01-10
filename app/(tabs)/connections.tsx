@@ -68,7 +68,7 @@ export default function ConnectionsScreen() {
   const [showFilterModal, setShowFilterModal] = useState(false);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user?.uid) return;
 
     const incomingQuery = query(
       collection(db, 'connectionRequests'),
@@ -300,7 +300,7 @@ export default function ConnectionsScreen() {
 
   // Use connection ID directly for chat
   const handleOpenChat = async (connection: Connection) => {
-    if (!user) return;
+    if (!user?.uid) return;
     
     try {
       const connectionId = connection.id;

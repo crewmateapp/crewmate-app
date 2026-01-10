@@ -21,7 +21,7 @@ export default function TabLayout() {
 
   // Listen for incoming connection requests
   useEffect(() => {
-    if (!user) return;
+    if (!user?.uid) return;
 
     const q = query(
       collection(db, 'connectionRequests'),
@@ -38,7 +38,7 @@ export default function TabLayout() {
 
   // Listen for unread plan notifications
   useEffect(() => {
-    if (!user) return;
+    if (!user?.uid) return;
 
     const q = query(
       collection(db, 'planNotifications'),
@@ -55,7 +55,7 @@ export default function TabLayout() {
 
   // Listen for unread messages - FIXED: use connections with userIds
   useEffect(() => {
-    if (!user) return;
+    if (!user?.uid) return;
 
     const connectionsRef = collection(db, 'connections');
     const q = query(

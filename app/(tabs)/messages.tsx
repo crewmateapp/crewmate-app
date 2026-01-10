@@ -42,7 +42,7 @@ export default function MessagesScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user?.uid) return;
 
     // FIXED: Listen for connections where user is in userIds
     const connectionsRef = collection(db, 'connections');
