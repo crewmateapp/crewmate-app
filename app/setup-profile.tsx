@@ -7,7 +7,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, setDoc } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { useState } from 'react';
 import {
@@ -109,7 +109,7 @@ export default function SetupProfileScreen() {
 
     setSaving(true);
     try {
-      await updateDoc(doc(db, 'users', user.uid), {
+      await setDoc(doc(db, 'users', user.uid), {
         firstName: firstName.trim(),
         lastInitial: lastInitial.trim().charAt(0).toUpperCase(),
         displayName: `${firstName.trim()} ${lastInitial.trim().charAt(0).toUpperCase()}.`,
@@ -119,7 +119,7 @@ export default function SetupProfileScreen() {
         photoURL: photoURL || null,
         profileSetupCompleted: true,
         profileSetupCompletedAt: new Date(),
-      });
+      }, { merge: true });
 
       Alert.alert(
         'Welcome to CrewMate! ✈️',

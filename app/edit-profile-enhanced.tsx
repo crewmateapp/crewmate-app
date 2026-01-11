@@ -7,7 +7,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { useEffect, useState } from 'react';
 import {
@@ -178,7 +178,7 @@ export default function EditProfileEnhancedScreen() {
 
     setSaving(true);
     try {
-      await updateDoc(doc(db, 'users', user.uid), {
+      await setDoc(doc(db, 'users', user.uid), {
         firstName: firstName.trim(),
         lastInitial: lastInitial.trim().charAt(0).toUpperCase(),
         displayName: `${firstName.trim()} ${lastInitial.trim().charAt(0).toUpperCase()}.`,
@@ -189,7 +189,7 @@ export default function EditProfileEnhancedScreen() {
         bio: bio.trim() || null,
         favoriteCities: favoriteCities.length > 0 ? favoriteCities : null,
         interests: selectedInterests.length > 0 ? selectedInterests : null,
-      });
+      }, { merge: true });
 
       Alert.alert('Saved', 'Your profile has been updated.', [
         { text: 'OK', onPress: () => router.back() }

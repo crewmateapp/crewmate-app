@@ -7,7 +7,7 @@ import { useCities } from '@/hooks/useCities';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -177,7 +177,7 @@ export default function EditProfileScreen() {
       }
 
       // Update Firestore
-      await updateDoc(doc(db, 'users', user.uid), {
+      await setDoc(doc(db, 'users', user.uid), {
         firstName: firstName.trim(),
         lastInitial: lastInitial.trim().toUpperCase(),
         displayName: `${firstName.trim()} ${lastInitial.trim().toUpperCase()}.`,
@@ -185,7 +185,7 @@ export default function EditProfileScreen() {
         base: base,
         bio: bio.trim(),
         ...(photoURL && { photoURL }),
-      });
+      }, { merge: true });
 
       Alert.alert('Success!', 'Your profile has been updated.', [
         { text: 'OK', onPress: () => router.back() }
