@@ -20,7 +20,7 @@ export default function SignUpScreen() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const { signUp } = useAuth();
+  const { signUp, signOut } = useAuth();
 
   const handleSignUp = async () => {
     // Validation
@@ -50,6 +50,7 @@ export default function SignUpScreen() {
     setLoading(true);
     try {
       await signUp(email, password);
+      await signOut(); // Sign out so user must verify email first
       Alert.alert(
         'Check Your Email!',
         `We sent a verification link to ${email}. Please click the link to verify your account before signing in.`,

@@ -7,7 +7,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, setDoc } from 'firebase/firestore';
 import { useRef, useState } from 'react';
 import {
   Dimensions,
@@ -100,17 +100,17 @@ export default function OnboardingScreen() {
       
       // Update user document
       if (user) {
-        await updateDoc(doc(db, 'users', user.uid), {
+        await setDoc(doc(db, 'users', user.uid), {
           onboardingCompleted: true,
           onboardingCompletedAt: new Date(),
-        });
+        }, { merge: true });
       }
 
       // Navigate to profile setup or main app
       router.replace('/setup-profile');
     } catch (error) {
       console.error('Error completing onboarding:', error);
-      router.replace('/(tabs)');
+      router.replace('/setup-profile');
     }
   };
 

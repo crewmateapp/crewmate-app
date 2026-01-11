@@ -7,7 +7,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, setDoc } from 'firebase/firestore';
 import { useState } from 'react';
 import {
   Dimensions,
@@ -123,10 +123,10 @@ export default function TutorialScreen() {
       await AsyncStorage.setItem('tutorial_completed', 'true');
       
       if (user) {
-        await updateDoc(doc(db, 'users', user.uid), {
+        await setDoc(doc(db, 'users', user.uid), {
           tutorialCompleted: true,
           tutorialCompletedAt: new Date(),
-        });
+        }, { merge: true });
       }
 
       router.replace('/(tabs)');

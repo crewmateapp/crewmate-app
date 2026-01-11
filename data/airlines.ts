@@ -25,6 +25,9 @@ export const airlineDomains = [
   'aircanada.ca',
   'westjet.com',
   
+  // Testing
+  'crewmate.app',
+  
   // Add more as needed
 ];
 
@@ -49,6 +52,7 @@ export const airlineNames: { [domain: string]: string } = {
   'qantas.com': 'Qantas',
   'aircanada.ca': 'Air Canada',
   'westjet.com': 'WestJet',
+  'crewmate.app': 'CrewMate Test',
 };
 
 export function isValidAirlineEmail(email: string): boolean {
