@@ -29,7 +29,7 @@ export const useCities = () => {
             ...doc.data()
           } as City))
           .filter(city => city.status === 'active' || !city.status) // Only active cities
-          .sort((a, b) => a.name.localeCompare(b.name));
+          .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 
         setCities(citiesList);
         setLoading(false);

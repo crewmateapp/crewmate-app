@@ -13,10 +13,12 @@ import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Keyboard,
   RefreshControl,
   StyleSheet,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   View
 } from 'react-native';
 
@@ -99,50 +101,37 @@ export default function ExploreScreen() {
       const user = auth.currentUser;
       if (!user?.uid) return;
 
-      // Query just by userId to avoid needing composite index
-      const layoversQuery = query(
-        collection(db, 'layovers'),
-        where('userId', '==', user.uid)
-      );
+      const userDoc = await getDocs(query(
+        collection(db, 'users'),
+        where('__name__', '==', user.uid),
+        limit(1)
+      ));
 
-      const layoversSnapshot = await getDocs(layoversQuery);
-      
-      // Filter for active layover in code
-      const activeLayover = layoversSnapshot.docs.find(
-        doc => doc.data().status === 'active'
-      );
-      
-      if (activeLayover) {
-        const layover = activeLayover.data();
-        setUserLayoverCity(layover.city);
-        setSelectedCity(layover.city); // Auto-select user's layover city
-        
-        // Store user's location for distance calculations
-        if (layover.latitude && layover.longitude) {
-          setUserLocation({
-            latitude: layover.latitude,
-            longitude: layover.longitude,
-          });
+      if (!userDoc.empty) {
+        const userData = userDoc.docs[0].data();
+        const layover = userData.currentLayover;
+        if (layover?.city) {
+          setUserLayoverCity(layover.city);
+          setSelectedCity(layover.city);
         }
       }
     } catch (error) {
-      console.error('Error loading user layover:', error);
+      console.error('Error loading user layover city:', error);
     }
   };
 
   const loadRecentCities = () => {
-    // TODO: Load from AsyncStorage
-    // For now, just use empty array
+    // In a real app, load from AsyncStorage
+    // For now, just empty array
     setRecentCities([]);
   };
 
   const saveRecentCity = (cityName: string) => {
-    setRecentCities(prev => {
-      const filtered = prev.filter(c => c !== cityName);
-      const updated = [cityName, ...filtered].slice(0, 3); // Keep last 3
-      // TODO: Save to AsyncStorage
-      return updated;
-    });
+    // In a real app, save to AsyncStorage
+    // For now, just update state
+    if (!recentCities.includes(cityName)) {
+      setRecentCities([cityName, ...recentCities.slice(0, 4)]);
+    }
   };
 
   const fetchSpots = async () => {
@@ -150,45 +139,24 @@ export default function ExploreScreen() {
 
     setLoading(true);
     try {
-      let spotsQuery = query(
+      // Query spots for selected city with 'approved' status
+      const spotsQuery = query(
         collection(db, 'spots'),
         where('city', '==', selectedCity),
-        where('status', '==', 'approved'),
-        limit(50) // Load more initially, filter client-side
+        where('status', '==', 'approved')
       );
 
-      const spotsSnapshot = await getDocs(spotsQuery);
-      let fetchedSpots: Spot[] = spotsSnapshot.docs.map(doc => ({
+      const snapshot = await getDocs(spotsQuery);
+      const spotsList: Spot[] = snapshot.docs.map(doc => ({
         id: doc.id,
-        ...doc.data(),
+        ...doc.data()
       } as Spot));
 
-      // Calculate average rating and review count for each spot
-      for (const spot of fetchedSpots) {
-        const reviewsQuery = query(
-          collection(db, 'reviews'),
-          where('spotId', '==', spot.id)
-        );
-        const reviewsSnapshot = await getDocs(reviewsQuery);
-        
-        if (!reviewsSnapshot.empty) {
-          const reviews = reviewsSnapshot.docs.map(doc => doc.data());
-          const totalRating = reviews.reduce((sum, review) => sum + (review.rating || 0), 0);
-          spot.rating = totalRating / reviews.length;
-          spot.reviewCount = reviews.length;
-        } else {
-          spot.rating = 0;
-          spot.reviewCount = 0;
-        }
-      }
+      // Apply filters and sorting
+      const filtered = applyFilters(spotsList);
+      const sorted = applySorting(filtered);
 
-      // Apply client-side filtering
-      fetchedSpots = applyFilters(fetchedSpots);
-
-      // Apply sorting
-      fetchedSpots = applySorting(fetchedSpots);
-
-      setSpots(fetchedSpots);
+      setSpots(sorted);
     } catch (error) {
       console.error('Error fetching spots:', error);
     } finally {
@@ -350,93 +318,105 @@ export default function ExploreScreen() {
   };
 
   return (
-    <ThemedView style={styles.container}>
-      <View style={styles.content}>
-        {/* City Selector */}
-        <CitySelector
-          selectedCity={selectedCity}
-          userLayoverCity={userLayoverCity}
-          recentCities={recentCities}
-          onSelectCity={setSelectedCity}
-        />
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+      <ThemedView style={styles.container}>
+        <View style={styles.content}>
+          {/* City Selector */}
+          <CitySelector
+            selectedCity={selectedCity}
+            userLayoverCity={userLayoverCity}
+            recentCities={recentCities}
+            onSelectCity={setSelectedCity}
+          />
 
-        {selectedCity && (
-          <>
-            {/* Search Bar */}
-            <View style={styles.searchContainer}>
-              <Ionicons name="search" size={20} color={COLORS.mediumGray} style={styles.searchIcon} />
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search spots..."
-                placeholderTextColor={COLORS.mediumGray}
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                returnKeyType="search"
-              />
-              {searchQuery.length > 0 && (
-                <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearButton}>
-                  <Ionicons name="close-circle" size={20} color={COLORS.mediumGray} />
-                </TouchableOpacity>
-              )}
-            </View>
-
-            {/* Category Tabs */}
-            <CategoryTabs
-              categories={CATEGORIES}
-              selectedCategory={category}
-              onSelectCategory={setCategory}
-            />
-
-            {/* Sort and Filter */}
-            <SortAndFilter
-              sortBy={sortBy}
-              onSortChange={setSortBy}
-              filters={filters}
-              onFiltersChange={setFilters}
-            />
-
-            {/* Spots List */}
-            {spots.length > 0 ? (
-              <FlatList
-                data={spots}
-                keyExtractor={item => item.id}
-                renderItem={({ item }) => (
-                  <SpotCard
-                    spot={item}
-                    userLocation={userLocation}
-                    onCreatePlan={() => handleCreatePlan(item.id)}
-                    onPress={() => router.push(`/spot/${item.id}`)}
-                  />
+          {selectedCity && (
+            <>
+              {/* Search Bar */}
+              <View style={styles.searchContainer}>
+                <Ionicons name="search" size={20} color={COLORS.mediumGray} style={styles.searchIcon} />
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Search spots..."
+                  placeholderTextColor={COLORS.mediumGray}
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  returnKeyType="search"
+                  onSubmitEditing={Keyboard.dismiss}
+                  blurOnSubmit={true}
+                />
+                {searchQuery.length > 0 && (
+                  <TouchableOpacity 
+                    onPress={() => {
+                      setSearchQuery('');
+                      Keyboard.dismiss();
+                    }} 
+                    style={styles.clearButton}
+                  >
+                    <Ionicons name="close-circle" size={20} color={COLORS.mediumGray} />
+                  </TouchableOpacity>
                 )}
-                contentContainerStyle={styles.spotsList}
-                refreshControl={
-                  <RefreshControl
-                    refreshing={refreshing}
-                    onRefresh={handleRefresh}
-                    tintColor={COLORS.primary}
-                  />
-                }
+              </View>
+
+              {/* Category Tabs */}
+              <CategoryTabs
+                categories={CATEGORIES}
+                selectedCategory={category}
+                onSelectCategory={setCategory}
               />
-                        ) : (
-              renderEmptyState()
-            )}
-          </>
-        )}
 
-        {!selectedCity && renderEmptyState()}
+              {/* Sort and Filter */}
+              <SortAndFilter
+                sortBy={sortBy}
+                onSortChange={setSortBy}
+                filters={filters}
+                onFiltersChange={setFilters}
+              />
 
-        {/* Floating Add Spot Button - always visible when city is selected */}
-        {selectedCity && spots.length > 0 && (
-          <TouchableOpacity
-            style={styles.floatingAddButton}
-            onPress={() => router.push('/add-spot')}
-          >
-            <Ionicons name="add-circle-outline" size={22} color={COLORS.white} />
-            <ThemedText style={styles.floatingAddButtonText}>Add Spot</ThemedText>
-          </TouchableOpacity>
-        )}
-      </View>
-    </ThemedView>
+              {/* Spots List */}
+              {spots.length > 0 ? (
+                <FlatList
+                  data={spots}
+                  keyExtractor={item => item.id}
+                  renderItem={({ item }) => (
+                    <SpotCard
+                      spot={item}
+                      userLocation={userLocation}
+                      onCreatePlan={() => handleCreatePlan(item.id)}
+                      onPress={() => router.push(`/spot/${item.id}`)}
+                    />
+                  )}
+                  contentContainerStyle={styles.spotsList}
+                  keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode="on-drag"
+                  refreshControl={
+                    <RefreshControl
+                      refreshing={refreshing}
+                      onRefresh={handleRefresh}
+                      tintColor={COLORS.primary}
+                    />
+                  }
+                />
+              ) : (
+                renderEmptyState()
+              )}
+            </>
+          )}
+
+          {!selectedCity && renderEmptyState()}
+
+          {/* Floating Add Spot Button - always visible when city is selected */}
+          {selectedCity && spots.length > 0 && (
+            <TouchableOpacity
+              style={styles.floatingAddButton}
+              onPress={() => router.push('/add-spot')}
+            >
+              <Ionicons name="add-circle-outline" size={22} color={COLORS.white} />
+              <ThemedText style={styles.floatingAddButtonText}>Add Spot</ThemedText>
+            </TouchableOpacity>
+          )}
+        </View>
+      </ThemedView>
+    </TouchableWithoutFeedback>
   );
 }
 
@@ -453,19 +433,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: COLORS.lightGray,
     marginHorizontal: 16,
-    marginVertical: 12,
+    marginTop: 8,
+    marginBottom: 12,
     paddingHorizontal: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    borderRadius: 10,
   },
   searchIcon: {
     marginRight: 8,
   },
   searchInput: {
     flex: 1,
-    paddingVertical: 12,
-    fontSize: 16,
+    paddingVertical: 10,
+    fontSize: 15,
     color: COLORS.darkGray,
   },
   clearButton: {
@@ -473,13 +452,14 @@ const styles = StyleSheet.create({
   },
   spotsList: {
     padding: 16,
-    paddingBottom: 100, // Account for tab bar
+    paddingBottom: 100,
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 32,
+    paddingHorizontal: 40,
+    paddingTop: 100,
   },
   emptyTitle: {
     fontSize: 20,
@@ -489,46 +469,46 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   emptySubtitle: {
-    fontSize: 14,
+    fontSize: 15,
     color: COLORS.mediumGray,
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: 22,
   },
   addSpotButton: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
     backgroundColor: COLORS.primary,
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 24,
-    marginTop: 24,
+    marginTop: 20,
   },
   addSpotButtonText: {
     color: COLORS.white,
     fontSize: 16,
     fontWeight: '600',
-    marginLeft: 8,
   },
   floatingAddButton: {
     position: 'absolute',
-    bottom: 100,
+    bottom: 20,
     right: 20,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 24,
+    gap: 8,
     backgroundColor: COLORS.primary,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderRadius: 30,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
   floatingAddButtonText: {
     color: COLORS.white,
     fontSize: 16,
     fontWeight: '600',
-    marginLeft: 6,
   },
 });

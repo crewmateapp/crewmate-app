@@ -35,6 +35,61 @@ const categories = [
 
 const GOOGLE_PLACES_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY || '';
 
+// Helper function to fetch and upload Google Places photo
+const fetchAndUploadGooglePlacePhoto = async (
+  placeId: string,
+  userId: string
+): Promise<string | null> => {
+  if (!placeId || !GOOGLE_PLACES_API_KEY || !userId) {
+    console.log('Missing required params for photo fetch');
+    return null;
+  }
+
+  try {
+    // Step 1: Get place details with photos field
+    const detailsResponse = await fetch(
+      `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=photos&key=${GOOGLE_PLACES_API_KEY}`
+    );
+
+    const detailsData: any = await detailsResponse.json();
+
+    if (detailsData.status !== 'OK' || !detailsData.result?.photos?.[0]) {
+      console.log('No photos available for this place');
+      return null;
+    }
+
+    const photoReference = detailsData.result.photos[0].photo_reference;
+
+    // Step 2: Fetch the actual photo (max width 1600px for good quality)
+    const photoUrl = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=1600&photo_reference=${photoReference}&key=${GOOGLE_PLACES_API_KEY}`;
+    
+    const photoResponse = await fetch(photoUrl);
+    
+    if (!photoResponse.ok) {
+      console.error('Failed to fetch photo:', photoResponse.status);
+      return null;
+    }
+
+    // Step 3: Convert to blob
+    const photoBlob = await photoResponse.blob();
+
+    // Step 4: Upload to Firebase Storage
+    const timestamp = Date.now();
+    const photoRef = ref(storage, `spots/${userId}/${timestamp}_google_places.jpg`);
+    await uploadBytes(photoRef, photoBlob);
+
+    // Step 5: Get download URL
+    const downloadURL = await getDownloadURL(photoRef);
+    
+    console.log('Successfully fetched and uploaded Google Places photo');
+    return downloadURL;
+
+  } catch (error) {
+    console.error('Error fetching/uploading Google Places photo:', error);
+    return null;
+  }
+};
+
 // Types for Google Places API
 interface PlacePrediction {
   place_id: string;
@@ -333,8 +388,21 @@ export default function AddSpotScreen() {
 
     setSaving(true);
     try {
-      // Upload photos
-      const photoURLs = await uploadPhotos();
+      // Upload user photos
+      let photoURLs = await uploadPhotos();
+
+      // If no photos uploaded but we have a placeId, fetch one from Google Places
+      if (photoURLs.length === 0 && placeId && user?.uid) {
+        console.log('No user photos, attempting to fetch from Google Places...');
+        const googlePhotoUrl = await fetchAndUploadGooglePlacePhoto(placeId, user.uid);
+        
+        if (googlePhotoUrl) {
+          photoURLs = [googlePhotoUrl];
+          console.log('Successfully added Google Places photo');
+        } else {
+          console.log('Could not fetch Google Places photo');
+        }
+      }
 
       // Get user display name
       const userDisplayName = await getUserDisplayName();
@@ -360,9 +428,13 @@ export default function AddSpotScreen() {
         createdAt: serverTimestamp(),
       });
 
+      const photoMessage = photoURLs.length > 0 
+        ? ` with ${photoURLs.length} photo${photoURLs.length > 1 ? 's' : ''}`
+        : '';
+
       Alert.alert(
         'Spot Submitted! 📋',
-        `Thanks for submitting ${name}! We'll review it and it will appear once approved.`,
+        `Thanks for submitting ${name}${photoMessage}! We'll review it and it will appear once approved.`,
         [{ text: 'OK', onPress: () => router.back() }]
       );
     } catch (error) {
