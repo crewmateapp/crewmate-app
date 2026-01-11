@@ -32,6 +32,11 @@ export function ProfileMenu() {
   // Calculate notification counts by type
   const connectionNotifications = notifications.filter(n => n.type === 'connection' && !n.read).length;
   const planNotifications = notifications.filter(n => n.type === 'plan' && !n.read).length;
+  const spotNotifications = notifications.filter(n => n.type === 'spot' && !n.read).length;
+  const cityNotifications = notifications.filter(n => n.type === 'city' && !n.read).length;
+  
+  // Combined submission notifications (spots + cities)
+  const submissionNotifications = spotNotifications + cityNotifications;
 
   // Listen for unread messages from conversations
   useEffect(() => {
@@ -147,6 +152,24 @@ export function ProfileMenu() {
             </TouchableOpacity>
 
             <View style={[styles.divider, { backgroundColor: colors.border }]} />
+
+            {/* Notifications */}
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => handleMenuItemPress('/notifications')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="notifications" size={22} color={colors.text.primary} />
+              <ThemedText style={styles.menuItemText}>Notifications</ThemedText>
+              {submissionNotifications > 0 && (
+                <View style={[styles.itemBadge, { backgroundColor: colors.error }]}>
+                  <ThemedText style={styles.itemBadgeText}>
+                    {submissionNotifications}
+                  </ThemedText>
+                </View>
+              )}
+              <Ionicons name="chevron-forward" size={20} color={colors.text.secondary} />
+            </TouchableOpacity>
 
             {/* Connections */}
             <TouchableOpacity

@@ -2,256 +2,227 @@
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { db } from '@/config/firebase';
+import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
-import { useTheme } from '@/contexts/ThemeContext';
 import { useNotifications } from '@/hooks/useNotifications';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, Stack } from 'expo-router';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { useEffect } from 'react';
 import {
-    deleteDoc,
-    doc,
-    getDocs,
-    query,
-    updateDoc,
-    where,
-    collection,
-} from 'firebase/firestore';
-import {
-    ActivityIndicator,
-    Alert,
-    ScrollView,
-    StyleSheet,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Platform,
+  StyleSheet,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
 export default function NotificationsScreen() {
+  const { notifications, loading } = useNotifications();
   const { user } = useAuth();
-  const { colors } = useTheme();
-  const { notifications, unreadCount, loading } = useNotifications();
 
-  const handleMarkAllAsRead = async () => {
-    if (!user) return;
+  // Filter to only show spot and city notifications
+  const submissionNotifications = notifications.filter(
+    n => n.type === 'spot' || n.type === 'city'
+  );
 
-    try {
-      // Mark all plan notifications as read
-      const unreadPlanNotifs = notifications.filter(n => n.type === 'plan' && !n.read);
-      const promises = unreadPlanNotifs.map(notification =>
-        updateDoc(doc(db, 'planNotifications', notification.id), { read: true })
-      );
-      await Promise.all(promises);
-      
-      Alert.alert('Success', 'All notifications marked as read');
-    } catch (error) {
-      console.error('Error marking all as read:', error);
-      Alert.alert('Error', 'Failed to mark notifications as read');
+  // Mark all as read when screen is viewed
+  useEffect(() => {
+    const unreadNotifs = submissionNotifications.filter(n => !n.read);
+    
+    if (unreadNotifs.length > 0 && user) {
+      // Mark as read after a short delay
+      const timer = setTimeout(() => {
+        unreadNotifs.forEach(async (notif) => {
+          try {
+            await updateDoc(doc(db, 'notifications', notif.id), {
+              read: true,
+            });
+          } catch (error) {
+            console.error('Error marking notification as read:', error);
+          }
+        });
+      }, 1000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [submissionNotifications.length, user]);
+
+  const getNotificationIcon = (type: string, status: string) => {
+    if (type === 'spot') {
+      return status.includes('approved') ? 'checkmark-circle' : 'close-circle';
+    } else {
+      return status.includes('approved') ? 'airplane' : 'close-circle';
     }
   };
 
-  const handleNotificationPress = async (notification: any) => {
-    // Mark as read if it's a plan notification
-    if (notification.type === 'plan' && !notification.read) {
-      try {
-        await updateDoc(doc(db, 'planNotifications', notification.id), { read: true });
-      } catch (error) {
-        console.error('Error marking as read:', error);
-      }
-    }
-
-    // Navigate based on notification type
-    if (notification.type === 'plan' && notification.data?.planId) {
-      router.push({ pathname: '/plan/[id]', params: { id: notification.data.planId } });
-    } else if (notification.type === 'connection' && notification.data?.requestId) {
-      router.push('/connection-requests');
-    }
-    // Add more navigation cases as needed
+  const getNotificationColor = (status: string) => {
+    return status.includes('approved') ? Colors.success : Colors.error;
   };
 
-  const handleDeleteNotification = async (notification: any) => {
-    try {
-      if (notification.type === 'plan') {
-        await deleteDoc(doc(db, 'planNotifications', notification.id));
-      } else if (notification.type === 'connection') {
-        // Don't delete connection requests, just decline them
-        Alert.alert(
-          'Decline Request?',
-          'Do you want to decline this connection request?',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Decline',
-              style: 'destructive',
-              onPress: async () => {
-                await updateDoc(doc(db, 'connectionRequests', notification.id), {
-                  status: 'declined'
-                });
-              }
-            }
-          ]
-        );
-      }
-    } catch (error) {
-      console.error('Error deleting notification:', error);
-      Alert.alert('Error', 'Failed to delete notification');
-    }
-  };
-
-  const getNotificationIcon = (type: string) => {
-    switch (type) {
-      case 'plan':
-        return 'calendar';
-      case 'connection':
-        return 'people';
-      case 'message':
-        return 'chatbubble';
-      default:
-        return 'notifications';
-    }
-  };
-
-  const getNotificationColor = (type: string) => {
-    switch (type) {
-      case 'plan':
-        return colors.primary;
-      case 'connection':
-        return colors.success;
-      case 'message':
-        return colors.accent;
-      default:
-        return colors.text.secondary;
-    }
-  };
-
-  const formatTime = (timestamp: any) => {
+  const formatDate = (timestamp: any) => {
     if (!timestamp) return '';
     const date = timestamp.toDate();
     const now = new Date();
     const diff = now.getTime() - date.getTime();
     const minutes = Math.floor(diff / 60000);
-    const hours = Math.floor(minutes / 60);
-    const days = Math.floor(hours / 24);
+    const hours = Math.floor(diff / 3600000);
+    const days = Math.floor(diff / 86400000);
 
     if (minutes < 1) return 'Just now';
     if (minutes < 60) return `${minutes}m ago`;
     if (hours < 24) return `${hours}h ago`;
     if (days < 7) return `${days}d ago`;
+    
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
-  if (loading) {
+  const handleNotificationPress = async (notification: any) => {
+    // Only navigate if approved
+    if (!notification.data?.status.includes('approved')) {
+      return; // Don't navigate for rejections
+    }
+
+    if (notification.type === 'spot') {
+      // Navigate to spot detail
+      const spotId = notification.data?.spotId;
+      
+      if (spotId) {
+        try {
+          // Check if spot still exists
+          const spotDoc = await getDoc(doc(db, 'spots', spotId));
+          
+          if (spotDoc.exists()) {
+            // Navigate to spot detail
+            router.push(`/spot/${spotId}`);
+          } else {
+            Alert.alert('Spot Not Found', 'This spot may have been removed.');
+          }
+        } catch (error) {
+          console.error('Error checking spot:', error);
+        }
+      }
+    } else if (notification.type === 'city') {
+      // Navigate to layover screen (index)
+      const cityCode = notification.data?.cityCode;
+      
+      if (cityCode) {
+        // Navigate to layover screen - user can then select the city
+        router.push('/(tabs)/index');
+        
+        // Optional: Show a toast or hint about the new city
+        setTimeout(() => {
+          Alert.alert(
+            'City Added! ✈️',
+            `${notification.data.cityName} is now available in the city picker!`,
+            [{ text: 'OK' }]
+          );
+        }, 500);
+      }
+    }
+  };
+
+  const renderNotification = ({ item }: { item: any }) => {
+    const isApproved = item.data?.status.includes('approved');
+    
     return (
-      <ThemedView style={styles.container}>
-        <View style={[styles.header, { borderBottomColor: colors.border }]}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color={colors.text.primary} />
-          </TouchableOpacity>
-          <ThemedText style={styles.headerTitle}>Notifications</ThemedText>
-          <View style={{ width: 24 }} />
+      <TouchableOpacity
+        style={[
+          styles.notificationCard,
+          !item.read && styles.unreadCard,
+        ]}
+        onPress={() => handleNotificationPress(item)}
+        activeOpacity={isApproved ? 0.7 : 1}
+        disabled={!isApproved}
+      >
+        <View style={styles.notificationContent}>
+          {/* Icon */}
+          <View style={[
+            styles.iconContainer,
+            { backgroundColor: getNotificationColor(item.data?.status) + '20' }
+          ]}>
+            <Ionicons
+              name={getNotificationIcon(item.type, item.data?.status)}
+              size={24}
+              color={getNotificationColor(item.data?.status)}
+            />
+          </View>
+
+          {/* Content */}
+          <View style={styles.textContainer}>
+            <ThemedText style={styles.notificationTitle}>
+              {item.title}
+            </ThemedText>
+            <ThemedText style={styles.notificationMessage}>
+              {item.message}
+            </ThemedText>
+            {isApproved && (
+              <ThemedText style={styles.tapHint}>
+                Tap to view →
+              </ThemedText>
+            )}
+            <ThemedText style={styles.notificationTime}>
+              {formatDate(item.createdAt)}
+            </ThemedText>
+          </View>
+
+          {/* Unread indicator */}
+          {!item.read && (
+            <View style={styles.unreadDot} />
+          )}
         </View>
-        <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 100 }} />
-      </ThemedView>
+      </TouchableOpacity>
     );
-  }
+  };
+
+  const renderEmpty = () => (
+    <View style={styles.emptyContainer}>
+      <Ionicons name="notifications-off-outline" size={64} color={Colors.text.disabled} />
+      <ThemedText style={styles.emptyTitle}>No Notifications</ThemedText>
+      <ThemedText style={styles.emptyText}>
+        You'll see updates about your spot and city submissions here
+      </ThemedText>
+    </View>
+  );
 
   return (
-    <ThemedView style={styles.container}>
-      {/* Header */}
-      <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color={colors.text.primary} />
-        </TouchableOpacity>
-        <ThemedText style={styles.headerTitle}>Notifications</ThemedText>
-        {unreadCount > 0 && (
-          <TouchableOpacity onPress={handleMarkAllAsRead}>
-            <ThemedText style={[styles.markAllRead, { color: colors.primary }]}>
-              Mark All Read
-            </ThemedText>
-          </TouchableOpacity>
-        )}
-        {unreadCount === 0 && <View style={{ width: 24 }} />}
-      </View>
-
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Unread Count */}
-        {unreadCount > 0 && (
-          <View style={styles.unreadBanner}>
-            <ThemedText style={[styles.unreadText, { color: colors.text.secondary }]}>
-              {unreadCount} unread notification{unreadCount !== 1 ? 's' : ''}
-            </ThemedText>
+    <>
+      <Stack.Screen
+        options={{
+          title: 'Notifications',
+          headerShown: true,
+          headerStyle: {
+            backgroundColor: Colors.primary,
+          },
+          headerTintColor: Colors.white,
+          headerTitleStyle: {
+            fontWeight: '700',
+          },
+          headerShadowVisible: false,
+        }}
+      />
+      <ThemedView style={styles.container}>
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={Colors.primary} />
           </View>
-        )}
-
-        {/* Notifications List */}
-        {notifications.length > 0 ? (
-          <>
-            {notifications.map((notification) => (
-              <TouchableOpacity
-                key={notification.id}
-                style={[
-                  styles.notificationCard,
-                  {
-                    backgroundColor: notification.read ? colors.card : colors.primary + '10',
-                    borderColor: notification.read ? colors.border : colors.primary + '30',
-                  }
-                ]}
-                onPress={() => handleNotificationPress(notification)}
-                activeOpacity={0.7}
-              >
-                <View style={styles.notificationLeft}>
-                  <View
-                    style={[
-                      styles.iconCircle,
-                      { backgroundColor: getNotificationColor(notification.type) + '20' }
-                    ]}
-                  >
-                    <Ionicons
-                      name={getNotificationIcon(notification.type) as any}
-                      size={20}
-                      color={getNotificationColor(notification.type)}
-                    />
-                  </View>
-                  <View style={styles.notificationContent}>
-                    <ThemedText style={styles.notificationTitle}>
-                      {notification.title}
-                    </ThemedText>
-                    <ThemedText style={[styles.notificationMessage, { color: colors.text.secondary }]}>
-                      {notification.message}
-                    </ThemedText>
-                    <ThemedText style={[styles.notificationTime, { color: colors.text.secondary }]}>
-                      {formatTime(notification.createdAt)}
-                    </ThemedText>
-                  </View>
-                </View>
-                <View style={styles.notificationRight}>
-                  {!notification.read && (
-                    <View style={[styles.unreadDot, { backgroundColor: colors.primary }]} />
-                  )}
-                  <TouchableOpacity
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      handleDeleteNotification(notification);
-                    }}
-                    style={styles.deleteButton}
-                  >
-                    <Ionicons name="close" size={20} color={colors.text.secondary} />
-                  </TouchableOpacity>
-                </View>
-              </TouchableOpacity>
-            ))}
-          </>
         ) : (
-          <View style={styles.emptyState}>
-            <Ionicons name="notifications-off-outline" size={64} color={colors.text.secondary} />
-            <ThemedText style={styles.emptyTitle}>No Notifications</ThemedText>
-            <ThemedText style={[styles.emptyText, { color: colors.text.secondary }]}>
-              You're all caught up! Notifications about plans, connections, and messages will appear here.
-            </ThemedText>
-          </View>
+          <FlatList
+            data={submissionNotifications}
+            renderItem={renderNotification}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={[
+              styles.listContent,
+              submissionNotifications.length === 0 && styles.emptyList,
+            ]}
+            ListEmptyComponent={renderEmpty}
+            showsVerticalScrollIndicator={false}
+          />
         )}
-
-        <View style={{ height: 40 }} />
-      </ScrollView>
-    </ThemedView>
+      </ThemedView>
+    </>
   );
 }
 
@@ -259,105 +230,101 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-  },
-  backButton: {
-    padding: 4,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  markAllRead: {
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  content: {
+  loadingContainer: {
     flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  unreadBanner: {
-    paddingHorizontal: 20,
-    paddingVertical: 12,
+  listContent: {
+    padding: 16,
   },
-  unreadText: {
-    fontSize: 14,
-    fontWeight: '600',
+  emptyList: {
+    flex: 1,
   },
   notificationCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 16,
-    marginHorizontal: 20,
-    marginBottom: 12,
+    backgroundColor: Colors.card,
     borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
     borderWidth: 1,
+    borderColor: Colors.border,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+      },
+      android: {
+        elevation: 1,
+      },
+    }),
   },
-  notificationLeft: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    flex: 1,
-    gap: 12,
-  },
-  iconCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
+  unreadCard: {
+    backgroundColor: Colors.primary + '08',
+    borderColor: Colors.primary + '30',
   },
   notificationContent: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  iconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  textContainer: {
     flex: 1,
   },
   notificationTitle: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '700',
     marginBottom: 4,
   },
   notificationMessage: {
     fontSize: 14,
+    color: Colors.text.secondary,
+    marginBottom: 4,
     lineHeight: 20,
+  },
+  tapHint: {
+    fontSize: 12,
+    color: Colors.primary,
+    fontWeight: '600',
     marginBottom: 4,
   },
   notificationTime: {
-    fontSize: 13,
-  },
-  notificationRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginLeft: 12,
+    fontSize: 12,
+    color: Colors.text.disabled,
   },
   unreadDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
+    backgroundColor: Colors.primary,
+    marginLeft: 8,
+    marginTop: 8,
   },
-  deleteButton: {
-    padding: 4,
-  },
-  emptyState: {
-    alignItems: 'center',
+  emptyContainer: {
+    flex: 1,
     justifyContent: 'center',
-    paddingVertical: 80,
+    alignItems: 'center',
     paddingHorizontal: 40,
   },
   emptyTitle: {
     fontSize: 20,
     fontWeight: '700',
-    marginTop: 20,
-    marginBottom: 10,
+    marginTop: 16,
+    marginBottom: 8,
+    textAlign: 'center',
   },
   emptyText: {
-    fontSize: 15,
+    fontSize: 14,
+    color: Colors.text.secondary,
     textAlign: 'center',
-    lineHeight: 22,
+    lineHeight: 20,
   },
 });

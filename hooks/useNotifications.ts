@@ -1,10 +1,10 @@
 // hooks/useNotifications.ts
 import { db } from '@/config/firebase';
 import { useAuth } from '@/contexts/AuthContext';
-import { collection, doc, getDoc, getDocs, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, doc, getDoc, onSnapshot, query, where } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 
-export type NotificationType = 'plan' | 'connection' | 'message';
+export type NotificationType = 'plan' | 'connection' | 'message' | 'spot' | 'city';
 
 export type Notification = {
   id: string;
@@ -25,6 +25,47 @@ export function useNotifications() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
+
+  // Store notifications by type to avoid duplicates
+  const [notificationsByType, setNotificationsByType] = useState<{
+    plan: Notification[];
+    connection: Notification[];
+    message: Notification[];
+    spot: Notification[];
+    city: Notification[];
+  }>({
+    plan: [],
+    connection: [],
+    message: [],
+    spot: [],
+    city: [],
+  });
+
+  const updateNotifications = (type: NotificationType, newNotifs: Notification[]) => {
+    setNotificationsByType(prev => {
+      const updated = { ...prev, [type]: newNotifs };
+      
+      // Combine all notifications
+      const allNotifs = [
+        ...updated.plan,
+        ...updated.connection,
+        ...updated.message,
+        ...updated.spot,
+        ...updated.city,
+      ];
+
+      // Sort by created date (newest first)
+      allNotifs.sort((a, b) => {
+        if (!a.createdAt || !b.createdAt) return 0;
+        return b.createdAt.toMillis() - a.createdAt.toMillis();
+      });
+
+      setNotifications(allNotifs);
+      setUnreadCount(allNotifs.filter(n => !n.read).length);
+
+      return updated;
+    });
+  };
 
   useEffect(() => {
     if (!user) {
@@ -79,7 +120,7 @@ export function useNotifications() {
           message: data.message 
             ? `${data.fromUserName}: ${data.message}`
             : `${data.fromUserName} wants to connect`,
-          read: false, // Connection requests are always "unread" until accepted/declined
+          read: false,
           createdAt: data.createdAt,
           data: { requestId: doc.id, fromUserId: data.fromUserId }
         });
@@ -88,39 +129,34 @@ export function useNotifications() {
     });
     unsubscribers.push(unsubscribeConnections);
 
-    // 3. Message Notifications - Track unread messages from conversations collection
-    const conversationsQuery = query(
-      collection(db, 'conversations'),
-      where('participantIds', 'array-contains', user.uid)
+    // 3. Message Notifications - Track unread messages from connections
+    const connectionsQuery = query(
+      collection(db, 'connections'),
+      where('userIds', 'array-contains', user.uid)
     );
 
-    const unsubscribeMessages = onSnapshot(conversationsQuery, async (conversationsSnapshot) => {
+    const unsubscribeMessages = onSnapshot(connectionsQuery, async (snapshot) => {
       const messageNotifs: Notification[] = [];
       
-      // For each conversation, check for unread messages
-      for (const conversationDoc of conversationsSnapshot.docs) {
-        const data = conversationDoc.data();
+      for (const connectionDoc of snapshot.docs) {
+        const data = connectionDoc.data();
         const unreadCount = data.unreadCount?.[user.uid] || 0;
         
         if (unreadCount > 0) {
-          // Get the other user's ID
-          const otherUserId = data.participantIds.find((id: string) => id !== user.uid);
-          
+          const otherUserId = data.userIds.find((id: string) => id !== user.uid);
           if (!otherUserId) continue;
           
-          // Get sender name
           const senderDoc = await getDoc(doc(db, 'users', otherUserId));
           const senderName = senderDoc.data()?.displayName || 'Someone';
           
-          // Create notification for this conversation
           messageNotifs.push({
-            id: `message_${conversationDoc.id}`,
+            id: `message_${connectionDoc.id}`,
             type: 'message',
-            title: `${senderName}`,
+            title: senderName,
             message: data.lastMessage || 'New message',
             read: false,
             createdAt: data.lastMessageTime,
-            data: { conversationId: conversationDoc.id, otherUserId, count: unreadCount }
+            data: { connectionId: connectionDoc.id, otherUserId, count: unreadCount }
           });
         }
       }
@@ -129,39 +165,62 @@ export function useNotifications() {
     });
     unsubscribers.push(unsubscribeMessages);
 
+    // 4. Spot Notifications (approved/rejected)
+    const spotNotificationsQuery = query(
+      collection(db, 'notifications'),
+      where('userId', '==', user.uid),
+      where('type', 'in', ['spot_approved', 'spot_rejected'])
+    );
+
+    const unsubscribeSpots = onSnapshot(spotNotificationsQuery, (snapshot) => {
+      const spotNotifs: Notification[] = [];
+      snapshot.docs.forEach(doc => {
+        const data = doc.data();
+        spotNotifs.push({
+          id: doc.id,
+          type: 'spot',
+          title: data.type === 'spot_approved' ? 'Spot Approved! ✅' : 'Spot Update',
+          message: data.message,
+          read: data.read || false,
+          createdAt: data.createdAt,
+          data: { spotId: data.spotId, spotName: data.spotName, status: data.type }
+        });
+      });
+      updateNotifications('spot', spotNotifs);
+    });
+    unsubscribers.push(unsubscribeSpots);
+
+    // 5. City Request Notifications (approved/rejected)
+    const cityNotificationsQuery = query(
+      collection(db, 'notifications'),
+      where('userId', '==', user.uid),
+      where('type', 'in', ['city_approved', 'city_rejected'])
+    );
+
+    const unsubscribeCities = onSnapshot(cityNotificationsQuery, (snapshot) => {
+      const cityNotifs: Notification[] = [];
+      snapshot.docs.forEach(doc => {
+        const data = doc.data();
+        cityNotifs.push({
+          id: doc.id,
+          type: 'city',
+          title: data.type === 'city_approved' ? 'City Added! ✈️' : 'City Request Update',
+          message: data.message,
+          read: data.read || false,
+          createdAt: data.createdAt,
+          data: { cityCode: data.cityCode, cityName: data.cityName, status: data.type }
+        });
+      });
+      updateNotifications('city', cityNotifs);
+    });
+    unsubscribers.push(unsubscribeCities);
+
     setLoading(false);
 
     return () => {
       unsubscribers.forEach(unsub => unsub());
     };
   }, [user]);
-
-  // Store notifications by type to avoid duplicates
-  const notificationsByType = {
-    plan: [] as Notification[],
-    connection: [] as Notification[],
-    message: [] as Notification[],
-  };
-
-  const updateNotifications = (type: NotificationType, newNotifs: Notification[]) => {
-    notificationsByType[type] = newNotifs;
-    
-    // Combine all notifications
-    const allNotifs = [
-      ...notificationsByType.plan,
-      ...notificationsByType.connection,
-      ...notificationsByType.message,
-    ];
-
-    // Sort by created date (newest first)
-    allNotifs.sort((a, b) => {
-      if (!a.createdAt || !b.createdAt) return 0;
-      return b.createdAt.toMillis() - a.createdAt.toMillis();
-    });
-
-    setNotifications(allNotifs);
-    setUnreadCount(allNotifs.filter(n => !n.read).length);
-  };
 
   return {
     notifications,

@@ -8,6 +8,7 @@ import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { isSuperAdmin, useAdminRole } from '@/hooks/useAdminRole';
 import { AirportData, getAirportByCode, searchAirports } from '@/utils/airportData';
+import { notifyCityApproved, notifyCityRejected, notifySpotApproved, notifySpotRejected } from '@/utils/notifications';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import {
@@ -549,6 +550,10 @@ export default function AdminScreen() {
         approvedBy: user!.uid,
         approvedAt: serverTimestamp(),
       });
+      // Notify the user who requested the city
+      const cityName = airport ? airport.name : code;
+      await notifyCityApproved(request.requestedBy, code, cityName);
+
 
       if (airport) {
         Alert.alert('Success', `Added ${airport.name}! You can edit to customize neighborhoods.`);
@@ -578,6 +583,9 @@ export default function AdminScreen() {
                 rejectedBy: user!.uid,
                 rejectedAt: serverTimestamp(),
               });
+              // Notify the user
+              await notifyCityRejected(request.requestedBy, request.airportCode, request.airportCode);
+
             } catch (error) {
               console.error('Error rejecting request:', error);
             }
@@ -595,6 +603,9 @@ export default function AdminScreen() {
         approvedBy: user!.uid,
         approvedAt: serverTimestamp(),
       });
+      // Notify the user who submitted the spot
+      await notifySpotApproved(spot.addedBy, spot.id, spot.name);
+
       Alert.alert('Approved', `${spot.name} is now live!`);
     } catch (error) {
       console.error('Error approving spot:', error);
@@ -604,7 +615,7 @@ export default function AdminScreen() {
   const handleRejectSpot = async (spot: Spot) => {
     Alert.alert(
       'Reject Spot',
-      `Reject "${spot.name}"? The submitter will not be notified.`,
+      'Reject "' + spot.name + '"? The submitter will be notified.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -613,6 +624,9 @@ export default function AdminScreen() {
           onPress: async () => {
             try {
               await deleteDoc(doc(db, 'spots', spot.id));
+              // Notify the user
+              await notifySpotRejected(spot.addedBy, spot.id, spot.name);
+
             } catch (error) {
               console.error('Error rejecting spot:', error);
             }
