@@ -16,7 +16,10 @@
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSLocationWhenInUseUsageDescription": "CrewMate needs your location to verify you're in your layover city and connect you with nearby crew.",
-        "NSLocationAlwaysUsageDescription": "CrewMate uses your location to connect you with nearby crew members during your layovers."
+        "NSLocationAlwaysUsageDescription": "CrewMate uses your location to connect you with nearby crew members during your layovers.",
+        "UIBackgroundModes": [
+          "remote-notification"
+        ]
       }
     },
     "android": {
@@ -32,7 +35,9 @@
       "package": "com.crewmateapp.CrewMateApp",
       "permissions": [
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION"
+        "ACCESS_FINE_LOCATION",
+        "NOTIFICATIONS",
+        "RECEIVE_BOOT_COMPLETED"
       ]
     },
     "web": {
@@ -59,6 +64,14 @@
         {
           "locationAlwaysAndWhenInUsePermission": "CrewMate needs your location to verify you're in your layover city and connect you with nearby crew."
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#2A4E9D",
+          "sounds": []
+        }
       ]
     ],
     "experiments": {
@@ -70,6 +83,13 @@
       "eas": {
         "projectId": "077aad83-fde5-4782-9b22-d67ff58f8b6f"
       }
+    },
+    "notification": {
+      "icon": "./assets/images/notification-icon.png",
+      "color": "#2A4E9D",
+      "iosDisplayInForeground": true,
+      "androidMode": "default",
+      "androidCollapsedTitle": "CrewMate"
     }
   }
 }

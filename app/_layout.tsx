@@ -4,11 +4,25 @@ import { StatusBar } from 'expo-status-bar';
 import { doc, getDoc } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import 'react-native-reanimated';
+import * as Notifications from 'expo-notifications';
 
 import { db } from '@/config/firebase';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
 import { redirectToOnboardingIfNeeded } from '@/hooks/useOnboardingCheck';
+import { usePushNotifications } from '@/hooks/usePushNotifications';
+
+// Configure how notifications are handled when app is in foreground
+// Only set if notifications are available (not in Expo Go)
+if (Notifications.setNotificationHandler) {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+    }),
+  });
+}
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -18,6 +32,9 @@ function RootLayoutNav() {
   const { isDark } = useTheme();
   const { user, loading } = useAuth();
   const [checkingProfile, setCheckingProfile] = useState(true);
+  
+  // Initialize push notifications
+  const { expoPushToken } = usePushNotifications();
 
   useEffect(() => {
     const checkUserState = async () => {
