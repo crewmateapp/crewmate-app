@@ -8,6 +8,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useCities } from '@/hooks/useCities';
 import { Plan } from '@/types/plan';
 import { searchAirports, AirportData } from '@/utils/airportData';
+import { notifyAdminsNewCityRequest } from '@/utils/notifications';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
@@ -342,7 +343,7 @@ export default function MyLayoverScreen() {
       // Submit the request
       if (item.type === 'airport' && item.airportData) {
         // Full airport data available
-        await addDoc(collection(db, 'cityRequests'), {
+        const cityRequestDoc = await addDoc(collection(db, 'cityRequests'), {
           airportCode: item.airportData.code,
           cityName: item.airportData.name,
           fullName: item.airportData.fullName,
@@ -356,9 +357,17 @@ export default function MyLayoverScreen() {
           status: 'pending',
           createdAt: serverTimestamp(),
         });
+
+        // Notify admins of new city request
+        await notifyAdminsNewCityRequest(
+          cityRequestDoc.id,
+          item.airportData.code,
+          currentUser.uid,
+          currentUser.displayName || 'Anonymous'
+        );
       } else {
         // Manual request without full data
-        await addDoc(collection(db, 'cityRequests'), {
+        const cityRequestDoc = await addDoc(collection(db, 'cityRequests'), {
           airportCode: cityCode,
           cityName: cityCode,
           requestedBy: currentUser.uid,
@@ -368,6 +377,14 @@ export default function MyLayoverScreen() {
           needsData: true,
           createdAt: serverTimestamp(),
         });
+
+        // Notify admins of new city request
+        await notifyAdminsNewCityRequest(
+          cityRequestDoc.id,
+          cityCode,
+          currentUser.uid,
+          currentUser.displayName || 'Anonymous'
+        );
       }
 
       Alert.alert(

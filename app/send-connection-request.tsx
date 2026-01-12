@@ -5,6 +5,7 @@ import { db } from '@/config/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
+import { notifyConnectionRequest } from '@/utils/notifications';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
     addDoc,
@@ -165,6 +166,14 @@ export default function SendConnectionRequestScreen() {
         status: 'pending',
         createdAt: serverTimestamp(),
       });
+
+      // Notify the recipient of the connection request
+      await notifyConnectionRequest(
+        userId,
+        user.uid,
+        myProfile.displayName || 'Crew Member',
+        myProfile.photoURL
+      );
 
       Alert.alert(
         'Request Sent! ✈️',

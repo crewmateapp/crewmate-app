@@ -6,6 +6,7 @@ import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
+import { notifyNewMessage } from '@/utils/notifications';
 import {
   addDoc,
   collection,
@@ -176,9 +177,10 @@ export default function ChatScreen() {
       const connectionRef = doc(db, 'connections', id);
       const connectionSnap = await getDoc(connectionRef);
       
+      let otherUserId: string | undefined;
       if (connectionSnap.exists()) {
         const data = connectionSnap.data();
-        const otherUserId = data.userIds.find((uid: string) => uid !== user.uid);
+        otherUserId = data.userIds.find((uid: string) => uid !== user.uid);
         
         await updateDoc(connectionRef, {
           lastMessage: newMessage.trim(),
@@ -186,6 +188,21 @@ export default function ChatScreen() {
           [`unreadCount.${otherUserId}`]: (data.unreadCount?.[otherUserId] || 0) + 1,
         });
       }
+
+        // Send notification to the other user
+        if (otherUserId) {
+          const messagePreview = newMessage.trim().length > 50
+            ? newMessage.trim().substring(0, 50) + '...'
+            : newMessage.trim();
+          
+          await notifyNewMessage(
+            otherUserId,
+            user.uid,
+            senderName,
+            messagePreview,
+            id
+          );
+        }
 
       // Also update conversations collection for compatibility
       const conversationRef = doc(db, 'conversations', id);

@@ -4,6 +4,7 @@ import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
+import { notifyConnectionAccepted } from '@/utils/notifications';
 import { router } from 'expo-router';
 import {
   addDoc,
@@ -269,6 +270,13 @@ export default function ConnectionsScreen() {
       
       await addDoc(collection(db, 'connections'), connectionData);
       
+      
+      // Notify the original requester that their connection was accepted
+      await notifyConnectionAccepted(
+        request.fromUserId,
+        request.toUserId,
+        request.toUserName
+      );
       // Immediately remove from UI for better UX
       setIncomingRequests(prev => prev.filter(r => r.id !== request.id));
       

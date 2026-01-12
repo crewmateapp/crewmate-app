@@ -3,6 +3,7 @@ import { ThemedView } from '@/components/themed-view';
 import { db, storage } from '@/config/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCities } from '@/hooks/useCities';
+import { notifyAdminsNewSpot } from '@/utils/notifications';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -378,7 +379,7 @@ export default function AddSpotScreen() {
       const userDisplayName = await getUserDisplayName();
 
       // Create spot document
-      await addDoc(collection(db, 'spots'), {
+      const spotDoc = await addDoc(collection(db, 'spots'), {
         name: name.trim(),
         ...(placeId && { placeId }), // Store Google Place ID for future reference
         category,
@@ -397,6 +398,15 @@ export default function AddSpotScreen() {
         status: 'pending', // Requires approval
         createdAt: serverTimestamp(),
       });
+
+      // Notify admins of new spot submission
+      await notifyAdminsNewSpot(
+        spotDoc.id,
+        name.trim(),
+        user.uid,
+        userDisplayName,
+        city
+      );
 
       Alert.alert(
         'Spot Submitted! 📋',

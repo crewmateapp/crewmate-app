@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useCities } from '@/hooks/useCities';
 import { getAirlineFromEmail } from '@/data/airlines';
 import { Ionicons } from '@expo/vector-icons';
+import { notifyAdminsNewUser } from '@/utils/notifications';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { doc, setDoc } from 'firebase/firestore';
@@ -144,6 +145,14 @@ export default function CreateProfileScreen() {
         emailVerified: user.emailVerified,
         profileComplete: true,
       });
+
+      // Notify admins of new user signup
+      await notifyAdminsNewUser(
+        user.uid,
+        `${firstName.trim()} ${lastInitial.trim().toUpperCase()}.`,
+        user.email || '',
+        airline
+      );
 
       Alert.alert(
         'Welcome to CrewMate! ✈️',
