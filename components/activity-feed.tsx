@@ -210,7 +210,7 @@ export default function ActivityFeed() {
               style={styles.clickableText}
               onPress={() => handleUserPress(item.userId)}
             >
-              {item.userName}
+              {item.userName || 'Someone'}
             </Text>
             {' added '}
             <Text 
@@ -237,7 +237,7 @@ export default function ActivityFeed() {
               style={styles.clickableText}
               onPress={() => handleUserPress(item.userId)}
             >
-              {item.userName}
+              {item.userName || 'Someone'}
             </Text>
             {' left a '}
             <Text style={styles.stars}>{renderStars(item.rating || 0)}</Text>
@@ -266,7 +266,7 @@ export default function ActivityFeed() {
               style={styles.clickableText}
               onPress={() => handleUserPress(item.userId)}
             >
-              {item.userName}
+              {item.userName || 'Someone'}
             </Text>
             {' posted a photo at '}
             <Text 
@@ -295,7 +295,7 @@ export default function ActivityFeed() {
           ) : (
             <View style={styles.activityAvatarFallback}>
               <ThemedText style={styles.activityAvatarText}>
-                {item.userName.slice(0, 2).toUpperCase()}
+                {item.userName ? item.userName.slice(0, 2).toUpperCase() : '??'}
               </ThemedText>
             </View>
           )}

@@ -24,6 +24,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Image,
   Platform,
   StyleSheet,
   TextInput,
@@ -256,11 +257,15 @@ export default function FriendsScreen() {
       onPress={() => showFriendOptions(item)}
     >
       <View style={styles.avatarContainer}>
-        <View style={styles.avatar}>
-          <ThemedText style={styles.avatarText}>
-            {item.displayName.slice(0, 2).toUpperCase()}
-          </ThemedText>
-        </View>
+        {item.photoURL ? (
+          <Image source={{ uri: item.photoURL }} style={styles.avatarImage} />
+        ) : (
+          <View style={styles.avatar}>
+            <ThemedText style={styles.avatarText}>
+              {item.displayName.slice(0, 2).toUpperCase()}
+            </ThemedText>
+          </View>
+        )}
       </View>
 
       <View style={styles.friendInfo}>
@@ -429,6 +434,11 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: Colors.white,
+  },
+  avatarImage: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
   },
   friendInfo: {
     flex: 1,

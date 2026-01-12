@@ -140,6 +140,7 @@ export default function CreatePostScreen() {
         userPhoto: userData?.photoURL || null,
         content: content.trim() || null,
         photoURL: photoURL,
+        location: userData?.currentLayover?.city || null,
         likes: [],
         createdAt: serverTimestamp(),
       });

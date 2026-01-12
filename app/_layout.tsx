@@ -32,6 +32,7 @@ function RootLayoutNav() {
   const { isDark } = useTheme();
   const { user, loading } = useAuth();
   const [checkingProfile, setCheckingProfile] = useState(true);
+  const [hasNavigated, setHasNavigated] = useState(false);
   
   // Initialize push notifications
   const { expoPushToken } = usePushNotifications();
@@ -39,8 +40,16 @@ function RootLayoutNav() {
   useEffect(() => {
     const checkUserState = async () => {
       if (loading) return;
+      if (hasNavigated) return; // Prevent re-navigation
+
+      console.log('🔍 Checking user state...', { 
+        userExists: !!user, 
+        uid: user?.uid 
+      });
 
       if (!user) {
+        console.log('❌ No user, going to signin');
+        setHasNavigated(true);
         router.replace('/auth/signin');
         setCheckingProfile(false);
         return;
@@ -55,22 +64,46 @@ function RootLayoutNav() {
       // }
 
       // Check if user needs onboarding
+      console.log('🎯 Checking onboarding...');
       const needsOnboarding = await redirectToOnboardingIfNeeded(user.uid);
       if (needsOnboarding) {
+        console.log('📚 Needs onboarding, redirected');
+        setHasNavigated(true);
         setCheckingProfile(false);
         return; // User was redirected to onboarding
       }
 
       // Check if profile exists in Firestore
       try {
+        console.log('📄 Fetching user profile...');
         const userDoc = await getDoc(doc(db, 'users', user.uid));
-        if (userDoc.exists() && userDoc.data().profileComplete) {
+        
+        if (!userDoc.exists()) {
+          console.log('❌ Profile does not exist, going to create-profile');
+          setHasNavigated(true);
+          router.replace('/auth/create-profile');
+          setCheckingProfile(false);
+          return;
+        }
+
+        const userData = userDoc.data();
+        console.log('✅ Profile found:', { 
+          profileComplete: userData?.profileComplete,
+          hasData: !!userData 
+        });
+
+        if (userData?.profileComplete) {
+          console.log('🎉 Profile complete, going to tabs');
+          setHasNavigated(true);
           router.replace('/(tabs)');
         } else {
+          console.log('⚠️ Profile incomplete, going to create-profile');
+          setHasNavigated(true);
           router.replace('/auth/create-profile');
         }
       } catch (error) {
-        console.error('Error checking profile:', error);
+        console.error('❌ Error checking profile:', error);
+        setHasNavigated(true);
         router.replace('/auth/create-profile');
       }
       
@@ -78,7 +111,7 @@ function RootLayoutNav() {
     };
 
     checkUserState();
-  }, [user, loading]);
+  }, [user, loading, hasNavigated]);
 
   return (
     <NavThemeProvider value={isDark ? DarkTheme : DefaultTheme}>

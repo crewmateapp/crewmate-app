@@ -605,9 +605,15 @@ export default function AdminScreen() {
         approvedAt: serverTimestamp(),
       });
 
+      // Get user's photo
+      const userDoc = await getDocs(query(collection(db, 'users'), where('__name__', '==', spot.addedBy)));
+      const userPhoto = userDoc.docs[0]?.data()?.photoURL || null;
+
       // Create activity record for spot_added
       await addDoc(collection(db, 'activities'), {
         userId: spot.addedBy,
+        userName: spot.addedByName,
+        userPhoto: userPhoto,
         type: 'spot_added',
         spotId: spot.id,
         spotName: spot.name,
@@ -623,6 +629,8 @@ export default function AdminScreen() {
         if (photos.length > 0) {
           await addDoc(collection(db, 'activities'), {
             userId: spot.addedBy,
+            userName: spot.addedByName,
+            userPhoto: userPhoto,
             type: 'photo_posted',
             spotId: spot.id,
             spotName: spot.name,

@@ -57,6 +57,18 @@ export default function FriendProfileScreen() {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('none');
   const [connectionId, setConnectionId] = useState<string | null>(null);
 
+  // Navigate to filtered activity feed
+  const handleStatClick = (filterType: 'spot_added' | 'photo_posted' | 'review_left') => {
+    router.push({
+      pathname: '/profile/user-activities',
+      params: { 
+        userId: userId,
+        filter: filterType,
+        userName: profile?.displayName || 'User'
+      }
+    });
+  };
+
   // Fetch user profile
   useEffect(() => {
     const fetchProfile = async () => {
@@ -495,20 +507,29 @@ export default function FriendProfileScreen() {
 
         {/* Stats */}
         <View style={styles.statsContainer}>
-          <View style={styles.statBox}>
+          <TouchableOpacity 
+            style={styles.statBox}
+            onPress={() => handleStatClick('spot_added')}
+          >
             <ThemedText style={styles.statNumber}>{stats.spotsAdded}</ThemedText>
             <ThemedText style={styles.statLabel}>Spots Added</ThemedText>
-          </View>
+          </TouchableOpacity>
           <View style={styles.statDivider} />
-          <View style={styles.statBox}>
+          <TouchableOpacity 
+            style={styles.statBox}
+            onPress={() => handleStatClick('photo_posted')}
+          >
             <ThemedText style={styles.statNumber}>{stats.photosPosted}</ThemedText>
             <ThemedText style={styles.statLabel}>Photos Posted</ThemedText>
-          </View>
+          </TouchableOpacity>
           <View style={styles.statDivider} />
-          <View style={styles.statBox}>
+          <TouchableOpacity 
+            style={styles.statBox}
+            onPress={() => handleStatClick('review_left')}
+          >
             <ThemedText style={styles.statNumber}>{stats.reviewsLeft}</ThemedText>
             <ThemedText style={styles.statLabel}>Reviews Left</ThemedText>
-          </View>
+          </TouchableOpacity>
         </View>
 
         {/* Friends Count */}

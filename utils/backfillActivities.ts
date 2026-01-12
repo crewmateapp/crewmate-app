@@ -31,6 +31,14 @@ export async function backfillSpotActivities(): Promise<{
         continue;
       }
 
+      // Get user's photo
+      const userQuery = query(
+        collection(db, 'users'),
+        where('__name__', '==', addedBy)
+      );
+      const userSnapshot = await getDocs(userQuery);
+      const userPhoto = userSnapshot.empty ? null : userSnapshot.docs[0].data().photoURL || null;
+
       // Check if activity already exists for this spot
       const activitiesQuery = query(
         collection(db, 'activities'),
@@ -49,6 +57,8 @@ export async function backfillSpotActivities(): Promise<{
       // Create missing spot_added activity
       await addDoc(collection(db, 'activities'), {
         userId: addedBy,
+        userName: spotData.addedByName || 'Unknown',
+        userPhoto: userPhoto,
         type: 'spot_added',
         spotId: spotId,
         spotName: spotData.name,
@@ -74,9 +84,12 @@ export async function backfillSpotActivities(): Promise<{
         if (existingPhotoActivities.size === 0) {
           await addDoc(collection(db, 'activities'), {
             userId: addedBy,
+            userName: spotData.addedByName || 'Unknown',
+            userPhoto: userPhoto,
             type: 'photo_posted',
             spotId: spotId,
             spotName: spotData.name,
+            city: spotData.city,
             createdAt: spotData.createdAt || serverTimestamp(),
           });
 
@@ -126,11 +139,24 @@ export async function backfillSpotActivities(): Promise<{
 
         const spotData = spotSnapshot.docs[0].data();
 
+        // Get user name and photo
+        const userQuery = query(
+          collection(db, 'users'),
+          where('__name__', '==', userId)
+        );
+        const userSnapshot = await getDocs(userQuery);
+        const userData = userSnapshot.empty ? null : userSnapshot.docs[0].data();
+        const userName = userData?.displayName || 'Unknown';
+        const userPhoto = userData?.photoURL || null;
+
         await addDoc(collection(db, 'activities'), {
           userId: userId,
+          userName: userName,
+          userPhoto: userPhoto,
           type: 'review_left',
           spotId: spotId,
           spotName: spotData.name,
+          city: spotData.city,
           rating: voteData.rating || 5,
           createdAt: voteData.createdAt || serverTimestamp(),
         });

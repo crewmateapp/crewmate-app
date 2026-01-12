@@ -45,6 +45,7 @@ type Post = {
   likes: string[];
   commentCount: number;
   createdAt: any;
+  location?: string;
 };
 
 type Comment = {
@@ -54,6 +55,26 @@ type Comment = {
   userPhoto?: string;
   text: string;
   createdAt: any;
+};
+
+// Helper function to format timestamp
+const formatTimestamp = (timestamp: any): string => {
+  if (!timestamp) return '';
+  
+  const now = new Date();
+  const postDate = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+  const diffMs = now.getTime() - postDate.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+  
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  
+  // Format as "Jan 12"
+  return postDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
 
 export default function CrewfiesFeed() {
@@ -239,7 +260,17 @@ export default function CrewfiesFeed() {
           )}
           <View style={styles.postUserInfo}>
             <ThemedText style={styles.postUserName}>{item.userName}</ThemedText>
-            <ThemedText style={styles.postUserAirline}>{item.userAirline}</ThemedText>
+            <View style={styles.postMetaRow}>
+              <ThemedText style={styles.postUserAirline}>{item.userAirline}</ThemedText>
+              {item.location && (
+                <>
+                  <ThemedText style={styles.postMetaDot}> • </ThemedText>
+                  <Ionicons name="location" size={12} color={Colors.text.secondary} />
+                  <ThemedText style={styles.postLocation}>{item.location}</ThemedText>
+                </>
+              )}
+            </View>
+            <ThemedText style={styles.postTimestamp}>{formatTimestamp(item.createdAt)}</ThemedText>
           </View>
         </TouchableOpacity>
 
@@ -444,9 +475,29 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Colors.text.primary,
   },
+  postMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+  },
   postUserAirline: {
     fontSize: 14,
     color: Colors.text.secondary,
+  },
+  postMetaDot: {
+    fontSize: 14,
+    color: Colors.text.secondary,
+    marginHorizontal: 4,
+  },
+  postLocation: {
+    fontSize: 12,
+    color: Colors.text.secondary,
+    marginLeft: 2,
+  },
+  postTimestamp: {
+    fontSize: 12,
+    color: Colors.text.secondary,
+    marginTop: 4,
   },
   postImage: {
     width: '100%',
