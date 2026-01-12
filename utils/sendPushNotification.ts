@@ -63,7 +63,8 @@ export async function sendPushNotification(
 
     const result = await response.json();
     
-    if (result.data?.status === 'ok') {
+    // Expo returns data as an array: { data: [{ status: 'ok', id: '...' }] }
+    if (result.data?.[0]?.status === 'ok') {
       console.log('Push notification sent successfully');
       return true;
     } else {
