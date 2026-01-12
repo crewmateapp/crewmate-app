@@ -57,7 +57,8 @@ type Activity = {
 };
 
 export default function FriendProfileScreen() {
-  const { userId } = useLocalSearchParams<{ userId: string }>();
+  const params = useLocalSearchParams<{ userId: string | string[] }>();
+  const userId = Array.isArray(params.userId) ? params.userId[0] : params.userId;
   const { user } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [stats, setStats] = useState<UserStats>({ spotsAdded: 0, photosPosted: 0, reviewsLeft: 0 });
@@ -67,7 +68,10 @@ export default function FriendProfileScreen() {
 
   useEffect(() => {
     const loadProfileAndStats = async () => {
-      if (!userId) return;
+      if (!userId) {
+        console.error('Friend profile: userId is undefined');
+        return;
+      }
 
       try {
         // Get user profile
@@ -107,7 +111,7 @@ export default function FriendProfileScreen() {
 
         const spotsWithPhotos = spotsSnapshot.docs.filter(doc => {
           const data = doc.data();
-          return data.photoURL || (data.photos && data.photos.length > 0);
+          return data.photoURL || (data.photoURLs && data.photoURLs.length > 0) || (data.photos && data.photos.length > 0);
         });
 
         setStats({
@@ -359,20 +363,50 @@ export default function FriendProfileScreen() {
 
         {/* Stats Section */}
         <View style={styles.statsContainer}>
-          <View style={styles.statBox}>
+          <TouchableOpacity 
+            style={styles.statBox}
+            onPress={() => router.push({
+              pathname: '/user-activity/[userId]',
+              params: { 
+                userId: profile.id,
+                type: 'spots',
+                userName: profile.displayName
+              }
+            })}
+          >
             <ThemedText style={styles.statNumber}>{stats.spotsAdded}</ThemedText>
             <ThemedText style={styles.statLabel}>Spots Added</ThemedText>
-          </View>
+          </TouchableOpacity>
           <View style={styles.statDivider} />
-          <View style={styles.statBox}>
+          <TouchableOpacity 
+            style={styles.statBox}
+            onPress={() => router.push({
+              pathname: '/user-activity/[userId]',
+              params: { 
+                userId: profile.id,
+                type: 'photos',
+                userName: profile.displayName
+              }
+            })}
+          >
             <ThemedText style={styles.statNumber}>{stats.photosPosted}</ThemedText>
             <ThemedText style={styles.statLabel}>Photos Posted</ThemedText>
-          </View>
+          </TouchableOpacity>
           <View style={styles.statDivider} />
-          <View style={styles.statBox}>
+          <TouchableOpacity 
+            style={styles.statBox}
+            onPress={() => router.push({
+              pathname: '/user-activity/[userId]',
+              params: { 
+                userId: profile.id,
+                type: 'reviews',
+                userName: profile.displayName
+              }
+            })}
+          >
             <ThemedText style={styles.statNumber}>{stats.reviewsLeft}</ThemedText>
             <ThemedText style={styles.statLabel}>Reviews Left</ThemedText>
-          </View>
+          </TouchableOpacity>
         </View>
 
         {/* Recent Activity Section */}

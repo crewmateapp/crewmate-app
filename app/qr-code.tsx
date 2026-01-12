@@ -5,6 +5,7 @@ import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
+import { notifyConnectionRequest } from '@/utils/notifications';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
@@ -89,8 +90,9 @@ export default function QRCodeModal() {
 
   const handleShare = async () => {
     try {
+      const deepLink = `crewmateapp://connect/${user?.uid}`;
       await Share.share({
-        message: `Connect with me on CrewMate! My user ID: ${user?.uid}`,
+        message: `Connect with me on CrewMate! Tap this link to send me a connection request:\n\n${deepLink}`,
         title: 'Connect on CrewMate',
       });
     } catch (error) {
@@ -215,6 +217,14 @@ export default function QRCodeModal() {
     if (!user || !profile) return;
 
     try {
+
+      // Notify the recipient of the connection request  
+      await notifyConnectionRequest(
+        toUserId,
+        user.uid,
+        profile.displayName,
+        profile.photoURL
+      );
       // Add user to plan
       await updateDoc(doc(db, 'plans', planId), {
         attendeeIds: arrayUnion(user.uid),
@@ -332,6 +342,14 @@ export default function QRCodeModal() {
       status: 'pending',
       createdAt: serverTimestamp(),
     });
+
+    // Notify the scanned user of the connection request
+    await notifyConnectionRequest(
+      scannedUserId,
+      user.uid,
+      profile.displayName,
+      profile.photoURL
+    );
 
     Alert.alert(
       'Request Sent! ✈️',

@@ -384,7 +384,14 @@ export default function ProfileScreen() {
         <View style={styles.statsContainer}>
           <TouchableOpacity 
             style={styles.statBox}
-            onPress={() => router.push('/my-spots')}
+            onPress={() => router.push({
+              pathname: '/user-activity/[userId]',
+              params: { 
+                userId: user.uid,
+                type: 'spots',
+                userName: profile?.displayName
+              }
+            })}
           >
             <ThemedText style={styles.statNumber}>{stats.spotsAdded}</ThemedText>
             <ThemedText style={styles.statLabel}>Spots</ThemedText>
@@ -392,7 +399,14 @@ export default function ProfileScreen() {
           <View style={styles.statDivider} />
           <TouchableOpacity 
             style={styles.statBox}
-            onPress={() => router.push('/my-photos')}
+            onPress={() => router.push({
+              pathname: '/user-activity/[userId]',
+              params: { 
+                userId: user.uid,
+                type: 'photos',
+                userName: profile?.displayName
+              }
+            })}
           >
             <ThemedText style={styles.statNumber}>{stats.photosPosted}</ThemedText>
             <ThemedText style={styles.statLabel}>Photos</ThemedText>
@@ -400,7 +414,14 @@ export default function ProfileScreen() {
           <View style={styles.statDivider} />
           <TouchableOpacity 
             style={styles.statBox}
-            onPress={() => router.push('/my-reviews')}
+            onPress={() => router.push({
+              pathname: '/user-activity/[userId]',
+              params: { 
+                userId: user.uid,
+                type: 'reviews',
+                userName: profile?.displayName
+              }
+            })}
           >
             <ThemedText style={styles.statNumber}>{stats.reviewsLeft}</ThemedText>
             <ThemedText style={styles.statLabel}>Reviews</ThemedText>
