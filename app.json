@@ -3,7 +3,7 @@
     "name": "CrewMate",
     "slug": "CrewMate-App",
     "owner": "crewmate-app",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "crewmateapp",
@@ -12,7 +12,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.crewmateapp.CrewMateApp",
-      "buildNumber": "6",
+      "buildNumber": "19",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSLocationWhenInUseUsageDescription": "CrewMate needs your location to verify you're in your layover city and connect you with nearby crew.",

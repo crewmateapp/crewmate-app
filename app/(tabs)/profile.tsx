@@ -6,12 +6,13 @@ import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { isAdmin, useAdminRole } from '@/hooks/useAdminRole';
 import { useAdminNotifications } from '@/hooks/useAdminNotifications';
+import { backfillSpotActivities } from '@/utils/backfillActivities';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
 import { collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 type UserProfile = {
   firstName: string;
@@ -322,6 +323,51 @@ export default function ProfileScreen() {
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* TEMPORARY: Backfill Test Button */}
+        <TouchableOpacity 
+          style={{ 
+            backgroundColor: '#9C27B0', 
+            padding: 16, 
+            marginHorizontal: 20,
+            marginTop: 20,
+            borderRadius: 12,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 8
+          }}
+          onPress={async () => {
+            Alert.alert(
+              'Run Backfill?',
+              'This will create activity records for all existing spots, photos, and reviews. Continue?',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Run',
+                  onPress: async () => {
+                    try {
+                      console.log('Starting backfill...');
+                      const result = await backfillSpotActivities();
+                      Alert.alert(
+                        'Backfill Complete! ✅',
+                        `Created: ${result.created}\nAlready existed: ${result.alreadyExists}\nErrors: ${result.errors}`
+                      );
+                    } catch (error) {
+                      console.error('Backfill error:', error);
+                      Alert.alert('Error', 'Backfill failed. Check console.');
+                    }
+                  }
+                }
+              ]
+            );
+          }}
+        >
+          <Ionicons name="refresh" size={20} color="white" />
+          <ThemedText style={{ color: 'white', fontWeight: '700', fontSize: 16 }}>
+            RUN BACKFILL (TEMP TEST)
+          </ThemedText>
+        </TouchableOpacity>
 
         {/* Profile Header */}
         <View style={styles.profileHeader}>

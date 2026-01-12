@@ -12,6 +12,7 @@ import { notifyCityApproved, notifyCityRejected, notifySpotApproved, notifySpotR
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import {
+  addDoc,
   collection,
   deleteDoc,
   doc,
@@ -594,15 +595,43 @@ export default function AdminScreen() {
       ]
     );
   };
-
   // Spot moderation handlers
   const handleApproveSpot = async (spot: Spot) => {
     try {
+      // Update spot status
       await updateDoc(doc(db, 'spots', spot.id), {
         status: 'approved',
         approvedBy: user!.uid,
         approvedAt: serverTimestamp(),
       });
+
+      // Create activity record for spot_added
+      await addDoc(collection(db, 'activities'), {
+        userId: spot.addedBy,
+        type: 'spot_added',
+        spotId: spot.id,
+        spotName: spot.name,
+        city: spot.city,
+        createdAt: spot.createdAt || serverTimestamp(),
+      });
+
+      // If spot has photos, create photo_posted activity
+      const spotDoc = await getDocs(query(collection(db, 'spots'), where('__name__', '==', spot.id)));
+      if (!spotDoc.empty) {
+        const spotData = spotDoc.docs[0].data();
+        const photos = spotData.photoURLs || spotData.photos || [];
+        if (photos.length > 0) {
+          await addDoc(collection(db, 'activities'), {
+            userId: spot.addedBy,
+            type: 'photo_posted',
+            spotId: spot.id,
+            spotName: spot.name,
+            city: spot.city,
+            createdAt: spot.createdAt || serverTimestamp(),
+          });
+        }
+      }
+
       // Notify the user who submitted the spot
       await notifySpotApproved(spot.addedBy, spot.id, spot.name);
 
