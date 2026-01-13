@@ -10,6 +10,7 @@ import {
     collection,
     deleteDoc,
     doc,
+    getDoc,
     onSnapshot,
     orderBy,
     query,
@@ -85,7 +86,7 @@ export default function PlanNotificationsScreen() {
     if (!user) return;
 
     try {
-      const userDoc = await getDocs(doc(db, 'users', user.uid));
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
       if (userDoc.exists() && userDoc.data().notificationPreferences) {
         setPreferences(userDoc.data().notificationPreferences);
       }

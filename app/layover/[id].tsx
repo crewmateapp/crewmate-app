@@ -311,7 +311,7 @@ export default function LayoverDetailScreen() {
           <View style={styles.quickActions}>
             <TouchableOpacity
               style={styles.actionButton}
-              onPress={() => router.push(`/explore?city=${layover.city}&layoverId=${layover.id}`)}
+              onPress={() => router.push(`/create-plan?layoverId=${layover.id}`)}
             >
               <Ionicons name="add-circle" size={24} color={Colors.white} />
               <ThemedText style={styles.actionButtonText}>Add Plan</ThemedText>

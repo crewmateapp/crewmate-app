@@ -58,15 +58,29 @@ export default function ConnectionsScreen() {
   const { user } = useAuth();
   
   // Get route params for filtering nearby crew
-  const { filter, city, area } = useLocalSearchParams<{
+  const { 
+    filter, 
+    city: cityParam, 
+    area: areaParam,
+    filterArea,
+    filterCity 
+  } = useLocalSearchParams<{
     filter?: 'area' | 'city';
     city?: string;
     area?: string;
+    filterArea?: string;
+    filterCity?: string;
   }>();
+  
+  // Determine active filter and values
+  // Priority: new filterArea/filterCity params > old filter/city/area params
+  const activeFilter = filterArea ? 'area' : filterCity ? 'city' : filter;
+  const city = filterCity || cityParam;
+  const area = filterArea || areaParam;
   
   const [nearbyCrew, setNearbyCrew] = useState<Connection[]>([]);
   const [activeTab, setActiveTab] = useState<'connections' | 'nearby'>(
-    filter ? 'nearby' : 'connections'
+    (filter || filterArea || filterCity) ? 'nearby' : 'connections'
   );
   const [loading, setLoading] = useState(true);
   const [incomingRequests, setIncomingRequests] = useState<ConnectionRequest[]>([]);
@@ -185,13 +199,13 @@ export default function ConnectionsScreen() {
 
   // Fetch nearby crew when filter params are present
   useEffect(() => {
-    if (!user?.uid || !filter || !city) {
+    if (!user?.uid || !activeFilter || !city) {
       setNearbyCrew([]);
       return;
     }
 
     let q;
-    if (filter === 'area' && area) {
+    if (activeFilter === 'area' && area) {
       // Show crew in specific area
       q = query(
         collection(db, 'users'),
@@ -200,7 +214,7 @@ export default function ConnectionsScreen() {
         where('currentLayover.discoverable', '==', true),
         where('currentLayover.isLive', '==', true)
       );
-    } else if (filter === 'city') {
+    } else if (activeFilter === 'city') {
       // Show all crew in city
       q = query(
         collection(db, 'users'),
@@ -234,7 +248,7 @@ export default function ConnectionsScreen() {
     });
 
     return () => unsubscribe();
-  }, [user, filter, city, area]);
+  }, [user, activeFilter, city, area]);
 
   // Get unique airlines from connections
   const availableAirlines = useMemo(() => {
@@ -475,17 +489,23 @@ export default function ConnectionsScreen() {
         </View>
 
         {/* Filter Badge - Show when coming from stats */}
-        {filter && city && (
+        {(filter || filterArea || filterCity) && city && (
           <View style={styles.filterBadge}>
             <Ionicons name="location" size={16} color={Colors.primary} />
             <ThemedText style={styles.filterBadgeText}>
-              {filter === 'area' && area 
-                ? `Crew in ${area}, ${city}` 
+              {(activeFilter === 'area' && area)
+                ? `Crew in ${area}` 
                 : `Crew in ${city}`}
             </ThemedText>
             <TouchableOpacity 
               onPress={() => {
-                router.setParams({ filter: undefined, city: undefined, area: undefined });
+                router.setParams({ 
+                  filter: undefined, 
+                  city: undefined, 
+                  area: undefined,
+                  filterArea: undefined,
+                  filterCity: undefined 
+                });
                 setActiveTab('connections');
               }}
               style={styles.clearFilterButton}

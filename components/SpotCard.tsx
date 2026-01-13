@@ -36,6 +36,7 @@ type SpotCardProps = {
   userLocation: { latitude: number; longitude: number } | null;
   onCreatePlan: () => void;
   onPress: () => void;
+  selectionMode?: boolean;
 };
 
 const CATEGORY_COLORS: { [key: string]: string } = {
@@ -59,6 +60,7 @@ export default function SpotCard({
   userLocation,
   onCreatePlan,
   onPress,
+  selectionMode = false,
 }: SpotCardProps) {
   // Safety check
   if (!spot) {
@@ -208,14 +210,16 @@ export default function SpotCard({
         </View>
       </TouchableOpacity>
 
-      {/* Create Plan Button */}
+      {/* Create Plan / Select Spot Button */}
       <TouchableOpacity
         style={styles.createPlanButton}
-        onPress={onCreatePlan}
+        onPress={selectionMode ? onPress : onCreatePlan}
         activeOpacity={0.8}
       >
-        <Ionicons name="calendar" size={18} color={COLORS.white} />
-        <ThemedText style={styles.createPlanText}>Create Plan Here</ThemedText>
+        <Ionicons name={selectionMode ? "checkmark-circle" : "calendar"} size={18} color={COLORS.white} />
+        <ThemedText style={styles.createPlanText}>
+          {selectionMode ? "Select This Spot" : "Create Plan Here"}
+        </ThemedText>
         <Ionicons name="arrow-forward" size={18} color={COLORS.white} />
       </TouchableOpacity>
     </View>

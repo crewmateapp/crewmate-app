@@ -1,8 +1,8 @@
-// app/(tabs)/index.tsx
+// app/(tabs)/index.tsx - REDESIGNED: No Gates, Layover List First
 import { PlanCard } from '@/components/PlanCard';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { db, auth } from '@/config/firebase';
+import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCities } from '@/hooks/useCities';
@@ -10,20 +10,18 @@ import { Plan } from '@/types/plan';
 import { searchAirports, AirportData } from '@/utils/airportData';
 import { notifyAdminsNewCityRequest } from '@/utils/notifications';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
 import { router } from 'expo-router';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import {
   collection,
   doc,
-  getDoc,
-  getDocs,
   addDoc,
-  limit,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
+  Timestamp,
   updateDoc,
   where
 } from 'firebase/firestore';
@@ -31,10 +29,9 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  AppState,
   FlatList,
   Modal,
-  SafeAreaView,
+  Platform,
   ScrollView,
   StyleSheet,
   TextInput,
@@ -56,33 +53,27 @@ type UpcomingLayover = {
   id: string;
   city: string;
   area: string;
-  startDate: any; // Firestore Timestamp
-  endDate: any; // Firestore Timestamp
+  startDate: Timestamp;
+  endDate: Timestamp;
   status: 'upcoming' | 'active' | 'past';
   preDiscoverable?: boolean;
   createdAt: any;
 };
 
-
-type PickerStep = 'closed' | 'city' | 'area';
+type PickerStep = 'closed' | 'city' | 'area' | 'dates';
 
 type CityListItem = {
   type: 'city' | 'airport' | 'recommended';
   name: string;
   code: string;
   displayName: string;
-  distance?: number; // For GPS-recommended cities
+  distance?: number;
   airportData?: AirportData;
 };
 
-// Calculate distance between two coordinates (Haversine formula)
-const getDistance = (
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number
-): number => {
-  const R = 6371000; // Earth's radius in meters
+// Calculate distance between coordinates
+const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+  const R = 6371000;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
   const a =
@@ -98,124 +89,190 @@ const getDistance = (
 export default function MyLayoverScreen() {
   const { user } = useAuth();
   const { cities, loading: citiesLoading } = useCities();
-  const [loading, setLoading] = useState(true);
-  const [myLayover, setMyLayover] = useState<UserLayover | null>(null);
-  const [crewLiveCount, setCrewLiveCount] = useState(0);
-  const [crewNearbyCount, setCrewNearbyCount] = useState(0);
-  const [myPlans, setMyPlans] = useState<Plan[]>([]);
+
+  // Layover state
+  const [currentLayover, setCurrentLayover] = useState<UserLayover | null>(null);
   const [upcomingLayovers, setUpcomingLayovers] = useState<UpcomingLayover[]>([]);
-  
-  
-  // Location selection state - single step-based picker
+  const [loading, setLoading] = useState(true);
+
+  // Picker state
   const [pickerStep, setPickerStep] = useState<PickerStep>('closed');
   const [selectedCity, setSelectedCity] = useState('');
   const [selectedArea, setSelectedArea] = useState('');
+  const [startDate, setStartDate] = useState<Date>(new Date());
+  const [endDate, setEndDate] = useState<Date>(new Date());
+  const [editingLayoverId, setEditingLayoverId] = useState<string | null>(null);
+  const [showStartDatePicker, setShowStartDatePicker] = useState(false);
+  const [showEndDatePicker, setShowEndDatePicker] = useState(false);
+
+  // UI state
   const [searchQuery, setSearchQuery] = useState('');
-
-  // GPS recommendation state
-  const [recommendedCity, setRecommendedCity] = useState<CityListItem | null>(null);
-  const [detectingLocation, setDetectingLocation] = useState(false);
-
-  // GPS verification state
   const [verifying, setVerifying] = useState(false);
-  const [locationPermission, setLocationPermission] = useState<'granted' | 'denied' | 'undetermined'>('undetermined');
+  const [crewLiveCount, setCrewLiveCount] = useState(0);
+  const [crewNearbyCount, setCrewNearbyCount] = useState(0);
+  const [upcomingPlans, setUpcomingPlans] = useState<Plan[]>([]);
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
 
-  // City request state
-  const [requestingCity, setRequestingCity] = useState<string | null>(null);
+  // Load user layovers
+  useEffect(() => {
+    if (!user?.uid) return;
 
-  // Get existing city codes for comparison
-  const existingCityCodes = useMemo(() => {
-    return new Set(cities.map(city => city.code.toUpperCase()));
-  }, [cities]);
-
-  // Detect user's current location and recommend nearest city
-  const detectNearestCity = async () => {
-    try {
-      setDetectingLocation(true);
-      
-      // Request permission
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setDetectingLocation(false);
-        return;
+    const unsubscribe = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        
+        // Current layover
+        setCurrentLayover(data.currentLayover || null);
+        
+        // Upcoming layovers
+        const upcoming = (data.upcomingLayovers || []).sort((a: UpcomingLayover, b: UpcomingLayover) => {
+          return a.startDate.toMillis() - b.startDate.toMillis();
+        });
+        setUpcomingLayovers(upcoming);
+        
+        setLoading(false);
       }
+    });
 
-      // Get current location
-      const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
+    return () => unsubscribe();
+  }, [user]);
 
-      const { latitude, longitude } = location.coords;
+  // Load crew counts if checked in
+  useEffect(() => {
+    if (!user?.uid || !currentLayover?.city) return;
 
-      // Find nearest city
-      let nearestCity = null;
-      let shortestDistance = Infinity;
+    // Crew in same area
+    const areaQuery = query(
+      collection(db, 'users'),
+      where('currentLayover.city', '==', currentLayover.city),
+      where('currentLayover.area', '==', currentLayover.area),
+      where('currentLayover.discoverable', '==', true),
+      where('currentLayover.isLive', '==', true)
+    );
 
-      cities.forEach(city => {
-        const distance = getDistance(latitude, longitude, city.lat, city.lng);
-        if (distance < shortestDistance) {
-          shortestDistance = distance;
-          nearestCity = city;
+    const unsubArea = onSnapshot(areaQuery, (snapshot) => {
+      setCrewLiveCount(snapshot.docs.filter(doc => doc.id !== user.uid).length);
+    });
+
+    // Crew in same city
+    const cityQuery = query(
+      collection(db, 'users'),
+      where('currentLayover.city', '==', currentLayover.city),
+      where('currentLayover.discoverable', '==', true),
+      where('currentLayover.isLive', '==', true)
+    );
+
+    const unsubCity = onSnapshot(cityQuery, (snapshot) => {
+      setCrewNearbyCount(snapshot.docs.filter(doc => doc.id !== user.uid).length);
+    });
+
+    return () => {
+      unsubArea();
+      unsubCity();
+    };
+  }, [user, currentLayover]);
+
+  // Load plans for current layover
+  useEffect(() => {
+    if (!user?.uid || !currentLayover?.city) {
+      setUpcomingPlans([]);
+      return;
+    }
+
+    const q = query(
+      collection(db, 'plans'),
+      where('city', '==', currentLayover.city),
+      where('status', '==', 'active'),
+      orderBy('scheduledTime', 'asc')
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const plans: Plan[] = [];
+      snapshot.forEach((doc) => {
+        const data = doc.data() as Plan;
+        if (data.hostUserId === user.uid || data.attendeeIds.includes(user.uid)) {
+          plans.push({ id: doc.id, ...data });
         }
       });
+      setUpcomingPlans(plans.slice(0, 3)); // Top 3
+    });
 
-      // Only recommend if within 50km
-      if (nearestCity && shortestDistance < 50000) {
-        setRecommendedCity({
-          type: 'recommended',
-          name: nearestCity.name,
-          code: nearestCity.code,
-          displayName: `${nearestCity.name} (${nearestCity.code})`,
-          distance: Math.round(shortestDistance / 1000), // km
+    return () => unsubscribe();
+  }, [user, currentLayover]);
+
+  // Get user location for recommendations
+  useEffect(() => {
+    (async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status === 'granted') {
+        const location = await Location.getCurrentPositionAsync({});
+        setUserLocation({
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
         });
       }
-    } catch (error) {
-      console.error('Error detecting location:', error);
-    } finally {
-      setDetectingLocation(false);
-    }
-  };
+    })();
+  }, []);
 
-  // Combined search results: Firestore cities + airport database + recommended
-  const searchResults = useMemo((): CityListItem[] => {
+  // Filter cities for picker
+  const filteredCities = useMemo(() => {
+    if (!searchQuery.trim()) {
+      const items: CityListItem[] = cities.map(city => ({
+        type: 'city' as const,
+        name: city.name,
+        code: city.code,
+        displayName: city.name,
+      }));
+
+      // Add GPS recommendations if available
+      if (userLocation) {
+        const nearby = searchAirports(userLocation.latitude, userLocation.longitude, '');
+        nearby.slice(0, 3).forEach(airport => {
+          const distance = getDistance(
+            userLocation.latitude,
+            userLocation.longitude,
+            airport.lat,
+            airport.lon
+          );
+          items.unshift({
+            type: 'recommended',
+            name: airport.city,
+            code: airport.code,
+            displayName: `${airport.city} (${airport.code})`,
+            distance,
+            airportData: airport,
+          });
+        });
+      }
+
+      return items;
+    }
+
+    // Search cities and airports
+    const query = searchQuery.toLowerCase().trim();
     const results: CityListItem[] = [];
-    const query = searchQuery.trim().toLowerCase();
 
-    // Add GPS-recommended city at top if no search query
-    if (!query && recommendedCity) {
-      results.push(recommendedCity);
-    }
-
-    // Add matching Firestore cities
     cities.forEach(city => {
-      const matchesName = city.name.toLowerCase().includes(query);
-      const matchesCode = city.code.toLowerCase().includes(query);
-      
-      if (!query || matchesName || matchesCode) {
-        // Skip if it's the recommended city (already at top)
-        if (recommendedCity?.code === city.code && !query) return;
-        
+      if (city.name.toLowerCase().includes(query) || city.code.toLowerCase().includes(query)) {
         results.push({
           type: 'city',
           name: city.name,
           code: city.code,
-          displayName: `${city.name} (${city.code})`,
+          displayName: city.name,
         });
       }
     });
 
-    // If there's a search query, also search the airport database
-    if (query.length >= 2) {
-      const airportMatches = searchAirports(searchQuery);
-      
-      airportMatches.forEach(airport => {
-        // Only show airports NOT already in Firestore
-        if (!existingCityCodes.has(airport.code.toUpperCase())) {
+    // Search airports (only if query is not empty)
+    if (query) {
+      const airports = searchAirports(0, 0, query);
+      airports.slice(0, 5).forEach(airport => {
+        if (!results.some(r => r.code === airport.code)) {
           results.push({
             type: 'airport',
-            name: airport.name,
+            name: airport.city,
             code: airport.code,
-            displayName: `${airport.name} (${airport.code})`,
+            displayName: `${airport.city} (${airport.code})`,
             airportData: airport,
           });
         }
@@ -223,429 +280,99 @@ export default function MyLayoverScreen() {
     }
 
     return results;
-  }, [searchQuery, cities, existingCityCodes, recommendedCity]);
+  }, [searchQuery, cities, userLocation]);
 
-  // Check if we should show "request city" prompt
-  const showRequestPrompt = useMemo(() => {
-    const query = searchQuery.trim();
-    if (query.length < 2) return false;
-    
-    // Show if no matches in results
-    return searchResults.length === 0;
-  }, [searchQuery, searchResults]);
-
-  // Verify user's location matches their layover city
-  const verifyLocation = async (cityName: string): Promise<boolean> => {
-    try {
-      // Request permission
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert(
-          'Location Required',
-          'Please enable location services to go live and connect with crew.',
-          [{ text: 'OK' }]
-        );
-        setLocationPermission('denied');
-        return false;
-      }
-
-      setLocationPermission('granted');
-
-      // Get current location
-      const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-
-      const { latitude, longitude } = location.coords;
-
-      // Find city data
-      const cityData = cities.find(c => c.name === cityName);
-      if (!cityData) return false;
-
-      // Calculate distance from city center
-      const distance = getDistance(
-        latitude,
-        longitude,
-        cityData.lat,
-        cityData.lng
-      );
-
-      // Within 50km of city center = verified (covers airport suburbs)
-      return distance < 50000;
-    } catch (error) {
-      console.error('Location verification error:', error);
-      Alert.alert('Error', 'Could not verify your location. Please try again.');
-      return false;
-    }
-  };
-
-  const handleGoLive = async () => {
-    if (!user?.uid || !myLayover?.city) return;
-
-    setVerifying(true);
-    const verified = await verifyLocation(myLayover.city);
-    setVerifying(false);
-
-    if (verified) {
-      try {
-        const expiresAt = new Date();
-        expiresAt.setHours(expiresAt.getHours() + 24); // 24hr expiration
-
-        // Get user's current layover history
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        const userData = userDoc.data();
-        const currentHistory = userData?.layoverHistory || [];
-
-        // Add city to history if not already there
-        const updatedHistory = currentHistory.includes(myLayover.city)
-          ? currentHistory
-          : [...currentHistory, myLayover.city];
-
-        await updateDoc(doc(db, 'users', user.uid), {
-          'currentLayover.isLive': true,
-          'currentLayover.discoverable': true,
-          'currentLayover.lastVerified': serverTimestamp(),
-          'currentLayover.expiresAt': expiresAt,
-          'layoverHistory': updatedHistory, // Track cities user has been to
-        });
-
-        // Set last active time
-        await AsyncStorage.setItem('lastActive', Date.now().toString());
-
-        Alert.alert('You\'re Live!', 'You can now see and connect with crew nearby.');
-      } catch (error) {
-        console.error('Error going live:', error);
-        Alert.alert('Error', 'Failed to go live. Please try again.');
-      }
-    } else {
-      Alert.alert(
-        'Location Not Verified',
-        `Your current location doesn't match ${myLayover.city}. You must be in the city to go live.`,
-        [{ text: 'OK' }]
-      );
-    }
-  };
-
-  const handleRequestCity = async (item: CityListItem) => {
-    const currentUser = auth.currentUser;
-    if (!currentUser) {
-      Alert.alert('Sign In Required', 'Please sign in to request a city.');
-      return;
-    }
-
-    const cityCode = item.type === 'airport' ? item.code : searchQuery.toUpperCase().trim();
-    setRequestingCity(cityCode);
-
-    try {
-      // Check if already requested
-      const existingQuery = query(
-        collection(db, 'cityRequests'),
-        where('airportCode', '==', cityCode),
-        where('status', '==', 'pending')
-      );
-      const existing = await getDocs(existingQuery);
-      
-      if (!existing.empty) {
-        Alert.alert(
-          'Already Requested',
-          `${item.type === 'airport' ? item.name : cityCode} has already been requested and is pending review.`
-        );
-        setRequestingCity(null);
-        return;
-      }
-
-      // Submit the request
-      if (item.type === 'airport' && item.airportData) {
-        // Full airport data available
-        const cityRequestDoc = await addDoc(collection(db, 'cityRequests'), {
-          airportCode: item.airportData.code,
-          cityName: item.airportData.name,
-          fullName: item.airportData.fullName,
-          lat: item.airportData.lat,
-          lng: item.airportData.lng,
-          suggestedAreas: item.airportData.areas,
-          country: item.airportData.country,
-          requestedBy: currentUser.uid,
-          requestedByName: currentUser.displayName || 'Anonymous',
-          requestedByEmail: currentUser.email || '',
-          status: 'pending',
-          createdAt: serverTimestamp(),
-        });
-
-        // Notify admins of new city request
-        await notifyAdminsNewCityRequest(
-          cityRequestDoc.id,
-          item.airportData.code,
-          currentUser.uid,
-          currentUser.displayName || 'Anonymous'
-        );
-      } else {
-        // Manual request without full data
-        const cityRequestDoc = await addDoc(collection(db, 'cityRequests'), {
-          airportCode: cityCode,
-          cityName: cityCode,
-          requestedBy: currentUser.uid,
-          requestedByName: currentUser.displayName || 'Anonymous',
-          requestedByEmail: currentUser.email || '',
-          status: 'pending',
-          needsData: true,
-          createdAt: serverTimestamp(),
-        });
-
-        // Notify admins of new city request
-        await notifyAdminsNewCityRequest(
-          cityRequestDoc.id,
-          cityCode,
-          currentUser.uid,
-          currentUser.displayName || 'Anonymous'
-        );
-      }
-
-      Alert.alert(
-        'Request Submitted! ✈️',
-        `Thanks for requesting ${item.type === 'airport' ? item.name : cityCode}! Our team will review and add it soon.`,
-        [{ text: 'OK', onPress: () => {
-          setPickerStep('closed');
-          setSearchQuery('');
-        }}]
-      );
-    } catch (error) {
-      console.error('Error requesting city:', error);
-      Alert.alert('Error', 'Failed to submit request. Please try again.');
-    } finally {
-      setRequestingCity(null);
-    }
-  };
-
-  const handleSelectCity = (item: CityListItem) => {
-    if (item.type === 'city' || item.type === 'recommended') {
-      // Existing city - select it
-      setSelectedCity(item.name);
-      setPickerStep('area');
-      setSearchQuery('');
-    } else if (item.type === 'airport') {
-      // Airport not in system - ask to request it
-      Alert.alert(
-        'City Not Available Yet',
-        `${item.name} (${item.code}) hasn't been added to CrewMate yet. Would you like to request it?`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Request City',
-            onPress: () => handleRequestCity(item),
-          },
-        ]
-      );
-    }
-  };
-
-  // Fetch user's layover
-  useEffect(() => {
+  // Check in to a layover
+  const checkInToLayover = async (layover: UpcomingLayover) => {
     if (!user?.uid) return;
 
-    const unsubscribe = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        const layover = data.currentLayover as UserLayover | undefined;
-        setMyLayover(layover || null);
-        
-        // Fetch upcoming layovers
-        const upcoming = (data.upcomingLayovers || []) as UpcomingLayover[];
-        // Filter out past layovers and sort by start date
-        const now = new Date();
-        const activeUpcoming = upcoming
-          .filter(l => l.endDate?.toDate() > now)
-          .sort((a, b) => a.startDate?.toDate().getTime() - b.startDate?.toDate().getTime());
-        setUpcomingLayovers(activeUpcoming);
-      }
-      setLoading(false);
-    });
+    try {
+      setVerifying(true);
 
-    return () => unsubscribe();
-  }, [user]);
-
-  // Count crew members live (same area, discoverable)
-  useEffect(() => {
-    if (!user?.uid || !myLayover?.city) {
-      setCrewLiveCount(0);
-      return;
-    }
-
-    const q = query(
-      collection(db, 'users'),
-      where('currentLayover.city', '==', myLayover.city),
-      where('currentLayover.area', '==', myLayover.area),
-      where('currentLayover.discoverable', '==', true),
-      where('currentLayover.isLive', '==', true)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setCrewLiveCount(snapshot.size);
-    });
-
-    return () => unsubscribe();
-  }, [user, myLayover]);
-
-  // Count crew members nearby (same city)
-  useEffect(() => {
-    if (!user?.uid || !myLayover?.city) {
-      setCrewNearbyCount(0);
-      return;
-    }
-
-    const q = query(
-      collection(db, 'users'),
-      where('currentLayover.city', '==', myLayover.city),
-      where('currentLayover.discoverable', '==', true),
-      where('currentLayover.isLive', '==', true)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setCrewNearbyCount(snapshot.size);
-    });
-
-    return () => unsubscribe();
-  }, [user, myLayover]);
-
-  // Fetch user's plans in current city
-  useEffect(() => {
-    if (!user?.uid || !myLayover?.city) {
-      setMyPlans([]);
-      return;
-    }
-
-    const q = query(
-      collection(db, 'plans'),
-      where('city', '==', myLayover.city),
-      where('attendeeIds', 'array-contains', user.uid),
-      where('status', '==', 'active'),
-      orderBy('scheduledTime', 'asc'),
-      limit(5)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const plans: Plan[] = [];
-      snapshot.forEach((doc) => {
-        plans.push({
-          id: doc.id,
-          ...doc.data(),
-        } as Plan);
-      });
-      setMyPlans(plans);
-    });
-
-    return () => unsubscribe();
-  }, [user, myLayover]);
-
-  // Check location permission on mount
-  useEffect(() => {
-    const checkPermission = async () => {
-      const { status } = await Location.getForegroundPermissionsAsync();
-      setLocationPermission(
-        status === 'granted' ? 'granted' : 
-        status === 'denied' ? 'denied' : 
-        'undetermined'
+      const expiresAt = Timestamp.fromDate(
+        new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
       );
-    };
-    checkPermission();
-  }, []);
 
-  // Detect nearest city when picker opens
-  useEffect(() => {
-    if (pickerStep === 'city' && !recommendedCity && !detectingLocation) {
-      detectNearestCity();
+      await updateDoc(doc(db, 'users', user.uid), {
+        currentLayover: {
+          city: layover.city,
+          area: layover.area,
+          discoverable: false, // Start offline
+          isLive: false,
+          lastVerified: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          expiresAt: expiresAt,
+        },
+      });
+
+      Alert.alert('Checked In!', `You're checked in to ${layover.city}. Tap "Go Live" when you're ready to connect with crew.`);
+    } catch (error) {
+      console.error('Error checking in:', error);
+      Alert.alert('Error', 'Failed to check in. Please try again.');
+    } finally {
+      setVerifying(false);
     }
-  }, [pickerStep]);
-
-  // Check for layover expiration
-  useEffect(() => {
-    if (!user?.uid || !myLayover?.city || !myLayover.expiresAt) return;
-
-    const checkExpiration = () => {
-      const now = new Date();
-      const expires = myLayover.expiresAt.toDate ? myLayover.expiresAt.toDate() : new Date(myLayover.expiresAt);
-
-      if (now > expires) {
-        // Layover expired - clear it
-        updateDoc(doc(db, 'users', user.uid), {
-          currentLayover: null,
-        });
-        Alert.alert('Layover Expired', 'Your layover has been automatically cleared after 24 hours.');
-      }
-    };
-
-    checkExpiration();
-    const interval = setInterval(checkExpiration, 60000); // Check every minute
-
-    return () => clearInterval(interval);
-  }, [user, myLayover]);
-
-  // Auto-refresh when app comes to foreground
-  useEffect(() => {
-    const subscription = AppState.addEventListener('change', (nextAppState) => {
-      if (nextAppState === 'active' && user?.uid && myLayover?.city) {
-        // Refresh when app becomes active
-      }
-    });
-
-    return () => {
-      subscription.remove();
-    };
-  }, [user, myLayover]);
-
-  const openCityPicker = () => {
-    setPickerStep('city');
-    setRecommendedCity(null); // Reset so it re-detects
   };
 
-  const closePicker = () => {
-    setPickerStep('closed');
-    setSearchQuery('');
-    setSelectedCity('');
-    setSelectedArea('');
-    setRecommendedCity(null);
+  // Go live (make discoverable)
+  const handleGoLive = async () => {
+    if (!user?.uid || !currentLayover) return;
+
+    try {
+      setVerifying(true);
+
+      const expiresAt = Timestamp.fromDate(
+        new Date(Date.now() + 8 * 60 * 60 * 1000) // 8 hours
+      );
+
+      await updateDoc(doc(db, 'users', user.uid), {
+        'currentLayover.isLive': true,
+        'currentLayover.discoverable': true,
+        'currentLayover.lastVerified': serverTimestamp(),
+        'currentLayover.expiresAt': expiresAt,
+      });
+    } catch (error) {
+      console.error('Error going live:', error);
+      Alert.alert('Error', 'Failed to go live. Please try again.');
+    } finally {
+      setVerifying(false);
+    }
   };
 
-  const selectArea = async (area: string) => {
+  // Go offline
+  const handleGoOffline = async () => {
     if (!user?.uid) return;
 
     try {
       await updateDoc(doc(db, 'users', user.uid), {
-        currentLayover: {
-          city: selectedCity,
-          area: area,
-          discoverable: false,
-          isLive: false,
-          updatedAt: serverTimestamp(),
-        },
+        'currentLayover.isLive': false,
+        'currentLayover.discoverable': false,
       });
-
-      closePicker();
     } catch (error) {
-      console.error('Error setting layover:', error);
-      Alert.alert('Error', 'Failed to set location. Please try again.');
+      console.error('Error going offline:', error);
+      Alert.alert('Error', 'Failed to go offline. Please try again.');
     }
   };
 
-  const clearLayover = async () => {
-    if (!user?.uid) return;
-
+  // End check-in
+  const endCheckIn = () => {
     Alert.alert(
-      'Clear Layover?',
-      'This will remove your current location and hide you from other crew.',
+      'End Check-In?',
+      "You'll stop being discoverable and lose access to live crew features.",
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Clear',
+          text: 'End Check-In',
           style: 'destructive',
           onPress: async () => {
+            if (!user?.uid) return;
             try {
               await updateDoc(doc(db, 'users', user.uid), {
                 currentLayover: null,
               });
             } catch (error) {
-              console.error('Error clearing layover:', error);
-              Alert.alert('Error', 'Failed to clear location. Please try again.');
+              console.error('Error ending check-in:', error);
+              Alert.alert('Error', 'Failed to end check-in.');
             }
           },
         },
@@ -653,107 +380,152 @@ export default function MyLayoverScreen() {
     );
   };
 
-  // Get areas for selected city
-  const areas = useMemo(() => {
-    const city = cities.find(c => c.name === selectedCity);
-    return city?.areas || [];
-  }, [selectedCity, cities]);
-
-  // Render city item in picker
-  const renderCityItem = ({ item }: { item: CityListItem }) => {
-    const isRecommended = item.type === 'recommended';
-    const isAirport = item.type === 'airport';
-    const isRequesting = requestingCity === item.code;
-
-    return (
-      <TouchableOpacity
-        style={[
-          styles.pickerItem,
-          isRecommended && styles.recommendedItem,
-          isAirport && styles.airportItem,
-        ]}
-        onPress={() => handleSelectCity(item)}
-        disabled={isRequesting}
-      >
-        <View style={styles.pickerItemMain}>
-          {isRecommended && (
-            <View style={styles.recommendedBadge}>
-              <Ionicons name="location" size={14} color={Colors.success} />
-              <ThemedText style={styles.recommendedText}>
-                Recommended • {item.distance}km away
-              </ThemedText>
-            </View>
-          )}
-          {isAirport && (
-            <View style={styles.airportBadge}>
-              <Ionicons name="add-circle" size={14} color={Colors.accent} />
-              <ThemedText style={styles.airportBadgeText}>Request to add</ThemedText>
-            </View>
-          )}
-          <ThemedText style={styles.pickerItemTitle}>{item.name}</ThemedText>
-          <ThemedText style={styles.pickerItemCode}>{item.code}</ThemedText>
-        </View>
-        {isRequesting ? (
-          <ActivityIndicator size="small" color={Colors.primary} />
-        ) : (
-          <Ionicons name="chevron-forward" size={20} color={Colors.text.secondary} />
-        )}
-      </TouchableOpacity>
+  // Delete upcoming layover
+  const deleteLayover = (layoverId: string, layoverCity: string) => {
+    Alert.alert(
+      'Delete Layover?',
+      `Remove ${layoverCity} from your upcoming layovers?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            if (!user?.uid) return;
+            try {
+              const updatedLayovers = upcomingLayovers.filter(l => l.id !== layoverId);
+              await updateDoc(doc(db, 'users', user.uid), {
+                upcomingLayovers: updatedLayovers,
+              });
+            } catch (error) {
+              console.error('Error deleting layover:', error);
+              Alert.alert('Error', 'Failed to delete layover.');
+            }
+          },
+        },
+      ]
     );
   };
 
-  // Render empty/request state
-  const renderEmptyOrRequest = () => {
-    if (showRequestPrompt) {
-      return (
-        <View style={styles.requestContainer}>
-          <View style={styles.requestCard}>
-            <Ionicons name="airplane-outline" size={48} color={Colors.primary} />
-            <ThemedText style={styles.requestTitle}>City Not Listed?</ThemedText>
-            <ThemedText style={styles.requestSubtitle}>
-              We don't have "{searchQuery}" yet. Request it and we'll add it soon!
-            </ThemedText>
-            <TouchableOpacity
-              style={styles.requestButton}
-              onPress={() => handleRequestCity({ 
-                type: 'airport', 
-                name: searchQuery, 
-                code: searchQuery.toUpperCase(),
-                displayName: searchQuery 
-              })}
-              disabled={requestingCity !== null}
-            >
-              {requestingCity ? (
-                <ActivityIndicator size="small" color={Colors.white} />
-              ) : (
-                <>
-                  <Ionicons name="add-circle" size={20} color={Colors.white} />
-                  <ThemedText style={styles.requestButtonText}>Request City</ThemedText>
-                </>
-              )}
-            </TouchableOpacity>
-            <ThemedText style={styles.requestNote}>
-              Our team reviews requests daily
-            </ThemedText>
-          </View>
-        </View>
-      );
+  // Add layover - open picker
+  const openLayoverPicker = () => {
+    setPickerStep('city');
+    setSearchQuery('');
+    setSelectedCity('');
+    setSelectedArea('');
+    setEditingLayoverId(null);
+    // Set default dates: tomorrow and day after
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const dayAfter = new Date();
+    dayAfter.setDate(dayAfter.getDate() + 2);
+    setStartDate(tomorrow);
+    setEndDate(dayAfter);
+  };
+
+  // Edit layover - open picker with existing data
+  const editLayover = (layover: UpcomingLayover) => {
+    setEditingLayoverId(layover.id);
+    setSelectedCity(layover.city);
+    setSelectedArea(layover.area);
+    setStartDate(layover.startDate.toDate());
+    setEndDate(layover.endDate.toDate());
+    setPickerStep('dates'); // Skip city/area selection, go straight to dates
+  };
+
+  // Select city from picker
+  const selectCity = (item: CityListItem) => {
+    setSelectedCity(item.name);
+    setPickerStep('area');
+    setSearchQuery('');
+  };
+
+  // Select area and move to dates
+  const selectArea = (area: string) => {
+    setSelectedArea(area);
+    setPickerStep('dates');
+  };
+
+  // Save layover (create or edit)
+  const saveLayover = async () => {
+    if (!user?.uid || !selectedCity || !selectedArea) return;
+
+    try {
+      if (editingLayoverId) {
+        // Edit existing layover
+        const updatedLayovers = upcomingLayovers.map(l => {
+          if (l.id === editingLayoverId) {
+            return {
+              ...l,
+              city: selectedCity,
+              area: selectedArea,
+              startDate: Timestamp.fromDate(startDate),
+              endDate: Timestamp.fromDate(endDate),
+            };
+          }
+          return l;
+        });
+
+        await updateDoc(doc(db, 'users', user.uid), {
+          upcomingLayovers: updatedLayovers,
+        });
+
+        Alert.alert('Success', 'Layover updated!');
+      } else {
+        // Create new layover
+        const newLayover: Omit<UpcomingLayover, 'id'> = {
+          city: selectedCity,
+          area: selectedArea,
+          startDate: Timestamp.fromDate(startDate),
+          endDate: Timestamp.fromDate(endDate),
+          status: 'upcoming',
+          preDiscoverable: false,
+          createdAt: Timestamp.now(),
+        };
+
+        const layoverId = `layover_${Date.now()}`;
+        const layoverWithId = { id: layoverId, ...newLayover };
+
+        await updateDoc(doc(db, 'users', user.uid), {
+          upcomingLayovers: [...upcomingLayovers, layoverWithId],
+        });
+
+        Alert.alert('Success', 'Layover added! You can check in when you arrive.');
+      }
+
+      setPickerStep('closed');
+      setEditingLayoverId(null);
+    } catch (error) {
+      console.error('Error saving layover:', error);
+      Alert.alert('Error', 'Failed to save layover. Please try again.');
     }
+  };
 
-    return (
-      <View style={styles.emptyState}>
-        <Ionicons name="search-outline" size={48} color={Colors.text.secondary} />
-        <ThemedText style={styles.emptyText}>No cities found</ThemedText>
-      </View>
+  // Request new city
+  const requestNewCity = () => {
+    Alert.alert(
+      'Request New City',
+      "Don't see your city? You can request it and we'll add it soon!",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Request City',
+          onPress: async () => {
+            await notifyAdminsNewCityRequest(user?.uid || '', searchQuery);
+            Alert.alert('Request Sent!', "We'll review your request and add the city soon.");
+            setPickerStep('closed');
+          },
+        },
+      ]
     );
   };
 
-  if (loading || citiesLoading) {
+  const selectedCityData = cities.find(c => c.name === selectedCity);
+
+  if (loading) {
     return (
       <ThemedView style={styles.container}>
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <ActivityIndicator size="large" color={Colors.primary} />
-        </View>
+        <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: 100 }} />
       </ThemedView>
     );
   }
@@ -761,39 +533,53 @@ export default function MyLayoverScreen() {
   return (
     <ThemedView style={styles.container}>
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-        {!myLayover ? (
-          // No layover set
-          <View style={styles.emptyState}>
-            <Ionicons name="location-outline" size={80} color={Colors.text.secondary} />
-            <ThemedText style={styles.emptyTitle}>Set Your Layover</ThemedText>
-            <ThemedText style={styles.emptyText}>
-              Let crew know where you are so you can connect during your layover.
-            </ThemedText>
-            <TouchableOpacity style={styles.setLocationButton} onPress={openCityPicker}>
-              <Ionicons name="add" size={24} color={Colors.white} />
-              <ThemedText style={styles.setLocationText}>Set Location</ThemedText>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <>
-            {/* Current Layover Card */}
-            <View style={styles.layoverCard}>
+        
+        {/* Current Layover (if checked in) */}
+        {currentLayover && (
+          <View style={styles.section}>
+            <ThemedText style={styles.sectionTitle}>Current Layover</ThemedText>
+            
+            <View style={[styles.layoverCard, styles.currentCard]}>
               <View style={styles.layoverHeader}>
-                <View>
-                  <ThemedText style={styles.layoverCity}>{myLayover.city}</ThemedText>
-                  <ThemedText style={styles.layoverArea}>{myLayover.area}</ThemedText>
+                <View style={styles.layoverInfo}>
+                  <ThemedText style={styles.layoverCity}>{currentLayover.city}</ThemedText>
+                  <ThemedText style={styles.layoverArea}>{currentLayover.area}</ThemedText>
                 </View>
-                <TouchableOpacity onPress={clearLayover}>
+                <TouchableOpacity onPress={endCheckIn}>
                   <Ionicons name="close-circle" size={24} color={Colors.text.secondary} />
                 </TouchableOpacity>
               </View>
 
-              {!myLayover.isLive && (
-                <>
-                  <View style={styles.banner}>
+              {/* Live Status */}
+              {currentLayover.isLive ? (
+                <View style={styles.liveSection}>
+                  <View style={styles.liveIndicator}>
+                    <View style={styles.liveDot} />
+                    <ThemedText style={styles.liveText}>You're Live!</ThemedText>
+                  </View>
+
+                  <View style={styles.statsRow}>
+                    <View style={styles.statItem}>
+                      <ThemedText style={styles.statNumber}>{crewLiveCount}</ThemedText>
+                      <ThemedText style={styles.statLabel}>in {currentLayover.area}</ThemedText>
+                    </View>
+                    <View style={styles.statItem}>
+                      <ThemedText style={styles.statNumber}>{crewNearbyCount}</ThemedText>
+                      <ThemedText style={styles.statLabel}>in {currentLayover.city}</ThemedText>
+                    </View>
+                  </View>
+
+                  <TouchableOpacity style={styles.secondaryButton} onPress={handleGoOffline}>
+                    <Ionicons name="eye-off-outline" size={18} color={Colors.text.primary} />
+                    <ThemedText style={styles.secondaryButtonText}>Go Offline</ThemedText>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={styles.offlineSection}>
+                  <View style={styles.offlineBanner}>
                     <Ionicons name="eye-off-outline" size={16} color={Colors.warning} />
-                    <ThemedText style={styles.bannerText}>
-                      You're offline. Go live to see crew nearby!
+                    <ThemedText style={styles.offlineBannerText}>
+                      You're offline. Go live to connect with crew!
                     </ThemedText>
                   </View>
 
@@ -811,255 +597,284 @@ export default function MyLayoverScreen() {
                       </>
                     )}
                   </TouchableOpacity>
-                  <ThemedText style={styles.planningNote}>
+
+                  <ThemedText style={styles.offlineNote}>
                     Or keep planning — you don't need to be live to make plans
                   </ThemedText>
-                </>
-              )}
-
-              {myLayover.isLive && (
-                <View style={styles.liveIndicator}>
-                  <View style={styles.liveDot} />
-                  <ThemedText style={styles.liveText}>You're Live!</ThemedText>
                 </View>
               )}
-            </View>
 
-            {/* Stats */}
-            {myLayover.isLive && (
-              <View style={styles.stats}>
-                <View style={styles.statCard}>
-                  <ThemedText style={styles.statNumber}>{crewLiveCount}</ThemedText>
-                  <ThemedText style={styles.statLabel}>Crew in {myLayover.area}</ThemedText>
-                </View>
-                <View style={styles.statCard}>
-                  <ThemedText style={styles.statNumber}>{crewNearbyCount}</ThemedText>
-                  <ThemedText style={styles.statLabel}>Crew in {myLayover.city}</ThemedText>
-                </View>
-              </View>
-            )}
-
-            {/* Quick Actions */}
-            <View style={styles.section}>
+              {/* Quick Actions */}
               <View style={styles.quickActions}>
                 <TouchableOpacity
                   style={styles.actionButton}
-                  onPress={() => router.push('/connections')}
+                  onPress={() => router.push('/(tabs)/plans')}
                 >
-                  <Ionicons name="people-outline" size={32} color={Colors.primary} />
-                  <ThemedText style={styles.actionText}>Find Crew</ThemedText>
+                  <Ionicons name="calendar-outline" size={20} color={Colors.primary} />
+                  <ThemedText style={styles.actionButtonText}>My Plans</ThemedText>
                 </TouchableOpacity>
-
                 <TouchableOpacity
                   style={styles.actionButton}
-                  onPress={() => router.push('/explore')}
+                  onPress={() => router.push(`/connections?filterCity=${currentLayover.city}`)}
                 >
-                  <Ionicons name="compass-outline" size={32} color={Colors.primary} />
-                  <ThemedText style={styles.actionText}>Explore Spots</ThemedText>
+                  <Ionicons name="people-outline" size={20} color={Colors.primary} />
+                  <ThemedText style={styles.actionButtonText}>Find Crew</ThemedText>
                 </TouchableOpacity>
-
                 <TouchableOpacity
                   style={styles.actionButton}
-                  onPress={() => router.push('/plans')}
+                  onPress={() => router.push('/(tabs)/explore')}
                 >
-                  <Ionicons name="calendar-outline" size={32} color={Colors.primary} />
-                  <ThemedText style={styles.actionText}>Make Plans</ThemedText>
+                  <Ionicons name="compass-outline" size={20} color={Colors.primary} />
+                  <ThemedText style={styles.actionButtonText}>Browse Spots</ThemedText>
                 </TouchableOpacity>
               </View>
+
+              {/* Recent Plans */}
+              {upcomingPlans.length > 0 && (
+                <View style={styles.recentPlans}>
+                  <ThemedText style={styles.recentPlansTitle}>Upcoming Plans</ThemedText>
+                  {upcomingPlans.map(plan => (
+                    <PlanCard key={plan.id} plan={plan} showHost={false} />
+                  ))}
+                </View>
+              )}
             </View>
-
-            {/* Upcoming Layovers */}
-            {upcomingLayovers.length > 0 && (
-              <View style={styles.section}>
-                <View style={styles.sectionHeader}>
-                  <ThemedText style={styles.sectionTitle}>✈️ Upcoming Layovers</ThemedText>
-                  <TouchableOpacity onPress={() => router.push('/manage-layovers')}>
-                    <ThemedText style={styles.seeAll}>Manage</ThemedText>
-                  </TouchableOpacity>
-                </View>
-                
-                {upcomingLayovers.slice(0, 3).map((layover) => {
-                  const startDate = layover.startDate?.toDate();
-                  const endDate = layover.endDate?.toDate();
-                  const daysDiff = startDate ? Math.ceil((startDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) : 0;
-                  
-                  return (
-                    <TouchableOpacity 
-                      key={layover.id} 
-                      style={styles.upcomingLayoverCard}
-                      onPress={() => router.push(`/layover/${layover.id}`)}
-                      activeOpacity={0.7}
-                    >
-                      <View style={styles.layoverHeader}>
-                        <View>
-                          <ThemedText style={styles.layoverCity}>{layover.city}</ThemedText>
-                          <ThemedText style={styles.layoverDates}>
-                            {startDate && endDate ? (
-                              <>
-                                {startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                                {startDate.getTime() !== endDate.getTime() && (
-                                  <>
-                                    {' - '}
-                                    {endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                                  </>
-                                )}
-                              </>
-                            ) : 'Date pending'}
-                          </ThemedText>
-                        </View>
-                        <View style={styles.daysUntilBadge}>
-                          <ThemedText style={styles.daysUntilText}>
-                            {daysDiff === 0 ? 'Today' : daysDiff === 1 ? 'Tomorrow' : `${daysDiff}d`}
-                          </ThemedText>
-                        </View>
-                      </View>
-                      
-                      {/* Quick Actions */}
-                      <View style={styles.layoverQuickActions}>
-                        <TouchableOpacity 
-                          style={styles.layoverActionButton}
-                          onPress={(e) => {
-                            e.stopPropagation();
-                            router.push(`/explore?city=${layover.city}&layoverId=${layover.id}`);
-                          }}
-                        >
-                          <Ionicons name="add-circle-outline" size={18} color={Colors.primary} />
-                          <ThemedText style={styles.layoverActionText}>Add Plan</ThemedText>
-                        </TouchableOpacity>
-                        
-                        <TouchableOpacity 
-                          style={styles.layoverActionButton}
-                          onPress={(e) => {
-                            e.stopPropagation();
-                            router.push(`/discover-crew?city=${layover.city}&date=${startDate?.toISOString()}`);
-                          }}
-                        >
-                          <Ionicons name="people-outline" size={18} color={Colors.primary} />
-                          <ThemedText style={styles.layoverActionText}>Find Crew</ThemedText>
-                        </TouchableOpacity>
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            )}
-            
-            {/* Add Layover Button - Show if no upcoming layovers or after the list */}
-            <TouchableOpacity 
-              style={styles.addLayoverButton}
-              onPress={() => router.push('/add-layover')}
-            >
-              <Ionicons name="airplane-outline" size={20} color={Colors.primary} />
-              <ThemedText style={styles.addLayoverText}>
-                {upcomingLayovers.length === 0 ? 'Plan Upcoming Layover' : 'Add Another Layover'}
-              </ThemedText>
-            </TouchableOpacity>
-
-            {/* My Plans */}
-            {myPlans.length > 0 && (
-              <View style={styles.section}>
-                <View style={styles.sectionHeader}>
-                  <ThemedText style={styles.sectionTitle}>My Plans</ThemedText>
-                  <TouchableOpacity onPress={() => router.push('/plans')}>
-                    <ThemedText style={styles.seeAll}>See All</ThemedText>
-                  </TouchableOpacity>
-                </View>
-                {myPlans.map((plan) => (
-                  <PlanCard key={plan.id} plan={plan} />
-                ))}
-              </View>
-            )}
-          </>
+          </View>
         )}
+
+        {/* Upcoming Layovers */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <ThemedText style={styles.sectionTitle}>
+              {currentLayover ? 'Upcoming Layovers' : 'My Layovers'} ({upcomingLayovers.length})
+            </ThemedText>
+          </View>
+
+          {upcomingLayovers.length === 0 && !currentLayover ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="airplane-outline" size={64} color={Colors.text.secondary} />
+              <ThemedText style={styles.emptyTitle}>No Layovers Yet</ThemedText>
+              <ThemedText style={styles.emptyText}>
+                Add your upcoming layovers to start connecting with crew and making plans
+              </ThemedText>
+            </View>
+          ) : (
+            upcomingLayovers.map(layover => (
+              <View key={layover.id} style={styles.layoverCard}>
+                <View style={styles.layoverHeader}>
+                  <View style={styles.layoverInfo}>
+                    <ThemedText style={styles.layoverCity}>{layover.city}</ThemedText>
+                    <ThemedText style={styles.layoverArea}>{layover.area}</ThemedText>
+                    <ThemedText style={styles.layoverDates}>
+                      {layover.startDate.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {layover.endDate.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </ThemedText>
+                  </View>
+                  <View style={styles.layoverIcons}>
+                    <Ionicons name="airplane" size={24} color={Colors.primary} />
+                    <TouchableOpacity onPress={() => editLayover(layover)} style={styles.editButton}>
+                      <Ionicons name="pencil-outline" size={22} color={Colors.text.secondary} />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => deleteLayover(layover.id, layover.city)} style={styles.deleteButton}>
+                      <Ionicons name="trash-outline" size={22} color={Colors.error} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                <View style={styles.layoverActions}>
+                  <TouchableOpacity
+                    style={styles.checkInButton}
+                    onPress={() => checkInToLayover(layover)}
+                    disabled={verifying}
+                  >
+                    {verifying ? (
+                      <ActivityIndicator size="small" color={Colors.white} />
+                    ) : (
+                      <>
+                        <Ionicons name="location" size={18} color={Colors.white} />
+                        <ThemedText style={styles.checkInButtonText}>Check In</ThemedText>
+                      </>
+                    )}
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.viewPlansButton}
+                    onPress={() => router.push('/(tabs)/plans')}
+                  >
+                    <ThemedText style={styles.viewPlansButtonText}>View Plans</ThemedText>
+                    <Ionicons name="arrow-forward" size={16} color={Colors.primary} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))
+          )}
+
+          {/* Add Layover Button */}
+          <TouchableOpacity style={styles.addButton} onPress={openLayoverPicker}>
+            <Ionicons name="add-circle" size={24} color={Colors.primary} />
+            <ThemedText style={styles.addButtonText}>
+              {upcomingLayovers.length === 0 && !currentLayover ? 'Add Your First Layover' : 'Add Another Layover'}
+            </ThemedText>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
 
-      {/* City/Area Picker Modal */}
+      {/* Layover Picker Modal */}
       <Modal
         visible={pickerStep !== 'closed'}
         animationType="slide"
         presentationStyle="pageSheet"
-        onRequestClose={closePicker}
+        onRequestClose={() => setPickerStep('closed')}
       >
-        <SafeAreaView style={styles.pickerContainer}>
+        <ThemedView style={styles.modalContainer}>
           {/* Header */}
-          <View style={styles.pickerHeader}>
-            {pickerStep === 'area' && (
-              <TouchableOpacity
-                style={styles.backButton}
-                onPress={() => setPickerStep('city')}
-              >
-                <Ionicons name="chevron-back" size={24} color={Colors.primary} />
-              </TouchableOpacity>
-            )}
-            <ThemedText style={styles.pickerTitle}>
-              {pickerStep === 'city' ? 'Select City' : `Select Area in ${selectedCity}`}
-            </ThemedText>
-            <TouchableOpacity style={styles.closeButton} onPress={closePicker}>
-              <Ionicons name="close" size={24} color={Colors.text.secondary} />
+          <View style={styles.modalHeader}>
+            <TouchableOpacity onPress={() => setPickerStep('closed')}>
+              <Ionicons name="close" size={28} color={Colors.text.primary} />
             </TouchableOpacity>
+            <ThemedText style={styles.modalTitle}>
+              {editingLayoverId ? 'Edit Layover' : (
+                pickerStep === 'city' ? 'Select City' :
+                pickerStep === 'area' ? 'Select Area' :
+                'Set Dates'
+              )}
+            </ThemedText>
+            <View style={{ width: 28 }} />
           </View>
 
-          {/* Search Bar (City step only) */}
+          {/* City Picker */}
           {pickerStep === 'city' && (
-            <View style={styles.searchContainer}>
-              <Ionicons name="search" size={20} color={Colors.text.secondary} style={styles.searchIcon} />
+            <View style={styles.pickerContent}>
               <TextInput
                 style={styles.searchInput}
                 placeholder="Search cities or airport codes..."
                 placeholderTextColor={Colors.text.secondary}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
-                autoCapitalize="characters"
-                autoCorrect={false}
+                autoFocus
               />
-              {searchQuery.length > 0 && (
-                <TouchableOpacity onPress={() => setSearchQuery('')}>
-                  <Ionicons name="close-circle" size={20} color={Colors.text.secondary} />
-                </TouchableOpacity>
-              )}
-            </View>
-          )}
 
-          {/* GPS Detection Indicator */}
-          {pickerStep === 'city' && detectingLocation && (
-            <View style={styles.detectingLocation}>
-              <ActivityIndicator size="small" color={Colors.primary} />
-              <ThemedText style={styles.detectingText}>Detecting your location...</ThemedText>
-            </View>
-          )}
-
-          {/* City List */}
-          {pickerStep === 'city' && (
-            searchResults.length > 0 ? (
               <FlatList
-                data={searchResults}
-                keyExtractor={(item, index) => `${item.type}-${item.code}-${index}`}
-                renderItem={renderCityItem}
-                contentContainerStyle={styles.pickerList}
+                data={filteredCities}
+                keyExtractor={(item, index) => `${item.code}-${index}`}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.cityItem}
+                    onPress={() => selectCity(item)}
+                  >
+                    <View>
+                      <ThemedText style={styles.cityName}>{item.displayName}</ThemedText>
+                      {item.type === 'recommended' && item.distance && (
+                        <ThemedText style={styles.cityDistance}>
+                          {(item.distance / 1609).toFixed(1)} mi away
+                        </ThemedText>
+                      )}
+                    </View>
+                    {item.type === 'recommended' && (
+                      <View style={styles.recommendedBadge}>
+                        <ThemedText style={styles.recommendedText}>Near You</ThemedText>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                )}
+                ListEmptyComponent={
+                  <View style={styles.emptyPicker}>
+                    <ThemedText style={styles.emptyPickerText}>No cities found</ThemedText>
+                    <TouchableOpacity style={styles.requestButton} onPress={requestNewCity}>
+                      <ThemedText style={styles.requestButtonText}>Request This City</ThemedText>
+                    </TouchableOpacity>
+                  </View>
+                }
               />
-            ) : (
-              renderEmptyOrRequest()
-            )
+            </View>
           )}
 
-          {/* Area List */}
-          {pickerStep === 'area' && (
-            <FlatList
-              data={areas}
-              keyExtractor={(item) => item}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.pickerItem}
-                  onPress={() => selectArea(item)}
-                >
-                  <ThemedText style={styles.pickerItemTitle}>{item}</ThemedText>
-                  <Ionicons name="chevron-forward" size={20} color={Colors.text.secondary} />
-                </TouchableOpacity>
-              )}
-              contentContainerStyle={styles.pickerList}
-            />
+          {/* Area Picker */}
+          {pickerStep === 'area' && selectedCityData && (
+            <View style={styles.pickerContent}>
+              <ThemedText style={styles.pickerSubtitle}>{selectedCity}</ThemedText>
+              <FlatList
+                data={selectedCityData.areas}
+                keyExtractor={(item) => item}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.areaItem}
+                    onPress={() => selectArea(item)}
+                  >
+                    <ThemedText style={styles.areaName}>{item}</ThemedText>
+                    <Ionicons name="chevron-forward" size={20} color={Colors.text.secondary} />
+                  </TouchableOpacity>
+                )}
+              />
+            </View>
           )}
-        </SafeAreaView>
+
+          {/* Date Picker */}
+          {pickerStep === 'dates' && (
+            <View style={styles.pickerContent}>
+              <ThemedText style={styles.pickerSubtitle}>
+                {selectedCity} • {selectedArea}
+              </ThemedText>
+
+              <View style={styles.dateSection}>
+                {/* Start Date */}
+                <ThemedText style={styles.dateLabel}>Check-In Date</ThemedText>
+                
+                <TouchableOpacity 
+                  style={styles.dateTimeButton}
+                  onPress={() => setShowStartDatePicker(true)}
+                >
+                  <Ionicons name="calendar-outline" size={20} color={Colors.primary} />
+                  <ThemedText style={styles.dateTimeText}>
+                    {startDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                  </ThemedText>
+                </TouchableOpacity>
+
+                {showStartDatePicker && (
+                  <DateTimePicker
+                    value={startDate}
+                    mode="date"
+                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                    onChange={(event, date) => {
+                      setShowStartDatePicker(Platform.OS === 'ios');
+                      if (date) setStartDate(date);
+                    }}
+                  />
+                )}
+
+                {/* End Date */}
+                <ThemedText style={[styles.dateLabel, { marginTop: 20 }]}>Check-Out Date</ThemedText>
+                
+                <TouchableOpacity 
+                  style={styles.dateTimeButton}
+                  onPress={() => setShowEndDatePicker(true)}
+                >
+                  <Ionicons name="calendar-outline" size={20} color={Colors.primary} />
+                  <ThemedText style={styles.dateTimeText}>
+                    {endDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                  </ThemedText>
+                </TouchableOpacity>
+
+                {showEndDatePicker && (
+                  <DateTimePicker
+                    value={endDate}
+                    mode="date"
+                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                    onChange={(event, date) => {
+                      setShowEndDatePicker(Platform.OS === 'ios');
+                      if (date) setEndDate(date);
+                    }}
+                  />
+                )}
+
+                <TouchableOpacity style={styles.saveButton} onPress={saveLayover}>
+                  <ThemedText style={styles.saveButtonText}>
+                    {editingLayoverId ? 'Update Layover' : 'Add Layover'}
+                  </ThemedText>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+        </ThemedView>
       </Modal>
     </ThemedView>
   );
@@ -1073,121 +888,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
+    padding: 20,
     paddingBottom: 40,
   },
-  layoverCard: {
-    backgroundColor: Colors.card,
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  layoverHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 12,
-  },
-  layoverCity: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: Colors.text.primary,
-    marginBottom: 4,
-  },
-  layoverArea: {
-    fontSize: 16,
-    color: Colors.text.secondary,
-  },
-  banner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: Colors.warning + '20',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 12,
-  },
-  bannerText: {
-    flex: 1,
-    fontSize: 13,
-    color: Colors.warning,
-    fontWeight: '500',
-  },
-  goLiveButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: Colors.success,
-    paddingVertical: 14,
-    borderRadius: 12,
-  },
-  goLiveText: {
-    color: Colors.white,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  planningNote: {
-    fontSize: 13,
-    color: Colors.text.secondary,
-    textAlign: 'center',
-    marginTop: 8,
-  },
-  liveIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: Colors.success + '20',
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  liveDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Colors.success,
-  },
-  liveText: {
-    color: Colors.success,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  stats: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 20,
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: Colors.card,
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  statNumber: {
-    fontSize: 25,
-    fontWeight: '700',
-    color: Colors.primary,
-    marginBottom: 4,
-  },
-  statLabel: {
-    fontSize: 14,
-    color: Colors.text.secondary,
-    textAlign: 'center',
-  },
   section: {
-    marginBottom: 20,
+    marginBottom: 24,
   },
   sectionHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 12,
   },
   sectionTitle: {
@@ -1195,318 +905,404 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Colors.text.primary,
   },
-  seeAll: {
-    fontSize: 14,
-    color: Colors.primary,
-    fontWeight: '600',
-  },
-  quickActions: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 8,
-  },
-  actionButton: {
-    flex: 1,
-    backgroundColor: Colors.card,
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  actionText: {
-    fontSize: 12,
-    color: Colors.text.primary,
-    textAlign: 'center',
-    marginTop: 8,
-    fontWeight: '500',
-  },
-  emptyState: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 100,
-    paddingHorizontal: 40,
-  },
-  emptyTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: Colors.text.primary,
-    marginTop: 20,
-    marginBottom: 8,
-  },
-  emptyText: {
-    fontSize: 16,
-    color: Colors.text.secondary,
-    textAlign: 'center',
-    marginBottom: 30,
-    lineHeight: 24,
-  },
-  setLocationButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-    borderRadius: 12,
-  },
-  setLocationText: {
-    color: Colors.white,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  pickerContainer: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  pickerHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  backButton: {
-    padding: 4,
-    width: 32,
-  },
-  pickerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: Colors.text.primary,
-    flex: 1,
-    textAlign: 'center',
-  },
-  closeButton: {
-    padding: 4,
-    width: 32,
-  },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.card,
-    marginHorizontal: 20,
-    marginVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  searchIcon: {
-    marginRight: 8,
-  },
-  searchInput: {
-    flex: 1,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: Colors.text.primary,
-  },
-  detectingLocation: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 8,
-    backgroundColor: Colors.primary + '10',
-    marginHorizontal: 20,
-    marginBottom: 8,
-    borderRadius: 8,
-  },
-  detectingText: {
-    fontSize: 14,
-    color: Colors.primary,
-    fontWeight: '500',
-  },
-  pickerList: {
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-  },
-  pickerItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: Colors.card,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderRadius: 12,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  recommendedItem: {
-    backgroundColor: Colors.success + '10',
-    borderColor: Colors.success + '30',
-    borderWidth: 2,
-  },
-  airportItem: {
-    backgroundColor: Colors.accent + '10',
-    borderColor: Colors.accent + '30',
-  },
-  pickerItemMain: {
-    flex: 1,
-  },
-  recommendedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginBottom: 6,
-  },
-  recommendedText: {
-    fontSize: 12,
-    color: Colors.success,
-    fontWeight: '600',
-  },
-  airportBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginBottom: 6,
-  },
-  airportBadgeText: {
-    fontSize: 12,
-    color: Colors.accent,
-    fontWeight: '600',
-  },
-  pickerItemTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.text.primary,
-    marginBottom: 2,
-  },
-  pickerItemCode: {
-    fontSize: 14,
-    color: Colors.text.secondary,
-  },
-  requestContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  requestCard: {
+  layoverCard: {
     backgroundColor: Colors.card,
     borderRadius: 16,
-    padding: 32,
-    alignItems: 'center',
-    width: '100%',
-    maxWidth: 320,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  requestTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: Colors.text.primary,
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  requestSubtitle: {
-    fontSize: 14,
-    color: Colors.text.secondary,
-    textAlign: 'center',
-    marginBottom: 24,
-    lineHeight: 20,
-  },
-  requestButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-    borderRadius: 12,
-    gap: 8,
-    width: '100%',
-  },
-  requestButtonText: {
-    color: Colors.white,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  requestNote: {
-    fontSize: 12,
-    color: Colors.text.secondary,
-    marginTop: 16,
-    textAlign: 'center',
-  },
-  upcomingLayoverCard: {
-    backgroundColor: Colors.card,
-    borderRadius: 12,
     padding: 16,
-    marginBottom: 12,
     borderWidth: 1,
     borderColor: Colors.border,
+    marginBottom: 12,
+  },
+  currentCard: {
+    borderColor: Colors.primary,
+    borderWidth: 2,
   },
   layoverHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'flex-start',
+    justifyContent: 'space-between',
     marginBottom: 12,
   },
+  layoverInfo: {
+    flex: 1,
+  },
   layoverCity: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: '700',
     color: Colors.text.primary,
+    marginBottom: 4,
+  },
+  layoverArea: {
+    fontSize: 16,
+    color: Colors.text.secondary,
     marginBottom: 4,
   },
   layoverDates: {
     fontSize: 14,
     color: Colors.text.secondary,
   },
-  daysUntilBadge: {
-    backgroundColor: 'rgba(33, 150, 243, 0.1)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+  layoverIcons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  editButton: {
+    padding: 4,
+  },
+  deleteButton: {
+    padding: 4,
+  },
+  liveSection: {
+    gap: 12,
+  },
+  liveIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+  },
+  liveDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: Colors.success,
+  },
+  liveText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.success,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    gap: 16,
+  },
+  statItem: {
+    flex: 1,
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    padding: 12,
+    alignItems: 'center',
+  },
+  statNumber: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: Colors.primary,
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 12,
+    color: Colors.text.secondary,
+    textAlign: 'center',
+  },
+  offlineSection: {
+    gap: 12,
+  },
+  offlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: Colors.warning + '20',
+    padding: 12,
+    borderRadius: 8,
+  },
+  offlineBannerText: {
+    fontSize: 14,
+    color: Colors.warning,
+    flex: 1,
+  },
+  goLiveButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: Colors.primary,
+    padding: 14,
+    borderRadius: 12,
+  },
+  goLiveText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.white,
+  },
+  offlineNote: {
+    fontSize: 13,
+    color: Colors.text.secondary,
+    textAlign: 'center',
+  },
+  secondaryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: Colors.background,
+    padding: 12,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.primary,
+    borderColor: Colors.border,
   },
-  daysUntilText: {
+  secondaryButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.text.primary,
+  },
+  quickActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12,
+  },
+  actionButton: {
+    flex: 1,
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: Colors.background,
+    padding: 12,
+    borderRadius: 12,
+  },
+  actionButtonText: {
     fontSize: 12,
     fontWeight: '600',
     color: Colors.primary,
   },
-  layoverQuickActions: {
-    flexDirection: 'row',
-    gap: 8,
+  recentPlans: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
   },
-  layoverActionButton: {
+  recentPlansTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Colors.text.secondary,
+    marginBottom: 12,
+    textTransform: 'uppercase',
+  },
+  layoverActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 12,
+  },
+  checkInButton: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.background,
-    paddingVertical: 10,
-    borderRadius: 8,
-    gap: 6,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    gap: 8,
+    backgroundColor: Colors.primary,
+    padding: 12,
+    borderRadius: 12,
   },
-  layoverActionText: {
-    fontSize: 14,
+  checkInButtonText: {
+    fontSize: 15,
     fontWeight: '600',
-    color: Colors.primary,
+    color: Colors.white,
   },
-  addLayoverButton: {
+  viewPlansButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.background,
-    paddingVertical: 14,
+    gap: 6,
     paddingHorizontal: 16,
-    borderRadius: 12,
-    marginHorizontal: 20,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    gap: 8,
   },
-  addLayoverText: {
+  viewPlansButtonText: {
     fontSize: 15,
     fontWeight: '600',
     color: Colors.primary,
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 40,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: Colors.text.primary,
+    marginTop: 16,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  emptyText: {
+    fontSize: 15,
+    color: Colors.text.secondary,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  addButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: Colors.background,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: Colors.primary,
+    borderStyle: 'dashed',
+  },
+  addButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.primary,
+  },
+  modalContainer: {
+    flex: 1,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: Colors.text.primary,
+  },
+  pickerContent: {
+    flex: 1,
+    padding: 20,
+  },
+  pickerSubtitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.text.secondary,
+    marginBottom: 16,
+  },
+  searchInput: {
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    padding: 14,
+    fontSize: 16,
+    color: Colors.text.primary,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  cityItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  cityName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.text.primary,
+    marginBottom: 2,
+  },
+  cityDistance: {
+    fontSize: 13,
+    color: Colors.text.secondary,
+  },
+  recommendedBadge: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  recommendedText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.white,
+  },
+  areaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  areaName: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: Colors.text.primary,
+  },
+  emptyPicker: {
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  emptyPickerText: {
+    fontSize: 16,
+    color: Colors.text.secondary,
+    marginBottom: 16,
+  },
+  requestButton: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  requestButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.white,
+  },
+  dateSection: {
+    gap: 16,
+  },
+  dateLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.text.primary,
+  },
+  dateTimeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    marginBottom: 12,
+  },
+  dateTimeText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: Colors.text.primary,
+    flex: 1,
+  },
+  datePickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 16,
+  },
+  dateButton: {
+    padding: 4,
+  },
+  dateDisplay: {
+    flex: 1,
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  dateText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.text.primary,
+  },
+  saveButton: {
+    backgroundColor: Colors.primary,
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  saveButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.white,
   },
 });

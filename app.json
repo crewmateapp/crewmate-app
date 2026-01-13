@@ -18,6 +18,7 @@
         "NSLocationWhenInUseUsageDescription": "CrewMate needs your location to verify you're in your layover city and connect you with nearby crew.",
         "NSLocationAlwaysUsageDescription": "CrewMate uses your location to connect you with nearby crew members during your layovers.",
         "UIBackgroundModes": [
+          "remote-notification",
           "remote-notification"
         ]
       }
@@ -37,7 +38,9 @@
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
         "NOTIFICATIONS",
-        "RECEIVE_BOOT_COMPLETED"
+        "RECEIVE_BOOT_COMPLETED",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
       ]
     },
     "web": {
@@ -90,6 +93,12 @@
       "iosDisplayInForeground": true,
       "androidMode": "default",
       "androidCollapsedTitle": "CrewMate"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/077aad83-fde5-4782-9b22-d67ff58f8b6f"
     }
   }
 }

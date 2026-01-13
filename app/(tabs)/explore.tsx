@@ -69,12 +69,18 @@ export default function ExploreScreen() {
     city: urlCity, 
     layoverId,
     selectionMode: selectionModeParam,
-    returnTo 
+    returnTo,
+    planId,
+    isMultiStop,
+    stops: stopsParam,
   } = useLocalSearchParams<{ 
     city?: string; 
     layoverId?: string;
     selectionMode?: string;
     returnTo?: string;
+    planId?: string;
+    isMultiStop?: string;
+    stops?: string;
   }>();
   
   const selectionMode = selectionModeParam === 'true';
@@ -427,15 +433,38 @@ export default function ExploreScreen() {
                     <SpotCard
                       spot={item}
                       userLocation={userLocation}
+                      selectionMode={selectionMode}
                       onCreatePlan={() => handleCreatePlan(item.id, item.name)}
                       onPress={() => {
                         if (selectionMode) {
-                          // Return to create-plan with selected spot
-                          router.back();
-                          router.setParams({ 
-                            selectedSpotId: item.id, 
-                            selectedSpotName: item.name 
+                          // Navigate directly to create-plan or edit-plan with selected spot
+                          const params = new URLSearchParams({
+                            selectedSpotId: item.id,
+                            selectedSpotName: item.name,
                           });
+                          
+                          // Preserve layoverId if present
+                          if (layoverId) {
+                            params.append('layoverId', layoverId);
+                          }
+                          
+                          // Preserve multi-stop state and stops array
+                          if (isMultiStop) {
+                            params.append('isMultiStop', isMultiStop);
+                          }
+                          if (stopsParam) {
+                            params.append('stops', stopsParam);
+                          }
+                          
+                          // Navigate to appropriate screen
+                          if (returnTo === 'edit-plan' && planId) {
+                            // Going back to edit-plan
+                            params.append('id', planId);
+                            router.push(`/edit-plan?${params.toString()}`);
+                          } else {
+                            // Going back to create-plan (default)
+                            router.push(`/create-plan?${params.toString()}`);
+                          }
                         } else {
                           // Normal behavior - view spot detail
                           const params = currentLayoverId ? `?layoverId=${currentLayoverId}` : '';

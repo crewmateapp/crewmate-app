@@ -5,7 +5,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useNotifications } from '@/hooks/useNotifications';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { collection, doc, getDoc, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, doc, getDoc, onSnapshot, query, where, updateDoc, getDocs } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import {
     Image,
@@ -83,8 +83,39 @@ export function ProfileMenu() {
     loadProfile();
   }, [user]);
 
-  const handleMenuItemPress = (route: string) => {
+  const markPlanNotificationsAsRead = async () => {
+    if (!user) return;
+
+    try {
+      // Query for unread plan notifications
+      const notificationsQuery = query(
+        collection(db, 'planNotifications'),
+        where('userId', '==', user.uid),
+        where('read', '==', false)
+      );
+
+      const snapshot = await getDocs(notificationsQuery);
+      
+      // Mark all as read
+      const promises = snapshot.docs.map(docSnapshot =>
+        updateDoc(doc(db, 'planNotifications', docSnapshot.id), { read: true })
+      );
+
+      await Promise.all(promises);
+      console.log('✅ Marked', promises.length, 'plan notifications as read');
+    } catch (error) {
+      console.error('❌ Error marking plan notifications as read:', error);
+    }
+  };
+
+  const handleMenuItemPress = async (route: string) => {
     setMenuVisible(false);
+    
+    // Mark plan notifications as read when clicking "My Plans"
+    if (route === '/(tabs)/plans' && planNotifications > 0) {
+      await markPlanNotificationsAsRead();
+    }
+    
     setTimeout(() => {
       router.push(route as any);
     }, 200);

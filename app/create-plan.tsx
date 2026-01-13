@@ -23,7 +23,7 @@ import {
   serverTimestamp,
   where
 } from 'firebase/firestore';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   ActivityIndicator,
@@ -65,12 +65,16 @@ export default function CreatePlanScreen() {
     layoverId,
     selectedSpotId: returnedSpotId,
     selectedSpotName: returnedSpotName,
+    isMultiStop: isMultiStopParam,
+    stops: stopsParam,
   } = useLocalSearchParams<{ 
     spotId?: string; 
     spotName?: string;
     layoverId?: string;
     selectedSpotId?: string;
     selectedSpotName?: string;
+    isMultiStop?: string;
+    stops?: string;
   }>();
   
   const [loading, setLoading] = useState(true);
@@ -93,6 +97,9 @@ export default function CreatePlanScreen() {
   // Multi-stop state
   const [stops, setStops] = useState<Stop[]>([]);
   const [editingStopIndex, setEditingStopIndex] = useState<number | null>(null);
+
+  // Track if we've restored stops from params (to prevent multiple restorations)
+  const hasRestoredStops = useRef(false);
 
   // Common state
   const [title, setTitle] = useState('');
@@ -122,6 +129,38 @@ export default function CreatePlanScreen() {
       }
     }
   }, [returnedSpotId, returnedSpotName]);
+
+  // Restore multi-stop state and stops array from params (when returning from explore)
+  useEffect(() => {
+    // Only restore if:
+    // 1. We're returning from explore with a newly selected spot
+    // 2. We haven't already restored in this session
+    // This prevents old params from restoring deleted stops
+    if (isMultiStopParam === 'true' && returnedSpotId && !hasRestoredStops.current) {
+      console.log('🔄 Restoring multi-stop state (returning from explore)');
+      setIsMultiStop(true);
+      
+      if (stopsParam) {
+        try {
+          const decodedStops = JSON.parse(decodeURIComponent(stopsParam));
+          console.log('🔄 Restoring stops:', decodedStops);
+          // Convert scheduledTime back to Date objects
+          const restoredStops = decodedStops.map((stop: any) => ({
+            ...stop,
+            scheduledTime: new Date(stop.scheduledTime),
+          }));
+          setStops(restoredStops);
+          hasRestoredStops.current = true; // Mark as restored
+        } catch (error) {
+          console.error('❌ Error restoring stops:', error);
+        }
+      } else {
+        // No stops param means empty array (user deleted all stops)
+        setStops([]);
+        hasRestoredStops.current = true;
+      }
+    }
+  }, [isMultiStopParam, stopsParam, returnedSpotId]);
 
   // Get user's current layover or upcoming layover
   useEffect(() => {
@@ -529,7 +568,9 @@ export default function CreatePlanScreen() {
                       style={styles.selectorButton}
                       onPress={() => {
                         Keyboard.dismiss();
-                        router.push(`/explore?city=${currentCity}&selectionMode=true&returnTo=create-plan`);
+                        // Encode existing stops to preserve them
+                        const stopsData = encodeURIComponent(JSON.stringify(stops));
+                        router.push(`/explore?city=${currentCity}&selectionMode=true&returnTo=create-plan${layoverId ? `&layoverId=${layoverId}` : ''}&isMultiStop=true&stops=${stopsData}`);
                       }}
                     >
                       <ThemedText style={selectedSpotId ? styles.selectorTextSelected : styles.selectorTextPlaceholder}>
@@ -644,7 +685,7 @@ export default function CreatePlanScreen() {
                       style={styles.selectorButton}
                       onPress={() => {
                         Keyboard.dismiss();
-                        router.push(`/explore?city=${currentCity}&selectionMode=true&returnTo=create-plan`);
+                        router.push(`/explore?city=${currentCity}&selectionMode=true&returnTo=create-plan${layoverId ? `&layoverId=${layoverId}` : ''}`);
                       }}
                     >
                       <ThemedText style={selectedSpotId ? styles.selectorTextSelected : styles.selectorTextPlaceholder}>

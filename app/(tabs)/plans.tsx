@@ -1,4 +1,4 @@
-// app/(tabs)/plans.tsx
+// app/(tabs)/plans.tsx - Shows plans from ALL layovers
 import { PlanCard } from '@/components/PlanCard';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -14,7 +14,8 @@ import {
     onSnapshot,
     orderBy,
     query,
-    where
+    where,
+    Timestamp
 } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import {
@@ -28,124 +29,247 @@ import {
 
 type TabType = 'my' | 'all';
 
+type Layover = {
+  id: string;
+  city: string;
+  area: string;
+  startDate: Timestamp;
+  endDate: Timestamp;
+  status: string;
+};
+
+type GroupedPlans = {
+  [city: string]: {
+    layover: Layover | null;
+    plans: Plan[];
+  };
+};
+
 export default function PlansScreen() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<TabType>('all');
+  const [activeTab, setActiveTab] = useState<TabType>('my');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [myPlans, setMyPlans] = useState<Plan[]>([]);
   const [allPlans, setAllPlans] = useState<Plan[]>([]);
-  const [currentCity, setCurrentCity] = useState<string | null>(null);
+  const [layovers, setLayovers] = useState<Layover[]>([]);
+  const [selectedCity, setSelectedCity] = useState<string | null>(null);
 
-  // Get user's current layover city
+  // Get user's layovers
   useEffect(() => {
     if (!user?.uid) return;
 
     const unsubscribe = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
-        setCurrentCity(data.currentLayover?.city || null);
+        const userLayovers: Layover[] = [];
+        
+        // Add current layover if exists
+        if (data.currentLayover?.city) {
+          userLayovers.push({
+            id: 'current',
+            city: data.currentLayover.city,
+            area: data.currentLayover.area || '',
+            startDate: data.currentLayover.startDate || Timestamp.now(),
+            endDate: data.currentLayover.endDate || Timestamp.now(),
+            status: 'current',
+          });
+        }
+        
+        // Add upcoming layovers
+        if (data.upcomingLayovers && Array.isArray(data.upcomingLayovers)) {
+          data.upcomingLayovers.forEach((layover: any) => {
+            if (layover.city) {
+              userLayovers.push({
+                id: layover.id,
+                city: layover.city,
+                area: layover.area || '',
+                startDate: layover.startDate,
+                endDate: layover.endDate,
+                status: layover.status || 'upcoming',
+              });
+            }
+          });
+        }
+
+        console.log('📋 User layovers:', userLayovers.map(l => l.city));
+        setLayovers(userLayovers);
+        
+        // Set selected city to first layover's city if not set
+        if (!selectedCity && userLayovers.length > 0) {
+          setSelectedCity(userLayovers[0].city);
+        }
       }
     });
 
     return () => unsubscribe();
   }, [user]);
 
-  // Fetch user's plans (hosting or attending)
+  // Fetch user's plans across ALL their layover cities
   useEffect(() => {
-    if (!user?.uid || !currentCity) {
+    if (!user?.uid || layovers.length === 0) {
       setMyPlans([]);
+      setLoading(false);
       return;
     }
 
-    const q = query(
-      collection(db, 'plans'),
-      where('city', '==', currentCity),
-      where('status', '==', 'active'),
-      orderBy('scheduledTime', 'asc')
-    );
+    const cities = [...new Set(layovers.map(l => l.city))]; // Unique cities
+    console.log('🔍 Fetching myPlans for cities:', cities);
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const plans: Plan[] = [];
-      snapshot.forEach((doc) => {
-        const data = doc.data() as Plan;
-        // Include if user is host or attendee
-        if (data.hostUserId === user.uid || data.attendeeIds.includes(user.uid)) {
-          plans.push({
-            id: doc.id,
-            ...data,
-          });
-        }
+    // Create a query for each city
+    const unsubscribes: (() => void)[] = [];
+    const allMyPlans: Plan[] = [];
+
+    cities.forEach(city => {
+      const q = query(
+        collection(db, 'plans'),
+        where('city', '==', city),
+        where('status', '==', 'active'),
+        orderBy('scheduledTime', 'asc')
+      );
+
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        // Remove plans from this city
+        const filtered = allMyPlans.filter(p => p.city !== city);
+        
+        // Add new plans from this city
+        snapshot.forEach((doc) => {
+          const data = doc.data() as Plan;
+          // Include if user is host or attendee
+          if (data.hostUserId === user.uid || data.attendeeIds.includes(user.uid)) {
+            filtered.push({
+              id: doc.id,
+              ...data,
+            });
+          }
+        });
+
+        // Sort by scheduled time
+        filtered.sort((a, b) => {
+          const aTime = a.scheduledTime?.toDate ? a.scheduledTime.toDate().getTime() : 0;
+          const bTime = b.scheduledTime?.toDate ? b.scheduledTime.toDate().getTime() : 0;
+          return aTime - bTime;
+        });
+
+        console.log('📋 My plans updated, total:', filtered.length);
+        setMyPlans([...filtered]);
+        setLoading(false);
+        setRefreshing(false);
       });
-      setMyPlans(plans);
-      setLoading(false);
-      setRefreshing(false);
+
+      unsubscribes.push(unsubscribe);
     });
 
-    return () => unsubscribe();
-  }, [user, currentCity]);
+    return () => unsubscribes.forEach(unsub => unsub());
+  }, [user, layovers]);
 
-  // Fetch all public plans in current city (excluding user's plans)
+  // Fetch all public plans in user's layover cities
   useEffect(() => {
-    if (!currentCity || !user?.uid) {
+    if (!user?.uid || layovers.length === 0) {
       setAllPlans([]);
       return;
     }
 
-    const q = query(
-      collection(db, 'plans'),
-      where('city', '==', currentCity),
-      where('status', '==', 'active'),
-      orderBy('scheduledTime', 'asc')
-    );
+    const cities = [...new Set(layovers.map(l => l.city))];
+    console.log('🔍 Fetching allPlans for cities:', cities);
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const plans: Plan[] = [];
-      snapshot.forEach((doc) => {
-        const data = doc.data() as Plan;
-        // Exclude plans where user is host or attendee
-        if (data.hostUserId !== user.uid && !data.attendeeIds.includes(user.uid)) {
-          plans.push({
-            id: doc.id,
-            ...data,
-          } as Plan);
-        }
+    const unsubscribes: (() => void)[] = [];
+    const allPublicPlans: Plan[] = [];
+
+    cities.forEach(city => {
+      const q = query(
+        collection(db, 'plans'),
+        where('city', '==', city),
+        where('status', '==', 'active'),
+        orderBy('scheduledTime', 'asc')
+      );
+
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        // Remove plans from this city
+        const filtered = allPublicPlans.filter(p => p.city !== city);
+        
+        // Add new plans from this city
+        snapshot.forEach((doc) => {
+          const data = doc.data() as Plan;
+          // Exclude plans where user is host or attendee
+          if (data.hostUserId !== user.uid && !data.attendeeIds.includes(user.uid)) {
+            filtered.push({
+              id: doc.id,
+              ...data,
+            } as Plan);
+          }
+        });
+
+        // Sort by scheduled time
+        filtered.sort((a, b) => {
+          const aTime = a.scheduledTime?.toDate ? a.scheduledTime.toDate().getTime() : 0;
+          const bTime = b.scheduledTime?.toDate ? b.scheduledTime.toDate().getTime() : 0;
+          return aTime - bTime;
+        });
+
+        console.log('📋 All plans updated, total:', filtered.length);
+        setAllPlans([...filtered]);
+        setLoading(false);
+        setRefreshing(false);
       });
-      setAllPlans(plans);
-      setLoading(false);
-      setRefreshing(false);
+
+      unsubscribes.push(unsubscribe);
     });
 
-    return () => unsubscribe();
-  }, [currentCity, user]);
+    return () => unsubscribes.forEach(unsub => unsub());
+  }, [user, layovers]);
 
   const handleRefresh = () => {
     setRefreshing(true);
   };
 
   const handleCreatePlan = () => {
-    if (!currentCity) {
-      alert('Please set your layover location first');
+    if (layovers.length === 0) {
+      alert('Please add a layover first');
       return;
     }
     router.push('/create-plan');
   };
 
-  if (!currentCity) {
+  // Group plans by city
+  const groupPlansByCity = (plans: Plan[]): GroupedPlans => {
+    const grouped: GroupedPlans = {};
+    
+    plans.forEach(plan => {
+      if (!grouped[plan.city]) {
+        grouped[plan.city] = {
+          layover: layovers.find(l => l.city === plan.city) || null,
+          plans: [],
+        };
+      }
+      grouped[plan.city].plans.push(plan);
+    });
+    
+    return grouped;
+  };
+
+  // Filter plans by selected city (if any)
+  const getFilteredPlans = (plans: Plan[]) => {
+    if (!selectedCity || selectedCity === 'all') return plans;
+    return plans.filter(p => p.city === selectedCity);
+  };
+
+  if (layovers.length === 0 && !loading) {
     return (
       <ThemedView style={styles.container}>
         <View style={styles.emptyState}>
-          <Ionicons name="map-outline" size={80} color={Colors.text.secondary} />
-          <ThemedText style={styles.emptyTitle}>No Layover Set</ThemedText>
+          <Ionicons name="airplane-outline" size={80} color={Colors.text.secondary} />
+          <ThemedText style={styles.emptyTitle}>No Layovers Yet</ThemedText>
           <ThemedText style={styles.emptyText}>
-            Set your layover location to view and create plans
+            Add your upcoming layovers to start creating and joining plans with other crew
           </ThemedText>
           <TouchableOpacity 
             style={styles.primaryButton}
             onPress={() => router.push('/(tabs)/')}
           >
+            <Ionicons name="add" size={20} color={Colors.white} />
             <ThemedText style={styles.primaryButtonText}>
-              Go to My Layover
+              Add Layover
             </ThemedText>
           </TouchableOpacity>
         </View>
@@ -162,74 +286,124 @@ export default function PlansScreen() {
   }
 
   const displayedPlans = activeTab === 'my' ? myPlans : allPlans;
+  const filteredPlans = getFilteredPlans(displayedPlans);
+  const groupedPlans = groupPlansByCity(filteredPlans);
+  const cityOptions = ['all', ...new Set(layovers.map(l => l.city))];
 
   return (
     <ThemedView style={styles.container}>
-
-        {/* Tabs */}
-        <View style={styles.tabs}>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === 'my' && styles.tabActive]}
-            onPress={() => setActiveTab('my')}
-          >
-            <ThemedText style={[styles.tabText, activeTab === 'my' && styles.tabTextActive]}>
-              My Plans ({myPlans.length})
-            </ThemedText>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === 'all' && styles.tabActive]}
-            onPress={() => setActiveTab('all')}
-          >
-            <ThemedText style={[styles.tabText, activeTab === 'all' && styles.tabTextActive]}>
-              Happening Now ({allPlans.length})
-            </ThemedText>
-          </TouchableOpacity>
-        </View>
-
-        {/* Plans List */}
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
-          }
-          showsVerticalScrollIndicator={false}
+      {/* City Filter */}
+      {layovers.length > 1 && (
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          style={styles.filterScroll}
+          contentContainerStyle={styles.filterContent}
         >
-          {displayedPlans.length > 0 ? (
-            displayedPlans.map((plan) => (
-              <PlanCard key={plan.id} plan={plan} showHost={true} />
-            ))
-          ) : (
-            <View style={styles.emptyState}>
-              <Ionicons 
-                name={activeTab === 'my' ? 'calendar-outline' : 'search-outline'} 
-                size={80} 
-                color={Colors.text.secondary} 
-              />
-              <ThemedText style={styles.emptyTitle}>
-                {activeTab === 'my' ? 'No Plans Yet' : 'No Plans Happening'}
+          {cityOptions.map((city) => (
+            <TouchableOpacity
+              key={city}
+              style={[
+                styles.filterChip,
+                selectedCity === city && styles.filterChipActive
+              ]}
+              onPress={() => setSelectedCity(city)}
+            >
+              <ThemedText 
+                style={[
+                  styles.filterChipText,
+                  selectedCity === city && styles.filterChipTextActive
+                ]}
+              >
+                {city === 'all' ? 'All Cities' : city}
               </ThemedText>
-              <ThemedText style={styles.emptyText}>
-                {activeTab === 'my' 
-                  ? 'Create a plan or RSVP to join others'
-                  : 'No one has created plans in this area yet'
-                }
-              </ThemedText>
-              {activeTab === 'my' && (
-                <TouchableOpacity 
-                  style={styles.primaryButton}
-                  onPress={handleCreatePlan}
-                >
-                  <Ionicons name="add" size={20} color={Colors.white} />
-                  <ThemedText style={styles.primaryButtonText}>
-                    Create Plan
-                  </ThemedText>
-                </TouchableOpacity>
-              )}
-            </View>
-          )}
+            </TouchableOpacity>
+          ))}
         </ScrollView>
-      </ThemedView>
+      )}
+
+      {/* Tabs */}
+      <View style={styles.tabs}>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'my' && styles.tabActive]}
+          onPress={() => setActiveTab('my')}
+        >
+          <ThemedText style={[styles.tabText, activeTab === 'my' && styles.tabTextActive]}>
+            My Plans ({myPlans.length})
+          </ThemedText>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'all' && styles.tabActive]}
+          onPress={() => setActiveTab('all')}
+        >
+          <ThemedText style={[styles.tabText, activeTab === 'all' && styles.tabTextActive]}>
+            Happening Now ({allPlans.length})
+          </ThemedText>
+        </TouchableOpacity>
+      </View>
+
+      {/* Plans List */}
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+        }
+        showsVerticalScrollIndicator={false}
+      >
+        {Object.keys(groupedPlans).length > 0 ? (
+          Object.entries(groupedPlans).map(([city, { layover, plans }]) => (
+            <View key={city} style={styles.cityGroup}>
+              {/* City Header (only show if multiple cities) */}
+              {Object.keys(groupedPlans).length > 1 && (
+                <View style={styles.cityHeader}>
+                  <Ionicons name="location" size={16} color={Colors.primary} />
+                  <ThemedText style={styles.cityName}>{city}</ThemedText>
+                  {layover && (
+                    <ThemedText style={styles.cityDates}>
+                      {layover.startDate.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {layover.endDate.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </ThemedText>
+                  )}
+                </View>
+              )}
+              
+              {/* Plans in this city */}
+              {plans.map((plan) => (
+                <PlanCard key={plan.id} plan={plan} showHost={true} />
+              ))}
+            </View>
+          ))
+        ) : (
+          <View style={styles.emptyState}>
+            <Ionicons 
+              name={activeTab === 'my' ? 'calendar-outline' : 'search-outline'} 
+              size={80} 
+              color={Colors.text.secondary} 
+            />
+            <ThemedText style={styles.emptyTitle}>
+              {activeTab === 'my' ? 'No Plans Yet' : 'No Plans Happening'}
+            </ThemedText>
+            <ThemedText style={styles.emptyText}>
+              {activeTab === 'my' 
+                ? 'Create a plan or RSVP to join others in your layover cities'
+                : 'No one has created plans in these areas yet'
+              }
+            </ThemedText>
+            {activeTab === 'my' && (
+              <TouchableOpacity 
+                style={styles.primaryButton}
+                onPress={handleCreatePlan}
+              >
+                <Ionicons name="add" size={20} color={Colors.white} />
+                <ThemedText style={styles.primaryButtonText}>
+                  Create Plan
+                </ThemedText>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+      </ScrollView>
+    </ThemedView>
   );
 }
 
@@ -237,12 +411,40 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  filterScroll: {
+    maxHeight: 50,
+    marginTop: 12,
+  },
+  filterContent: {
+    paddingHorizontal: 20,
+    gap: 8,
+  },
+  filterChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  filterChipActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  filterChipText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.text.secondary,
+  },
+  filterChipTextActive: {
+    color: Colors.white,
+  },
   tabs: {
     flexDirection: 'row',
     paddingHorizontal: 20,
     gap: 12,
     marginBottom: 20,
-    marginTop: 20,
+    marginTop: 16,
   },
   tab: {
     flex: 1,
@@ -268,6 +470,28 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 20,
     paddingBottom: 40,
+  },
+  cityGroup: {
+    marginBottom: 24,
+  },
+  cityHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  cityName: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Colors.text.primary,
+  },
+  cityDates: {
+    fontSize: 13,
+    color: Colors.text.secondary,
+    marginLeft: 'auto',
   },
   emptyState: {
     flex: 1,

@@ -62,9 +62,19 @@ export function PlanCard({ plan, showHost = true, compact = false }: PlanCardPro
               Hosted by {plan.hostName}
             </ThemedText>
           )}
-          <ThemedText style={styles.compactTime}>
-            {formatTime(plan.scheduledTime)}
-          </ThemedText>
+          <View style={styles.compactTimeRow}>
+            <ThemedText style={styles.compactTime}>
+              {formatTime(plan.scheduledTime)}
+            </ThemedText>
+            {plan.isMultiStop && plan.stops && plan.stops.length > 0 && (
+              <View style={styles.compactStopsBadge}>
+                <Ionicons name="list" size={12} color={Colors.primary} />
+                <ThemedText style={styles.compactStopsText}>
+                  {plan.stops.length}
+                </ThemedText>
+              </View>
+            )}
+          </View>
         </View>
         <View style={styles.compactFooter}>
           <Ionicons name="people" size={14} color={Colors.text.secondary} />
@@ -109,6 +119,14 @@ export function PlanCard({ plan, showHost = true, compact = false }: PlanCardPro
         <ThemedText style={styles.timeText}>
           {formatTime(plan.scheduledTime)}
         </ThemedText>
+        {plan.isMultiStop && plan.stops && plan.stops.length > 0 && (
+          <View style={styles.stopsBadge}>
+            <Ionicons name="list" size={14} color={Colors.primary} />
+            <ThemedText style={styles.stopsText}>
+              {plan.stops.length} stops
+            </ThemedText>
+          </View>
+        )}
       </View>
 
       {plan.meetupLocation && (
@@ -204,6 +222,21 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.primary,
   },
+  stopsBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: Colors.primaryLight || '#E6F4FE',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    marginLeft: 4,
+  },
+  stopsText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.primary,
+  },
   meetupRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -250,8 +283,28 @@ const styles = StyleSheet.create({
     color: Colors.text.secondary,
     marginBottom: 6,
   },
+  compactTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexWrap: 'wrap',
+  },
   compactTime: {
     fontSize: 14,
+    fontWeight: '600',
+    color: Colors.primary,
+  },
+  compactStopsBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    backgroundColor: Colors.primaryLight || '#E6F4FE',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  compactStopsText: {
+    fontSize: 11,
     fontWeight: '600',
     color: Colors.primary,
   },

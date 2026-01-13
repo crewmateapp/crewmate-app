@@ -99,47 +99,56 @@ export const AIRPORTS: Record<string, AirportData> = {
   SJC: a('SJC', 'San Jose', 'Norman Y Mineta San Jose International', 37.3626, -121.9290, 'US', ['Santana Row']),
   SJU: a('SJU', 'San Juan', 'Luis Muñoz Marín International', 18.4394, -66.0018, 'PR', ['Old San Juan', 'Condado']),
   SMF: a('SMF', 'Sacramento', 'Sacramento International', 38.6954, -121.5908, 'US', ['Midtown']),
-  SNA: a('SNA', 'Orange County', 'John Wayne Airport', 33.6757, -117.8678, 'US', ['Newport Beach', 'Irvine']),
-  SRQ: a('SRQ', 'Sarasota', 'Sarasota-Bradenton International', 27.3954, -82.5544, 'US', ['Siesta Key']),
-  STL: a('STL', 'St. Louis', 'St Louis Lambert International', 38.7487, -90.3700, 'US', ['Central West End']),
-  STT: a('STT', 'St. Thomas', 'Cyril E King Airport', 18.3373, -64.9733, 'VI', ['Charlotte Amalie']),
-  SYR: a('SYR', 'Syracuse', 'Syracuse Hancock International', 43.1112, -76.1063, 'US'),
-  TUL: a('TUL', 'Tulsa', 'Tulsa International', 36.1984, -95.8881, 'US', ['Cherry Street']),
-  TUS: a('TUS', 'Tucson', 'Tucson International', 32.1161, -110.9410, 'US', ['4th Avenue']),
-
-  // US REGIONALS
-  ACY: a('ACY', 'Atlantic City', 'Atlantic City International', 39.4576, -74.5772, 'US', ['Boardwalk']),
-  AGS: a('AGS', 'Augusta GA', 'Augusta Regional', 33.3699, -81.9645, 'US'),
-  ALB: a('ALB', 'Albany NY', 'Albany International', 42.7483, -73.8017, 'US'),
-  AVL: a('AVL', 'Asheville', 'Asheville Regional', 35.4362, -82.5418, 'US', ['River Arts']),
-  BZN: a('BZN', 'Bozeman', 'Bozeman Yellowstone International', 45.7775, -111.1530, 'US'),
-  CAE: a('CAE', 'Columbia SC', 'Columbia Metropolitan', 33.9388, -81.1195, 'US', ['Five Points', 'Vista']),
-  CAK: a('CAK', 'Akron-Canton', 'Akron-Canton Airport', 40.9161, -81.4422, 'US'),
+  SNA: a('SNA', 'Orange County', 'John Wayne Airport', 33.6762, -117.8682, 'US', ['Newport Beach']),
+  STL: a('STL', 'St Louis', 'St Louis Lambert International', 38.7487, -90.3700, 'US', ['The Hill', 'Downtown']),
+  TUS: a('TUS', 'Tucson', 'Tucson International', 32.1161, -110.9410, 'US', ['Downtown']),
+  
+  // US SMALLER
+  AVL: a('AVL', 'Asheville', 'Asheville Regional', 35.4362, -82.5418, 'US', ['Downtown']),
+  BDL: a('BDL', 'Hartford', 'Bradley International', 41.9389, -72.6832, 'US', ['West Hartford']),
+  BGR: a('BGR', 'Bangor', 'Bangor International', 44.8074, -68.8281, 'US'),
+  BIL: a('BIL', 'Billings', 'Billings Logan International', 45.8077, -108.5430, 'US'),
+  BOI: a('BOI', 'Boise', 'Boise Air Terminal', 43.5644, -116.2228, 'US', ['Downtown']),
+  BTR: a('BTR', 'Baton Rouge', 'Baton Rouge Metropolitan', 30.5332, -91.1496, 'US'),
+  CAE: a('CAE', 'Columbia SC', 'Columbia Metropolitan', 33.9388, -81.1195, 'US', ['Five Points']),
+  CAK: a('CAK', 'Akron', 'Akron-Canton Airport', 40.9161, -81.4422, 'US'),
+  CHA: a('CHA', 'Chattanooga', 'Chattanooga Metropolitan', 35.0354, -85.2038, 'US', ['Riverfront']),
+  CHS: a('CHS', 'Charleston SC', 'Charleston International', 32.8986, -80.0405, 'US', ['King Street', 'Mount Pleasant']),
   CID: a('CID', 'Cedar Rapids', 'Eastern Iowa Airport', 41.8847, -91.7108, 'US'),
+  COS: a('COS', 'Colorado Springs', 'Colorado Springs Airport', 38.8058, -104.7004, 'US', ['Old Colorado City']),
   CRW: a('CRW', 'Charleston WV', 'Yeager Airport', 38.3731, -81.5932, 'US'),
-  DAY: a('DAY', 'Dayton', 'Dayton International', 39.9024, -84.2194, 'US', ['Oregon District']),
-  EYW: a('EYW', 'Key West', 'Key West International', 24.5561, -81.7595, 'US', ['Duval Street']),
-  FAT: a('FAT', 'Fresno', 'Fresno Yosemite International', 36.7762, -119.7181, 'US'),
-  FSD: a('FSD', 'Sioux Falls', 'Sioux Falls Regional', 43.5820, -96.7419, 'US'),
-  GEG: a('GEG', 'Spokane', 'Spokane International', 47.6199, -117.5338, 'US'),
-  GNV: a('GNV', 'Gainesville', 'Gainesville Regional', 29.6900, -82.2718, 'US'),
-  GPT: a('GPT', 'Gulfport-Biloxi', 'Gulfport-Biloxi International', 30.4073, -89.0701, 'US'),
+  DAB: a('DAB', 'Daytona Beach', 'Daytona Beach International', 29.1799, -81.0581, 'US', ['Beach Street']),
+  DAY: a('DAY', 'Dayton', 'James M Cox Dayton International', 39.9024, -84.2194, 'US'),
+  FAI: a('FAI', 'Fairbanks', 'Fairbanks International', 64.8151, -147.8561, 'US'),
+  FAR: a('FAR', 'Fargo', 'Hector International', 46.9207, -96.8158, 'US'),
+  FAY: a('FAY', 'Fayetteville NC', 'Fayetteville Regional', 34.9912, -78.8803, 'US'),
+  FSD: a('FSD', 'Sioux Falls', 'Sioux Falls Regional', 43.5820, -96.7420, 'US'),
+  GEG: a('GEG', 'Spokane', 'Spokane International', 47.6199, -117.5339, 'US', ['Downtown']),
+  GPT: a('GPT', 'Gulfport', 'Gulfport-Biloxi International', 30.4073, -89.0701, 'US'),
+  GRB: a('GRB', 'Green Bay', 'Green Bay Austin Straubel International', 44.4851, -88.1296, 'US'),
+  GRR: a('GRR', 'Grand Rapids', 'Gerald R Ford International', 42.8808, -85.5228, 'US', ['East Hills']),
+  GSO: a('GSO', 'Greensboro', 'Piedmont Triad International', 36.0978, -79.9373, 'US'),
+  GSP: a('GSP', 'Greenville SC', 'Greenville-Spartanburg International', 34.8957, -82.2189, 'US', ['Falls Park', 'Main Street']),
+  HPN: a('HPN', 'White Plains', 'Westchester County Airport', 41.0670, -73.7077, 'US'),
   HSV: a('HSV', 'Huntsville', 'Huntsville International', 34.6372, -86.7751, 'US'),
-  ICT: a('ICT', 'Wichita', 'Wichita Eisenhower National', 37.6499, -97.4331, 'US'),
-  ILM: a('ILM', 'Wilmington NC', 'Wilmington International', 34.2706, -77.9026, 'US', ['Wrightsville Beach']),
-  JAC: a('JAC', 'Jackson Hole', 'Jackson Hole Airport', 43.6073, -110.7377, 'US', ['Town Square']),
-  JAN: a('JAN', 'Jackson MS', 'Jackson-Medgar Evers International', 32.3112, -90.0759, 'US'),
-  LEX: a('LEX', 'Lexington', 'Blue Grass Airport', 38.0365, -84.6059, 'US'),
-  MAF: a('MAF', 'Midland-Odessa', 'Midland International', 31.9425, -102.2019, 'US'),
-  MFE: a('MFE', 'McAllen', 'McAllen Miller International', 26.1758, -98.2386, 'US'),
+  ICT: a('ICT', 'Wichita', 'Wichita Dwight D Eisenhower National', 37.6499, -97.4331, 'US'),
+  ILM: a('ILM', 'Wilmington NC', 'Wilmington International', 34.2706, -77.9026, 'US', ['Riverwalk']),
+  JAN: a('JAN', 'Jackson MS', 'Jackson-Medgar Wiley Evers International', 32.3112, -90.0759, 'US'),
+  LBB: a('LBB', 'Lubbock', 'Lubbock Preston Smith International', 33.6636, -101.8228, 'US'),
+  LEX: a('LEX', 'Lexington', 'Blue Grass Airport', 38.0365, -84.6059, 'US', ['Downtown']),
+  LGB: a('LGB', 'Long Beach', 'Long Beach Airport', 33.8177, -118.1516, 'US', ['2nd Street']),
+  MAF: a('MAF', 'Midland', 'Midland International Air and Space Port', 31.9425, -102.2019, 'US'),
   MHT: a('MHT', 'Manchester NH', 'Manchester-Boston Regional', 42.9326, -71.4357, 'US'),
-  MOB: a('MOB', 'Mobile', 'Mobile Regional', 30.6914, -88.2428, 'US'),
+  MLB: a('MLB', 'Melbourne FL', 'Melbourne Orlando International', 28.1028, -80.6453, 'US'),
+  MOB: a('MOB', 'Mobile', 'Mobile Regional', 30.6913, -88.2428, 'US', ['Downtown']),
   MSN: a('MSN', 'Madison', 'Dane County Regional', 43.1399, -89.3375, 'US', ['State Street']),
-  PNS: a('PNS', 'Pensacola', 'Pensacola International', 30.4734, -87.1866, 'US', ['Pensacola Beach']),
-  PSP: a('PSP', 'Palm Springs', 'Palm Springs International', 33.8297, -116.5067, 'US'),
+  OKC: a('OKC', 'Oklahoma City', 'Will Rogers World', 35.3931, -97.6007, 'US', ['Bricktown']),
+  OMA: a('OMA', 'Omaha', 'Eppley Airfield', 41.3032, -95.8941, 'US', ['Old Market']),
+  ORF: a('ORF', 'Norfolk', 'Norfolk International', 36.8946, -76.2012, 'US', ['Ghent']),
+  PNS: a('PNS', 'Pensacola', 'Pensacola International', 30.4734, -87.1866, 'US', ['Downtown']),
+  PSP: a('PSP', 'Palm Springs', 'Palm Springs International', 33.8297, -116.5067, 'US', ['Downtown']),
   PWM: a('PWM', 'Portland ME', 'Portland International Jetport', 43.6462, -70.3093, 'US', ['Old Port']),
-  RAP: a('RAP', 'Rapid City', 'Rapid City Regional', 44.0453, -103.0574, 'US'),
-  SBA: a('SBA', 'Santa Barbara', 'Santa Barbara Airport', 34.4262, -119.8404, 'US', ['State Street']),
+  RFD: a('RFD', 'Rockford', 'Chicago Rockford International', 42.1954, -89.0972, 'US'),
   SBN: a('SBN', 'South Bend', 'South Bend International', 41.7087, -86.3173, 'US', ['Notre Dame']),
   TLH: a('TLH', 'Tallahassee', 'Tallahassee International', 30.3965, -84.3503, 'US'),
   TYS: a('TYS', 'Knoxville', 'McGhee Tyson Airport', 35.8110, -83.9940, 'US', ['Market Square']),
@@ -208,8 +217,25 @@ export const AIRPORTS: Record<string, AirportData> = {
 };
 
 // Search airports by code, city name, or airport name
-export function searchAirports(query: string): AirportData[] {
-  const q = query.toUpperCase().trim();
+// Optionally accepts lat/lon for GPS-based recommendations
+export function searchAirports(lat?: number, lon?: number, query?: string): AirportData[] {
+  // If lat/lon provided but no query, return nearby airports
+  if (lat !== undefined && lon !== undefined && (!query || query === '')) {
+    return Object.values(AIRPORTS)
+      .map(airport => ({
+        airport,
+        distance: Math.sqrt(
+          Math.pow(airport.lat - lat, 2) + 
+          Math.pow(airport.lng - lon, 2)
+        )
+      }))
+      .sort((a, b) => a.distance - b.distance)
+      .slice(0, 10)
+      .map(item => item.airport);
+  }
+  
+  // Otherwise, search by query
+  const q = (query || '').toUpperCase().trim();
   if (!q) return [];
   
   // Exact code match first
