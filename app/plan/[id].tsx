@@ -7,7 +7,7 @@ import { ThemedView } from '@/components/themed-view';
 import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
-import { Plan, PlanAttendee } from '@/types/plan';
+import { Plan, PlanAttendee, Stop } from '@/types/plan';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
@@ -187,6 +187,27 @@ export default function PlanDetailScreen() {
     return `${dateStr} at ${timeStr}`;
   };
 
+  const formatTime = (timestamp: any) => {
+    if (!timestamp) return '';
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    return date.toLocaleTimeString('en-US', { 
+      hour: 'numeric', 
+      minute: '2-digit',
+      hour12: true 
+    });
+  };
+
+  const formatDate = (timestamp: any) => {
+    if (!timestamp) return '';
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    return date.toLocaleDateString('en-US', { 
+      weekday: 'long',
+      month: 'long', 
+      day: 'numeric',
+      year: 'numeric'
+    });
+  };
+
   if (loading || !plan) {
     return (
       <ThemedView style={styles.container}>
@@ -292,28 +313,96 @@ export default function PlanDetailScreen() {
               )}
             </View>
 
-            {/* Date/Time */}
-            <View style={styles.infoRow}>
-              <Ionicons name="calendar-outline" size={24} color={Colors.primary} />
-              <View style={styles.infoText}>
-                <ThemedText style={styles.infoLabel}>When</ThemedText>
-                <ThemedText style={styles.infoValue}>
-                  {formatDateTime(plan.scheduledTime)}
-                </ThemedText>
-              </View>
-            </View>
+            {/* Date/Time & Location - Different for multi-stop */}
+            {plan.isMultiStop && plan.stops && plan.stops.length > 0 ? (
+              /* MULTI-STOP TIMELINE */
+              <>
+                {/* Date Header */}
+                <View style={styles.infoRow}>
+                  <Ionicons name="calendar-outline" size={24} color={Colors.primary} />
+                  <View style={styles.infoText}>
+                    <ThemedText style={styles.infoLabel}>When</ThemedText>
+                    <ThemedText style={styles.infoValue}>
+                      {formatDate(plan.stops[0].scheduledTime)}
+                    </ThemedText>
+                  </View>
+                </View>
 
-            {/* Location */}
-            <View style={styles.infoRow}>
-              <Ionicons name="location-outline" size={24} color={Colors.primary} />
-              <View style={styles.infoText}>
-                <ThemedText style={styles.infoLabel}>Where</ThemedText>
-                <TouchableOpacity onPress={handleViewSpot}>
-                  <ThemedText style={styles.infoValueLink}>{plan.spotName}</ThemedText>
-                </TouchableOpacity>
-                <ThemedText style={styles.infoSubtext}>{plan.city}</ThemedText>
-              </View>
-            </View>
+                {/* Itinerary Timeline */}
+                <View style={styles.timelineSection}>
+                  <ThemedText style={styles.timelinelabel}>Itinerary ({plan.stops.length} stops)</ThemedText>
+                  
+                  {plan.stops.map((stop: Stop, index: number) => (
+                    <View key={stop.id} style={styles.stopContainer}>
+                      {/* Timeline Connector */}
+                      {index < plan.stops!.length - 1 && (
+                        <View style={styles.timelineConnector} />
+                      )}
+                      
+                      {/* Stop Card */}
+                      <View style={styles.stopCard}>
+                        <View style={styles.stopNumber}>
+                          <ThemedText style={styles.stopNumberText}>{index + 1}</ThemedText>
+                        </View>
+                        
+                        <View style={styles.stopContent}>
+                          <View style={styles.stopHeader}>
+                            <ThemedText style={styles.stopTime}>
+                              {formatTime(stop.scheduledTime)}
+                            </ThemedText>
+                            {stop.duration && (
+                              <ThemedText style={styles.stopDuration}>
+                                {stop.duration} min
+                              </ThemedText>
+                            )}
+                          </View>
+                          
+                          <TouchableOpacity 
+                            onPress={() => router.push({ pathname: '/spot/[id]', params: { id: stop.spotId }})}
+                          >
+                            <ThemedText style={styles.stopName}>{stop.spotName}</ThemedText>
+                          </TouchableOpacity>
+                          
+                          {stop.spotAddress && (
+                            <ThemedText style={styles.stopAddress}>{stop.spotAddress}</ThemedText>
+                          )}
+                          
+                          {stop.notes && (
+                            <ThemedText style={styles.stopNotes}>{stop.notes}</ThemedText>
+                          )}
+                        </View>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              </>
+            ) : (
+              /* SINGLE-STOP VIEW (existing) */
+              <>
+                {/* Date/Time */}
+                <View style={styles.infoRow}>
+                  <Ionicons name="calendar-outline" size={24} color={Colors.primary} />
+                  <View style={styles.infoText}>
+                    <ThemedText style={styles.infoLabel}>When</ThemedText>
+                    <ThemedText style={styles.infoValue}>
+                      {formatDateTime(plan.scheduledTime)}
+                    </ThemedText>
+                  </View>
+                </View>
+
+                {/* Location */}
+                <View style={styles.infoRow}>
+                  <Ionicons name="location-outline" size={24} color={Colors.primary} />
+                  <View style={styles.infoText}>
+                    <ThemedText style={styles.infoLabel}>Where</ThemedText>
+                    <TouchableOpacity onPress={handleViewSpot}>
+                      <ThemedText style={styles.infoValueLink}>{plan.spotName}</ThemedText>
+                    </TouchableOpacity>
+                    <ThemedText style={styles.infoSubtext}>{plan.city}</ThemedText>
+                  </View>
+                </View>
+              </>
+            )}
 
             {/* Meetup Location */}
             {plan.meetupLocation && (
@@ -721,5 +810,86 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: Colors.white,
+  },
+  // Multi-stop timeline styles
+  timelineSection: {
+    marginTop: 8,
+  },
+  timelinelabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.text.secondary,
+    marginBottom: 16,
+  },
+  stopContainer: {
+    position: 'relative',
+    marginBottom: 20,
+  },
+  timelineConnector: {
+    position: 'absolute',
+    left: 15,
+    top: 40,
+    bottom: -20,
+    width: 2,
+    backgroundColor: Colors.border,
+  },
+  stopCard: {
+    flexDirection: 'row',
+    gap: 12,
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  stopNumber: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
+  },
+  stopNumberText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Colors.white,
+  },
+  stopContent: {
+    flex: 1,
+  },
+  stopHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 6,
+  },
+  stopTime: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Colors.primary,
+  },
+  stopDuration: {
+    fontSize: 13,
+    color: Colors.text.secondary,
+    fontStyle: 'italic',
+  },
+  stopName: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: Colors.text.primary,
+    marginBottom: 4,
+  },
+  stopAddress: {
+    fontSize: 14,
+    color: Colors.text.secondary,
+    marginBottom: 4,
+  },
+  stopNotes: {
+    fontSize: 14,
+    color: Colors.text.secondary,
+    fontStyle: 'italic',
+    marginTop: 6,
   },
 });

@@ -26,12 +26,51 @@ import {
   View,
 } from 'react-native';
 
-const categories = [
-  { id: 'coffee', label: 'Coffee', emoji: '☕' },
-  { id: 'food', label: 'Food', emoji: '🍽️' },
-  { id: 'bar', label: 'Bar', emoji: '🍸' },
+const CATEGORY_OPTIONS = [
+  // Food & Drink
+  { id: 'coffee', label: 'Coffee Shop', emoji: '☕' },
+  { id: 'food', label: 'Restaurant', emoji: '🍽️' },
+  { id: 'breakfast', label: 'Breakfast', emoji: '🥞' },
+  { id: 'lunch', label: 'Lunch Spot', emoji: '🥗' },
+  { id: 'dinner', label: 'Dinner', emoji: '🍝' },
+  { id: 'bakery', label: 'Bakery', emoji: '🥐' },
+  { id: 'dessert', label: 'Dessert', emoji: '🍰' },
+  { id: 'fastfood', label: 'Fast Food', emoji: '🍔' },
+  
+  // Bars & Nightlife
+  { id: 'bar', label: 'Bar', emoji: '🍺' },
+  { id: 'cocktail', label: 'Cocktail Bar', emoji: '🍸' },
+  { id: 'wine', label: 'Wine Bar', emoji: '🍷' },
+  { id: 'brewery', label: 'Brewery', emoji: '🍻' },
+  { id: 'club', label: 'Nightclub', emoji: '🪩' },
+  { id: 'lounge', label: 'Lounge', emoji: '🛋️' },
+  { id: 'karaoke', label: 'Karaoke', emoji: '🎤' },
+  
+  // Wellness & Fitness
   { id: 'gym', label: 'Gym', emoji: '💪' },
+  { id: 'yoga', label: 'Yoga Studio', emoji: '🧘' },
+  { id: 'spa', label: 'Spa', emoji: '💆' },
+  { id: 'massage', label: 'Massage', emoji: '💆‍♀️' },
+  { id: 'salon', label: 'Salon', emoji: '💇' },
+  
+  // Activities & Entertainment
   { id: 'activity', label: 'Activity', emoji: '🎯' },
+  { id: 'museum', label: 'Museum', emoji: '🏛️' },
+  { id: 'park', label: 'Park', emoji: '🌳' },
+  { id: 'beach', label: 'Beach', emoji: '🏖️' },
+  { id: 'hiking', label: 'Hiking', emoji: '🥾' },
+  { id: 'shopping', label: 'Shopping', emoji: '🛍️' },
+  { id: 'bookstore', label: 'Bookstore', emoji: '📚' },
+  { id: 'arcade', label: 'Arcade', emoji: '🕹️' },
+  { id: 'bowling', label: 'Bowling', emoji: '🎳' },
+  { id: 'movies', label: 'Movie Theater', emoji: '🎬' },
+  { id: 'music', label: 'Live Music', emoji: '🎵' },
+  { id: 'sports', label: 'Sports Venue', emoji: '⚽' },
+  
+  // Other
+  { id: 'landmark', label: 'Landmark', emoji: '📍' },
+  { id: 'viewpoint', label: 'Viewpoint', emoji: '🌆' },
+  { id: 'other', label: 'Other', emoji: '✨' },
 ];
 
 const GOOGLE_PLACES_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY || '';
@@ -76,7 +115,9 @@ export default function AddSpotScreen() {
   // Form fields
   const [name, setName] = useState('');
   const [placeId, setPlaceId] = useState(''); // Google Place ID for fetching details
-  const [category, setCategory] = useState('');
+  const [categories, setCategories] = useState<string[]>([]);
+  const [categorySearch, setCategorySearch] = useState('');
+  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
   const [city, setCity] = useState(cityParam || '');
   const [area, setArea] = useState('');
   const [description, setDescription] = useState('');
@@ -136,6 +177,17 @@ export default function AddSpotScreen() {
       .slice(0, 30);
   }, [searchQuery, cities]);
   
+  // Filter categories based on search
+  const filteredCategoryOptions = useMemo(() => {
+    const query = categorySearch.trim().toLowerCase();
+    if (!query) return CATEGORY_OPTIONS;
+    
+    return CATEGORY_OPTIONS.filter((cat) =>
+      cat.label.toLowerCase().includes(query) ||
+      cat.id.toLowerCase().includes(query)
+    );
+  }, [categorySearch]);
+
 
   // Fetch place predictions from Google Places Autocomplete API
   const fetchPlacePredictions = async (input: string) => {
@@ -214,16 +266,31 @@ export default function AddSpotScreen() {
       setLongitude(details.geometry.location.lng);
     }
 
-    // Try to determine category from Google's types
+    // Try to determine categories from Google's types (can add multiple)
     const types = details.types || [];
+    const autoCategories: string[] = [];
+    
     if (types.includes('cafe') || types.includes('coffee_shop')) {
-      setCategory('coffee');
-    } else if (types.includes('restaurant') || types.includes('meal_takeaway') || types.includes('food')) {
-      setCategory('food');
-    } else if (types.includes('bar') || types.includes('night_club')) {
-      setCategory('bar');
-    } else if (types.includes('gym') || types.includes('fitness_center')) {
-      setCategory('gym');
+      autoCategories.push('coffee');
+    }
+    if (types.includes('restaurant') || types.includes('meal_takeaway') || types.includes('food')) {
+      autoCategories.push('food');
+    }
+    if (types.includes('bar') || types.includes('night_club')) {
+      autoCategories.push('bar');
+    }
+    if (types.includes('gym') || types.includes('fitness_center')) {
+      autoCategories.push('gym');
+    }
+    if (types.includes('bakery')) {
+      autoCategories.push('bakery');
+    }
+    if (types.includes('spa') || types.includes('beauty_salon')) {
+      autoCategories.push('spa');
+    }
+    
+    if (autoCategories.length > 0) {
+      setCategories(autoCategories);
     }
 
     // Clear predictions and search
@@ -353,8 +420,8 @@ export default function AddSpotScreen() {
       Alert.alert('Missing Info', 'Please search and select a business');
       return;
     }
-    if (!category) {
-      Alert.alert('Missing Info', 'Please select a category');
+    if (categories.length === 0) {
+      Alert.alert('Missing Info', 'Please select at least one category');
       return;
     }
     if (!city) {
@@ -382,7 +449,7 @@ export default function AddSpotScreen() {
       const spotDoc = await addDoc(collection(db, 'spots'), {
         name: name.trim(),
         ...(placeId && { placeId }), // Store Google Place ID for future reference
-        category,
+        categories, // Now an array instead of single category
         city,
         area: area || '',
         description: description.trim(),
@@ -595,7 +662,9 @@ export default function AddSpotScreen() {
                     setWebsite('');
                     setLatitude(null);
                     setLongitude(null);
-                    setCategory('');
+                    setCategories([]);
+                    setCategorySearch('');
+                    setShowCategoryDropdown(false);
                     setPlaceSearchQuery('');
                   }}
                 >
@@ -606,22 +675,114 @@ export default function AddSpotScreen() {
 
             {/* Category Selection */}
             <View style={styles.inputContainer}>
-              <ThemedText style={styles.label}>Category *</ThemedText>
-              <View style={styles.categoryGrid}>
-                {categories.map((cat) => (
-                  <TouchableOpacity
-                    key={cat.id}
-                    style={[
-                      styles.categoryButton,
-                      category === cat.id && styles.categoryButtonActive,
-                    ]}
-                    onPress={() => setCategory(cat.id)}
-                  >
-                    <ThemedText style={styles.categoryEmoji}>{cat.emoji}</ThemedText>
-                    <ThemedText style={styles.categoryLabel}>{cat.label}</ThemedText>
+              <ThemedText style={styles.label}>
+                Categories * {categories.length > 0 && `(${categories.length} selected)`}
+              </ThemedText>
+              
+              {/* Selected Categories as Chips */}
+              {categories.length > 0 && (
+                <View style={styles.selectedCategoriesContainer}>
+                  {categories.map((catId) => {
+                    const cat = CATEGORY_OPTIONS.find(c => c.id === catId);
+                    if (!cat) return null;
+                    return (
+                      <TouchableOpacity
+                        key={catId}
+                        style={styles.categoryChip}
+                        onPress={() => setCategories(categories.filter(c => c !== catId))}
+                      >
+                        <ThemedText style={styles.chipEmoji}>{cat.emoji}</ThemedText>
+                        <ThemedText style={styles.chipLabel}>{cat.label}</ThemedText>
+                        <Ionicons name="close-circle" size={16} color="#666" />
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+              
+              {/* Search Input for Categories */}
+              <View style={styles.categorySearchContainer}>
+                <Ionicons 
+                  name="search" 
+                  size={20} 
+                  color="#999" 
+                  style={styles.searchIcon}
+                />
+                <TextInput
+                  style={styles.categorySearchInput}
+                  placeholder="Search categories..."
+                  placeholderTextColor="#999"
+                  value={categorySearch}
+                  onChangeText={setCategorySearch}
+                  onFocus={() => setShowCategoryDropdown(true)}
+                />
+                {categorySearch.length > 0 && (
+                  <TouchableOpacity onPress={() => setCategorySearch('')}>
+                    <Ionicons name="close-circle" size={20} color="#999" />
                   </TouchableOpacity>
-                ))}
+                )}
               </View>
+              
+              {/* Category Dropdown */}
+              {showCategoryDropdown && (
+                <View style={styles.categoryDropdown}>
+                  <ScrollView 
+                    style={styles.categoryDropdownScroll}
+                    keyboardShouldPersistTaps="handled"
+                  >
+                    {filteredCategoryOptions.length > 0 ? (
+                      filteredCategoryOptions.map((cat) => {
+                        const isSelected = categories.includes(cat.id);
+                        return (
+                          <TouchableOpacity
+                            key={cat.id}
+                            style={[
+                              styles.categoryDropdownItem,
+                              isSelected && styles.categoryDropdownItemSelected
+                            ]}
+                            onPress={() => {
+                              if (isSelected) {
+                                setCategories(categories.filter(c => c !== cat.id));
+                              } else {
+                                setCategories([...categories, cat.id]);
+                              }
+                            }}
+                          >
+                            <View style={styles.categoryDropdownItemContent}>
+                              <ThemedText style={styles.categoryDropdownEmoji}>
+                                {cat.emoji}
+                              </ThemedText>
+                              <ThemedText style={styles.categoryDropdownLabel}>
+                                {cat.label}
+                              </ThemedText>
+                            </View>
+                            {isSelected && (
+                              <Ionicons name="checkmark" size={20} color="#2196F3" />
+                            )}
+                          </TouchableOpacity>
+                        );
+                      })
+                    ) : (
+                      <View style={styles.noResultsContainer}>
+                        <ThemedText style={styles.noResultsText}>
+                          No categories found
+                        </ThemedText>
+                      </View>
+                    )}
+                  </ScrollView>
+                  
+                  {/* Close dropdown button */}
+                  <TouchableOpacity 
+                    style={styles.closeDropdownButton}
+                    onPress={() => {
+                      setShowCategoryDropdown(false);
+                      setCategorySearch('');
+                    }}
+                  >
+                    <ThemedText style={styles.closeDropdownText}>Done</ThemedText>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
 
             {/* City Selection */}
@@ -1011,32 +1172,105 @@ const styles = StyleSheet.create({
     color: '#2e7d32',
     flex: 1,
   },
-  categoryGrid: {
+  categorySearchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#fff',
+    marginBottom: 8,
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  categorySearchInput: {
+    flex: 1,
+    fontSize: 16,
+    color: '#000',
+  },
+  categoryDropdown: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    maxHeight: 300,
+    overflow: 'hidden',
+  },
+  categoryDropdownScroll: {
+    maxHeight: 250,
+  },
+  categoryDropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  categoryDropdownItemSelected: {
+    backgroundColor: 'rgba(33, 150, 243, 0.05)',
+  },
+  categoryDropdownItemContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  categoryDropdownEmoji: {
+    fontSize: 20,
+  },
+  categoryDropdownLabel: {
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  noResultsContainer: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  noResultsText: {
+    fontSize: 14,
+    color: '#999',
+  },
+  closeDropdownButton: {
+    backgroundColor: '#2196F3',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: '#ddd',
+  },
+  closeDropdownText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  selectedCategoriesContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: 8,
+    marginBottom: 12,
   },
-  categoryButton: {
-    flex: 1,
-    minWidth: '30%',
-    backgroundColor: '#333',
-    padding: 15,
-    borderRadius: 12,
+  categoryChip: {
+    flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: 'transparent',
-  },
-  categoryButtonActive: {
+    backgroundColor: 'rgba(33, 150, 243, 0.15)',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 20,
+    borderWidth: 1,
     borderColor: '#2196F3',
-    backgroundColor: 'rgba(33, 150, 243, 0.1)',
+    gap: 6,
   },
-  categoryEmoji: {
-    fontSize: 24,
-    marginBottom: 5,
+  chipEmoji: {
+    fontSize: 16,
   },
-  categoryLabel: {
-    fontSize: 14,
+  chipLabel: {
+    fontSize: 13,
     fontWeight: '600',
+    color: '#2196F3',
   },
   pickerButton: {
     borderWidth: 1,

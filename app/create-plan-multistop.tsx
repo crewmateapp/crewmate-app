@@ -62,15 +62,11 @@ export default function CreatePlanScreen() {
   const { 
     spotId: prefilledSpotId, 
     spotName: prefilledSpotName,
-    layoverId,
-    selectedSpotId: returnedSpotId,
-    selectedSpotName: returnedSpotName,
+    layoverId 
   } = useLocalSearchParams<{ 
     spotId?: string; 
     spotName?: string;
     layoverId?: string;
-    selectedSpotId?: string;
-    selectedSpotName?: string;
   }>();
   
   const [loading, setLoading] = useState(true);
@@ -111,56 +107,29 @@ export default function CreatePlanScreen() {
     }
   }, [prefilledSpotId, prefilledSpotName]);
 
-  // Handle spot selection returned from explore page
-  useEffect(() => {
-    if (returnedSpotId && returnedSpotName) {
-      console.log('🎯 Received spot selection from explore:', { returnedSpotId, returnedSpotName });
-      setSelectedSpotId(returnedSpotId);
-      setSelectedSpotName(returnedSpotName);
-      if (!title && !isMultiStop) {
-        setTitle(returnedSpotName);
-      }
-    }
-  }, [returnedSpotId, returnedSpotName]);
-
   // Get user's current layover or upcoming layover
   useEffect(() => {
     if (!user) return;
 
     const fetchUserData = async () => {
-      console.log('👤 Fetching user data, layoverId:', layoverId);
       const userDoc = await getDoc(doc(db, 'users', user.uid));
       if (userDoc.exists()) {
         const data = userDoc.data();
         
         if (layoverId && data.upcomingLayovers) {
-          console.log('🔍 Looking for layover:', layoverId);
           const foundLayover = data.upcomingLayovers.find((l: any) => l.id === layoverId);
           if (foundLayover) {
-            console.log('✅ Found layover:', foundLayover);
             setLayover(foundLayover);
             setCurrentCity(foundLayover.city);
             setCurrentArea(foundLayover.area);
-            console.log('🏙️ Set currentCity to:', foundLayover.city);
-            
-            // Auto-generate title if empty
-            if (!title) {
-              const date = foundLayover.startDate?.toDate?.() || new Date();
-              const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-              setTitle(`${foundLayover.city} - ${dateStr}`);
-            }
             
             if (foundLayover.startDate?.toDate) {
               setScheduledDate(foundLayover.startDate.toDate());
             }
-          } else {
-            console.log('❌ Layover not found in upcomingLayovers');
           }
         } else {
-          console.log('📍 Using currentLayover from user data');
           setCurrentCity(data.currentLayover?.city || null);
           setCurrentArea(data.currentLayover?.area || null);
-          console.log('🏙️ Set currentCity to:', data.currentLayover?.city || null);
         }
       }
       setLoading(false);
@@ -171,74 +140,50 @@ export default function CreatePlanScreen() {
 
   // Fetch spots in current city
   useEffect(() => {
-    console.log('🏙️ Fetching spots for city:', currentCity);
-    if (!currentCity) {
-      console.log('❌ No currentCity set, skipping spots fetch');
-      return;
-    }
+    if (!currentCity) return;
 
     const fetchSpots = async () => {
-      try {
-        console.log('📍 Starting spots query for:', currentCity);
-        
-        const q = query(
-          collection(db, 'spots'),
-          where('city', '==', currentCity),
-          limit(100)
-        );
+      const q = query(
+        collection(db, 'spots'),
+        where('city', '==', currentCity),
+        where('approved', '==', true),
+        orderBy('name', 'asc'),
+        limit(100)
+      );
 
-        const snapshot = await getDocs(q);
-        console.log('✅ Spots query returned:', snapshot.size, 'spots');
-        
-        const spotsList: Spot[] = [];
-        snapshot.forEach((doc) => {
-          const data = doc.data();
-          spotsList.push({
-            id: doc.id,
-            name: data.name,
-            city: data.city,
-            address: data.address,
-          });
+      const snapshot = await getDocs(q);
+      const spotsList: Spot[] = [];
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        spotsList.push({
+          id: doc.id,
+          name: data.name,
+          city: data.city,
+          address: data.address,
         });
-        
-        // Sort by name manually
-        spotsList.sort((a, b) => a.name.localeCompare(b.name));
-        
-        console.log('📋 Spots list:', spotsList.map(s => s.name).join(', '));
-        setSpots(spotsList);
-      } catch (error) {
-        console.error('❌ Error fetching spots:', error);
-      }
+      });
+      setSpots(spotsList);
     };
 
     fetchSpots();
   }, [currentCity]);
 
   const addStop = () => {
-    console.log('🔍 addStop called, selectedSpotId:', selectedSpotId);
-    console.log('📍 Available spots:', spots.length);
-    
-    // Validate we have both ID and name
-    if (!selectedSpotId || !selectedSpotName) {
-      console.log('❌ Missing spot data:', { selectedSpotId, selectedSpotName });
+    const spot = spots.find(s => s.id === selectedSpotId);
+    if (!spot) {
       Alert.alert('Error', 'Please select a spot first');
       return;
     }
 
-    // Try to find spot in array for address, but it's okay if not found
-    const spot = spots.find(s => s.id === selectedSpotId);
-    console.log('✅ Found spot in array:', spot);
-
     const newStop: Stop = {
       id: `stop_${Date.now()}`,
-      spotId: selectedSpotId,
-      spotName: selectedSpotName, // Use the name we already have
-      spotAddress: spot?.address, // Optional - only if we found it
+      spotId: spot.id,
+      spotName: spot.name,
+      spotAddress: spot.address,
       scheduledTime: new Date(scheduledDate),
       order: stops.length,
     };
 
-    console.log('➕ Adding stop:', newStop);
     setStops([...stops, newStop]);
     
     // Reset selection
@@ -529,13 +474,13 @@ export default function CreatePlanScreen() {
                       style={styles.selectorButton}
                       onPress={() => {
                         Keyboard.dismiss();
-                        router.push(`/explore?city=${currentCity}&selectionMode=true&returnTo=create-plan`);
+                        setShowSpotSelector(true);
                       }}
                     >
                       <ThemedText style={selectedSpotId ? styles.selectorTextSelected : styles.selectorTextPlaceholder}>
-                        {selectedSpotName || 'Browse spots...'}
+                        {selectedSpotName || 'Choose a spot...'}
                       </ThemedText>
-                      <Ionicons name="search" size={20} color={Colors.text.secondary} />
+                      <Ionicons name="chevron-down" size={20} color={Colors.text.secondary} />
                     </TouchableOpacity>
 
                     {/* Date & Time for this stop */}
@@ -571,15 +516,6 @@ export default function CreatePlanScreen() {
                         </ThemedText>
                       </TouchableOpacity>
                     </View>
-
-                    {/* Debug: Show selected spot */}
-                    {__DEV__ && (
-                      <View style={{ padding: 8, backgroundColor: '#f0f0f0', borderRadius: 4, marginTop: 8 }}>
-                        <ThemedText style={{ fontSize: 12, color: '#666' }}>
-                          DEBUG - Selected: {selectedSpotId || 'none'} / {selectedSpotName || 'none'}
-                        </ThemedText>
-                      </View>
-                    )}
 
                     <TouchableOpacity 
                       style={styles.addStopButton}
@@ -644,13 +580,13 @@ export default function CreatePlanScreen() {
                       style={styles.selectorButton}
                       onPress={() => {
                         Keyboard.dismiss();
-                        router.push(`/explore?city=${currentCity}&selectionMode=true&returnTo=create-plan`);
+                        setShowSpotSelector(true);
                       }}
                     >
                       <ThemedText style={selectedSpotId ? styles.selectorTextSelected : styles.selectorTextPlaceholder}>
-                        {selectedSpotName || 'Browse spots...'}
+                        {selectedSpotName || 'Choose a spot...'}
                       </ThemedText>
-                      <Ionicons name="search" size={20} color={Colors.text.secondary} />
+                      <Ionicons name="chevron-down" size={20} color={Colors.text.secondary} />
                     </TouchableOpacity>
                   </View>
 
@@ -832,21 +768,19 @@ export default function CreatePlanScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Spot Selector Modal - Now using explore page instead */}
-            {/* <SpotSelector
+            {/* Spot Selector Modal */}
+            <SpotSelector
               visible={showSpotSelector}
               spots={spots}
               onClose={() => setShowSpotSelector(false)}
               onSelect={(spotId, spotName) => {
-                console.log('🎯 Spot selected:', { spotId, spotName });
                 setSelectedSpotId(spotId);
                 setSelectedSpotName(spotName);
-                setShowSpotSelector(false);
                 if (!title && !isMultiStop) {
                   setTitle(spotName);
                 }
               }}
-            /> */}
+            />
 
             {/* Date Picker Modal */}
             <DateTimePicker

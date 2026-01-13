@@ -7,7 +7,7 @@ import { ThemedView } from '@/components/themed-view';
 import { auth, db } from '@/config/firebase';
 import { useCities } from '@/hooks/useCities';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { collection, getDocs, limit, query, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
@@ -65,9 +65,24 @@ type FilterSettings = {
 };
 
 export default function ExploreScreen() {
+  const { 
+    city: urlCity, 
+    layoverId,
+    selectionMode: selectionModeParam,
+    returnTo 
+  } = useLocalSearchParams<{ 
+    city?: string; 
+    layoverId?: string;
+    selectionMode?: string;
+    returnTo?: string;
+  }>();
+  
+  const selectionMode = selectionModeParam === 'true';
+  
   const { cities, loading: citiesLoading } = useCities();
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
   const [userLayoverCity, setUserLayoverCity] = useState<string | null>(null);
+  const [currentLayoverId, setCurrentLayoverId] = useState<string | null>(null);
   const [recentCities, setRecentCities] = useState<string[]>([]);
   const [category, setCategory] = useState<string>('All');
   const [sortBy, setSortBy] = useState<SortOption>('rating');
@@ -82,11 +97,22 @@ export default function ExploreScreen() {
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  // Load user's current layover city on mount
+  // Load user's current layover city on mount, or use URL parameter
   useEffect(() => {
-    loadUserLayoverCity();
+    // Store the layoverId from URL if provided
+    if (layoverId) {
+      setCurrentLayoverId(layoverId);
+    }
+    
+    // If city is provided in URL, use that instead of fetching user's layover
+    if (urlCity) {
+      setSelectedCity(urlCity);
+    } else {
+      loadUserLayoverCity();
+    }
+    
     loadRecentCities();
-  }, []);
+  }, [urlCity, layoverId]);
 
   // Fetch spots when city or filters change
   useEffect(() => {
@@ -270,10 +296,14 @@ export default function ExploreScreen() {
     setRefreshing(false);
   };
 
-  const handleCreatePlan = (spotId: string) => {
+  const handleCreatePlan = (spotId: string, spotName: string) => {
     router.push({
       pathname: '/create-plan',
-      params: { spotId },
+      params: { 
+        spotId,
+        spotName,
+        ...(currentLayoverId && { layoverId: currentLayoverId }), // Include layoverId if available
+      },
     });
   };
 
@@ -329,6 +359,22 @@ export default function ExploreScreen() {
             onSelectCity={setSelectedCity}
           />
 
+          {/* Selection Mode Banner */}
+          {selectionMode && (
+            <View style={styles.selectionModeBanner}>
+              <Ionicons name="checkmark-circle" size={24} color={COLORS.primary} />
+              <View style={styles.selectionModeText}>
+                <ThemedText style={styles.selectionModeTitle}>Select a Spot</ThemedText>
+                <ThemedText style={styles.selectionModeSubtitle}>
+                  Tap any spot to add it to your plan
+                </ThemedText>
+              </View>
+              <TouchableOpacity onPress={() => router.back()}>
+                <Ionicons name="close" size={24} color={COLORS.mediumGray} />
+              </TouchableOpacity>
+            </View>
+          )}
+
           {selectedCity && (
             <>
               {/* Search Bar */}
@@ -381,8 +427,21 @@ export default function ExploreScreen() {
                     <SpotCard
                       spot={item}
                       userLocation={userLocation}
-                      onCreatePlan={() => handleCreatePlan(item.id)}
-                      onPress={() => router.push(`/spot/${item.id}`)}
+                      onCreatePlan={() => handleCreatePlan(item.id, item.name)}
+                      onPress={() => {
+                        if (selectionMode) {
+                          // Return to create-plan with selected spot
+                          router.back();
+                          router.setParams({ 
+                            selectedSpotId: item.id, 
+                            selectedSpotName: item.name 
+                          });
+                        } else {
+                          // Normal behavior - view spot detail
+                          const params = currentLayoverId ? `?layoverId=${currentLayoverId}` : '';
+                          router.push(`/spot/${item.id}${params}`);
+                        }
+                      }}
                     />
                   )}
                   contentContainerStyle={styles.spotsList}
@@ -510,5 +569,32 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     fontSize: 16,
     fontWeight: '600',
+  },
+  selectionModeBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: COLORS.primary + '15',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.primary + '30',
+  },
+  selectionModeText: {
+    flex: 1,
+  },
+  selectionModeTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.primary,
+    marginBottom: 2,
+  },
+  selectionModeSubtitle: {
+    fontSize: 13,
+    color: COLORS.mediumGray,
   },
 });

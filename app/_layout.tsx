@@ -73,13 +73,30 @@ function RootLayoutNav() {
         return; // User was redirected to onboarding
       }
 
-      // Check if profile exists in Firestore
+      // Check if profile exists in Firestore (with retry for timing issues)
       try {
-        console.log('📄 Fetching user profile...');
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        console.log('📄 Fetching user profile...', { userId: user.uid });
+        
+        // Add small delay to ensure Firebase is fully initialized
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        let userDoc = await getDoc(doc(db, 'users', user.uid));
+        
+        // Retry once if first attempt fails
+        if (!userDoc.exists()) {
+          console.log('⚠️ First attempt failed, retrying in 1s...');
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          userDoc = await getDoc(doc(db, 'users', user.uid));
+        }
+        
+        console.log('📦 Document result:', { 
+          exists: userDoc.exists(),
+          id: userDoc.id,
+          hasData: !!userDoc.data()
+        });
         
         if (!userDoc.exists()) {
-          console.log('❌ Profile does not exist, going to create-profile');
+          console.log('❌ Profile does not exist after retry, going to create-profile');
           setHasNavigated(true);
           router.replace('/auth/create-profile');
           setCheckingProfile(false);

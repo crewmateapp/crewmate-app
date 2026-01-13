@@ -114,25 +114,7 @@ export default function SpotCard({
     <View style={styles.card}>
       {/* Spot Photo */}
       <TouchableOpacity 
-        onPress={() => {
-          // If spot has photos, open photo viewer, otherwise open spot detail
-          if (photoUrl && (spot.photos || spot.photoURLs)) {
-            const photos = spot.photoURLs || spot.photos || [];
-            if (photos.length > 0) {
-              router.push({
-                pathname: '/photo-viewer',
-                params: {
-                  photos: JSON.stringify(photos),
-                  initialIndex: 0
-                }
-              });
-            } else {
-              onPress();
-            }
-          } else {
-            onPress();
-          }
-        }}
+        onPress={onPress}
         activeOpacity={0.9}
       >
         {photoUrl ? (

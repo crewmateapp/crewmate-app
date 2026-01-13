@@ -5,7 +5,7 @@ import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { notifyConnectionAccepted } from '@/utils/notifications';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import {
   addDoc,
   collection,
@@ -56,6 +56,18 @@ type SortOption = 'a-z' | 'z-a' | 'recent';
 
 export default function ConnectionsScreen() {
   const { user } = useAuth();
+  
+  // Get route params for filtering nearby crew
+  const { filter, city, area } = useLocalSearchParams<{
+    filter?: 'area' | 'city';
+    city?: string;
+    area?: string;
+  }>();
+  
+  const [nearbyCrew, setNearbyCrew] = useState<Connection[]>([]);
+  const [activeTab, setActiveTab] = useState<'connections' | 'nearby'>(
+    filter ? 'nearby' : 'connections'
+  );
   const [loading, setLoading] = useState(true);
   const [incomingRequests, setIncomingRequests] = useState<ConnectionRequest[]>([]);
   const [outgoingRequests, setOutgoingRequests] = useState<ConnectionRequest[]>([]);
@@ -170,6 +182,59 @@ export default function ConnectionsScreen() {
       unsubConnections();
     };
   }, [user]);
+
+  // Fetch nearby crew when filter params are present
+  useEffect(() => {
+    if (!user?.uid || !filter || !city) {
+      setNearbyCrew([]);
+      return;
+    }
+
+    let q;
+    if (filter === 'area' && area) {
+      // Show crew in specific area
+      q = query(
+        collection(db, 'users'),
+        where('currentLayover.city', '==', city),
+        where('currentLayover.area', '==', area),
+        where('currentLayover.discoverable', '==', true),
+        where('currentLayover.isLive', '==', true)
+      );
+    } else if (filter === 'city') {
+      // Show all crew in city
+      q = query(
+        collection(db, 'users'),
+        where('currentLayover.city', '==', city),
+        where('currentLayover.discoverable', '==', true),
+        where('currentLayover.isLive', '==', true)
+      );
+    } else {
+      setNearbyCrew([]);
+      return;
+    }
+
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
+      const crew = await Promise.all(
+        snapshot.docs
+          .filter(doc => doc.id !== user.uid) // Exclude current user
+          .map(async (userDoc) => {
+            const userData = userDoc.data();
+            return {
+              id: userDoc.id,
+              oduserId: userDoc.id,
+              displayName: userData.displayName || 'Unknown',
+              photoURL: userData.photoURL,
+              position: userData.position,
+              airline: userData.airline,
+            };
+          })
+      );
+      setNearbyCrew(crew);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [user, filter, city, area]);
 
   // Get unique airlines from connections
   const availableAirlines = useMemo(() => {
@@ -409,6 +474,50 @@ export default function ConnectionsScreen() {
           <ThemedText style={styles.title}>Connections</ThemedText>
         </View>
 
+        {/* Filter Badge - Show when coming from stats */}
+        {filter && city && (
+          <View style={styles.filterBadge}>
+            <Ionicons name="location" size={16} color={Colors.primary} />
+            <ThemedText style={styles.filterBadgeText}>
+              {filter === 'area' && area 
+                ? `Crew in ${area}, ${city}` 
+                : `Crew in ${city}`}
+            </ThemedText>
+            <TouchableOpacity 
+              onPress={() => {
+                router.setParams({ filter: undefined, city: undefined, area: undefined });
+                setActiveTab('connections');
+              }}
+              style={styles.clearFilterButton}
+            >
+              <Ionicons name="close-circle" size={18} color={Colors.text.secondary} />
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Tabs */}
+        <View style={styles.tabs}>
+          <TouchableOpacity 
+            style={[styles.tab, activeTab === 'connections' && styles.activeTab]}
+            onPress={() => setActiveTab('connections')}
+          >
+            <ThemedText style={[styles.tabText, activeTab === 'connections' && styles.activeTabText]}>
+              My Connections
+            </ThemedText>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.tab, activeTab === 'nearby' && styles.activeTab]}
+            onPress={() => setActiveTab('nearby')}
+          >
+            <ThemedText style={[styles.tabText, activeTab === 'nearby' && styles.activeTabText]}>
+              Nearby Crew
+            </ThemedText>
+          </TouchableOpacity>
+        </View>
+
+        {/* My Connections Tab */}
+        {activeTab === 'connections' && (
+        <>
         {/* New Requests Section - Always Visible */}
         <View style={styles.section}>
           <ThemedText style={styles.sectionTitle}>
@@ -665,9 +774,80 @@ export default function ConnectionsScreen() {
             </View>
           )}
         </View>
-      </ThemedView>
+        </>
+        )}
 
-      {/* Filter Modal */}
+        {/* Nearby Crew Tab */}
+        {activeTab === 'nearby' && (
+          <View style={styles.section}>
+            <ThemedText style={styles.sectionTitle}>
+              👋 Discoverable Crew
+            </ThemedText>
+            
+            {loading ? (
+              <View style={styles.emptySection}>
+                <ActivityIndicator size="large" color={Colors.primary} />
+              </View>
+            ) : nearbyCrew.length > 0 ? (
+              nearbyCrew.map((crew) => (
+                <TouchableOpacity 
+                  key={crew.id}
+                  style={styles.connectionCard}
+                  onPress={() => router.push(`/profile/${crew.oduserId}`)}
+                >
+                  <View style={styles.connectionInfo}>
+                    {crew.photoURL ? (
+                      <Image 
+                        source={{ uri: crew.photoURL }} 
+                        style={styles.avatar}
+                      />
+                    ) : (
+                      <View style={styles.avatarFallback}>
+                        <ThemedText style={styles.avatarText}>
+                          {crew.displayName.slice(0, 2).toUpperCase()}
+                        </ThemedText>
+                      </View>
+                    )}
+                    <View style={styles.connectionDetails}>
+                      <ThemedText style={styles.connectionName}>
+                        {crew.displayName}
+                      </ThemedText>
+                      {crew.position && (
+                        <View style={styles.positionContainer}>
+                          <ThemedText style={styles.positionText}>
+                            {crew.position}
+                          </ThemedText>
+                        </View>
+                      )}
+                      {crew.airline && (
+                        <ThemedText style={styles.airlineText}>
+                          {crew.airline}
+                        </ThemedText>
+                      )}
+                    </View>
+                  </View>
+                  <Ionicons 
+                    name="chevron-forward" 
+                    size={20} 
+                    color={Colors.text.secondary} 
+                  />
+                </TouchableOpacity>
+              ))
+            ) : (
+              <View style={styles.emptySection}>
+                <ThemedText style={styles.emptySectionText}>
+                  No crew members discoverable right now
+                </ThemedText>
+                <ThemedText style={styles.emptySectionHint}>
+                  {filter === 'area' 
+                    ? `No crew are live and discoverable in ${area} at this time`
+                    : `No crew are live and discoverable in ${city} at this time`}
+                </ThemedText>
+              </View>
+            )}
+          </View>
+        )}
+
       <Modal
         visible={showFilterModal}
         animationType="slide"
@@ -771,6 +951,7 @@ export default function ConnectionsScreen() {
           </View>
         </View>
       </Modal>
+      </ThemedView>
     </ScrollView>
   );
 }
@@ -1158,5 +1339,56 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: Colors.white,
+  },
+  filterBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.background,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 10,
+    marginBottom: 16,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+  },
+  filterBadgeText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.primary,
+  },
+  clearFilterButton: {
+    padding: 4,
+  },
+  tabs: {
+    flexDirection: 'row',
+    backgroundColor: Colors.background,
+    borderRadius: 10,
+    padding: 4,
+    marginBottom: 20,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  activeTab: {
+    backgroundColor: Colors.white,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  tabText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.text.secondary,
+  },
+  activeTabText: {
+    color: Colors.primary,
   },
 });

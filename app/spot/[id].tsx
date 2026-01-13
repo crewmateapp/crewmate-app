@@ -114,7 +114,6 @@ export default function SpotDetailScreen() {
   const [isVerified, setIsVerified] = useState(false);
 
   // Image viewer state
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   // Drawer state for AppHeader
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -391,6 +390,27 @@ export default function SpotDetailScreen() {
     }
   };
 
+  const handleReviewPhotoPress = (photoUrl: string, review: any) => {
+    // Get all photos from this review
+    const reviewPhotos = review.photos || [];
+    const photoIndex = reviewPhotos.indexOf(photoUrl);
+    
+    // Convert to photo data format with encoded URLs
+    const photoData = reviewPhotos.map((url: string) => ({
+      url: encodeURIComponent(url), // Double-encode to survive router decode
+      uploadedByName: review.userName,
+      description: review.review,
+    }));
+    
+    router.push({
+      pathname: '/photo-viewer',
+      params: {
+        photos: JSON.stringify(photoData),
+        initialIndex: Math.max(0, photoIndex)
+      }
+    });
+  };
+
   const handleAddPhoto = async () => {
     if (!user || !id || !spot) return;
 
@@ -620,7 +640,22 @@ export default function SpotDetailScreen() {
           {/* Hero Image with Overlays */}
           {spotPhotos.length > 0 ? (
             <View style={styles.heroContainer}>
-              <TouchableOpacity onPress={() => setSelectedImage(spotPhotos[0])}>
+              <TouchableOpacity onPress={() => {
+                console.log('📸 spotPhotos array:', spotPhotos);
+                const photoData = spotPhotos.map((url, idx) => ({
+                  url: encodeURIComponent(url), // Double-encode to survive router decode
+                  uploadedByName: spot?.addedByName,
+                  title: idx === 0 ? 'Main photo' : undefined,
+                }));
+                console.log('📸 Sending to photo viewer:', photoData);
+                router.push({
+                  pathname: '/photo-viewer',
+                  params: {
+                    photos: JSON.stringify(photoData),
+                    initialIndex: 0
+                  }
+                });
+              }}>
                 <Image
                   source={{ uri: spotPhotos[0] }}
                   style={styles.heroImage}
@@ -755,7 +790,20 @@ export default function SpotDetailScreen() {
               {spotPhotos.slice(1).map((photoUrl, index) => (
                 <TouchableOpacity 
                   key={index} 
-                  onPress={() => setSelectedImage(photoUrl)}
+                  onPress={() => {
+                    const photoData = spotPhotos.map((url, idx) => ({
+                      url: encodeURIComponent(url), // Double-encode to survive router decode
+                      uploadedByName: spot?.addedByName,
+                      title: idx === 0 ? 'Main photo' : undefined,
+                    }));
+                    router.push({
+                      pathname: '/photo-viewer',
+                      params: {
+                        photos: JSON.stringify(photoData),
+                        initialIndex: index + 1  // +1 because we sliced from index 1
+                      }
+                    });
+                  }}
                 >
                   <Image source={{ uri: photoUrl }} style={styles.photo} />
                 </TouchableOpacity>
@@ -836,7 +884,7 @@ export default function SpotDetailScreen() {
           reviews={reviews}
           currentUserId={user?.uid}
           onHelpfulVote={handleHelpfulVote}
-          onPhotoPress={setSelectedImage}
+          onPhotoPress={handleReviewPhotoPress}
         />
 
         {/* Report Button */}
@@ -904,29 +952,6 @@ export default function SpotDetailScreen() {
         </View>
       </Modal>
 
-      {/* IMAGE VIEWER MODAL */}
-      <Modal
-        visible={selectedImage !== null}
-        animationType="fade"
-        transparent={true}
-        onRequestClose={() => setSelectedImage(null)}
-      >
-        <View style={styles.imageViewerOverlay}>
-          <TouchableOpacity 
-            style={styles.imageViewerClose}
-            onPress={() => setSelectedImage(null)}
-          >
-            <Ionicons name="close" size={32} color={Colors.white} />
-          </TouchableOpacity>
-          {selectedImage && (
-            <Image 
-              source={{ uri: selectedImage }} 
-              style={styles.imageViewerImage}
-              resizeMode="contain"
-            />
-          )}
-        </View>
-      </Modal>
     </ScrollView>
     </>
   );
@@ -1252,24 +1277,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.text.secondary,
     textAlign: 'center',
-  },
-  imageViewerOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.95)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  imageViewerClose: {
-    position: 'absolute',
-    top: 60,
-    right: 20,
-    zIndex: 10,
-    padding: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 20,
-  },
-  imageViewerImage: {
-    width: '100%',
-    height: '100%',
   },
 });

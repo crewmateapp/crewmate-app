@@ -52,6 +52,18 @@ type UserLayover = {
   expiresAt?: any;
 };
 
+type UpcomingLayover = {
+  id: string;
+  city: string;
+  area: string;
+  startDate: any; // Firestore Timestamp
+  endDate: any; // Firestore Timestamp
+  status: 'upcoming' | 'active' | 'past';
+  preDiscoverable?: boolean;
+  createdAt: any;
+};
+
+
 type PickerStep = 'closed' | 'city' | 'area';
 
 type CityListItem = {
@@ -91,6 +103,8 @@ export default function MyLayoverScreen() {
   const [crewLiveCount, setCrewLiveCount] = useState(0);
   const [crewNearbyCount, setCrewNearbyCount] = useState(0);
   const [myPlans, setMyPlans] = useState<Plan[]>([]);
+  const [upcomingLayovers, setUpcomingLayovers] = useState<UpcomingLayover[]>([]);
+  
   
   // Location selection state - single step-based picker
   const [pickerStep, setPickerStep] = useState<PickerStep>('closed');
@@ -434,6 +448,15 @@ export default function MyLayoverScreen() {
         const data = docSnap.data();
         const layover = data.currentLayover as UserLayover | undefined;
         setMyLayover(layover || null);
+        
+        // Fetch upcoming layovers
+        const upcoming = (data.upcomingLayovers || []) as UpcomingLayover[];
+        // Filter out past layovers and sort by start date
+        const now = new Date();
+        const activeUpcoming = upcoming
+          .filter(l => l.endDate?.toDate() > now)
+          .sort((a, b) => a.startDate?.toDate().getTime() - b.startDate?.toDate().getTime());
+        setUpcomingLayovers(activeUpcoming);
       }
       setLoading(false);
     });
@@ -844,6 +867,93 @@ export default function MyLayoverScreen() {
                 </TouchableOpacity>
               </View>
             </View>
+
+            {/* Upcoming Layovers */}
+            {upcomingLayovers.length > 0 && (
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <ThemedText style={styles.sectionTitle}>✈️ Upcoming Layovers</ThemedText>
+                  <TouchableOpacity onPress={() => router.push('/manage-layovers')}>
+                    <ThemedText style={styles.seeAll}>Manage</ThemedText>
+                  </TouchableOpacity>
+                </View>
+                
+                {upcomingLayovers.slice(0, 3).map((layover) => {
+                  const startDate = layover.startDate?.toDate();
+                  const endDate = layover.endDate?.toDate();
+                  const daysDiff = startDate ? Math.ceil((startDate.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) : 0;
+                  
+                  return (
+                    <TouchableOpacity 
+                      key={layover.id} 
+                      style={styles.upcomingLayoverCard}
+                      onPress={() => router.push(`/layover/${layover.id}`)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.layoverHeader}>
+                        <View>
+                          <ThemedText style={styles.layoverCity}>{layover.city}</ThemedText>
+                          <ThemedText style={styles.layoverDates}>
+                            {startDate && endDate ? (
+                              <>
+                                {startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                {startDate.getTime() !== endDate.getTime() && (
+                                  <>
+                                    {' - '}
+                                    {endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                  </>
+                                )}
+                              </>
+                            ) : 'Date pending'}
+                          </ThemedText>
+                        </View>
+                        <View style={styles.daysUntilBadge}>
+                          <ThemedText style={styles.daysUntilText}>
+                            {daysDiff === 0 ? 'Today' : daysDiff === 1 ? 'Tomorrow' : `${daysDiff}d`}
+                          </ThemedText>
+                        </View>
+                      </View>
+                      
+                      {/* Quick Actions */}
+                      <View style={styles.layoverQuickActions}>
+                        <TouchableOpacity 
+                          style={styles.layoverActionButton}
+                          onPress={(e) => {
+                            e.stopPropagation();
+                            router.push(`/explore?city=${layover.city}&layoverId=${layover.id}`);
+                          }}
+                        >
+                          <Ionicons name="add-circle-outline" size={18} color={Colors.primary} />
+                          <ThemedText style={styles.layoverActionText}>Add Plan</ThemedText>
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity 
+                          style={styles.layoverActionButton}
+                          onPress={(e) => {
+                            e.stopPropagation();
+                            router.push(`/discover-crew?city=${layover.city}&date=${startDate?.toISOString()}`);
+                          }}
+                        >
+                          <Ionicons name="people-outline" size={18} color={Colors.primary} />
+                          <ThemedText style={styles.layoverActionText}>Find Crew</ThemedText>
+                        </TouchableOpacity>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+            
+            {/* Add Layover Button - Show if no upcoming layovers or after the list */}
+            <TouchableOpacity 
+              style={styles.addLayoverButton}
+              onPress={() => router.push('/add-layover')}
+            >
+              <Ionicons name="airplane-outline" size={20} color={Colors.primary} />
+              <ThemedText style={styles.addLayoverText}>
+                {upcomingLayovers.length === 0 ? 'Plan Upcoming Layover' : 'Add Another Layover'}
+              </ThemedText>
+            </TouchableOpacity>
 
             {/* My Plans */}
             {myPlans.length > 0 && (
@@ -1321,5 +1431,82 @@ const styles = StyleSheet.create({
     color: Colors.text.secondary,
     marginTop: 16,
     textAlign: 'center',
+  },
+  upcomingLayoverCard: {
+    backgroundColor: Colors.card,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  layoverHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  layoverCity: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: Colors.text.primary,
+    marginBottom: 4,
+  },
+  layoverDates: {
+    fontSize: 14,
+    color: Colors.text.secondary,
+  },
+  daysUntilBadge: {
+    backgroundColor: 'rgba(33, 150, 243, 0.1)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+  },
+  daysUntilText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.primary,
+  },
+  layoverQuickActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  layoverActionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.background,
+    paddingVertical: 10,
+    borderRadius: 8,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  layoverActionText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.primary,
+  },
+  addLayoverButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.background,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    marginHorizontal: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    gap: 8,
+  },
+  addLayoverText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.primary,
   },
 });
