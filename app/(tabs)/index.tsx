@@ -104,6 +104,7 @@ export default function MyLayoverScreen() {
   const [editingLayoverId, setEditingLayoverId] = useState<string | null>(null);
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
   const [showEndDatePicker, setShowEndDatePicker] = useState(false);
+  const [selectedAirportData, setSelectedAirportData] = useState<AirportData | null>(null);
 
   // UI state
   const [searchQuery, setSearchQuery] = useState('');
@@ -236,9 +237,9 @@ export default function MyLayoverScreen() {
           );
           items.unshift({
             type: 'recommended',
-            name: airport.city,
+            name: airport.name,
             code: airport.code,
-            displayName: `${airport.city} (${airport.code})`,
+            displayName: `${airport.name} (${airport.code})`,
             distance,
             airportData: airport,
           });
@@ -270,9 +271,9 @@ export default function MyLayoverScreen() {
         if (!results.some(r => r.code === airport.code)) {
           results.push({
             type: 'airport',
-            name: airport.city,
+            name: airport.name,
             code: airport.code,
-            displayName: `${airport.city} (${airport.code})`,
+            displayName: `${airport.name} (${airport.code})`,
             airportData: airport,
           });
         }
@@ -413,6 +414,7 @@ export default function MyLayoverScreen() {
     setSearchQuery('');
     setSelectedCity('');
     setSelectedArea('');
+    setSelectedAirportData(null);
     setEditingLayoverId(null);
     // Set default dates: tomorrow and day after
     const tomorrow = new Date();
@@ -428,6 +430,7 @@ export default function MyLayoverScreen() {
     setEditingLayoverId(layover.id);
     setSelectedCity(layover.city);
     setSelectedArea(layover.area);
+    setSelectedAirportData(null); // Clear airport data when editing
     setStartDate(layover.startDate.toDate());
     setEndDate(layover.endDate.toDate());
     setPickerStep('dates'); // Skip city/area selection, go straight to dates
@@ -436,6 +439,7 @@ export default function MyLayoverScreen() {
   // Select city from picker
   const selectCity = (item: CityListItem) => {
     setSelectedCity(item.name);
+    setSelectedAirportData(item.airportData || null);
     setPickerStep('area');
     setSearchQuery('');
   };
@@ -660,7 +664,12 @@ export default function MyLayoverScreen() {
             </View>
           ) : (
             upcomingLayovers.map(layover => (
-              <View key={layover.id} style={styles.layoverCard}>
+              <TouchableOpacity 
+                key={layover.id} 
+                style={styles.layoverCard}
+                onPress={() => router.push(`/layover/${layover.id}`)}
+                activeOpacity={0.8}
+              >
                 <View style={styles.layoverHeader}>
                   <View style={styles.layoverInfo}>
                     <ThemedText style={styles.layoverCity}>{layover.city}</ThemedText>
@@ -671,10 +680,22 @@ export default function MyLayoverScreen() {
                   </View>
                   <View style={styles.layoverIcons}>
                     <Ionicons name="airplane" size={24} color={Colors.primary} />
-                    <TouchableOpacity onPress={() => editLayover(layover)} style={styles.editButton}>
+                    <TouchableOpacity 
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        editLayover(layover);
+                      }} 
+                      style={styles.editButton}
+                    >
                       <Ionicons name="pencil-outline" size={22} color={Colors.text.secondary} />
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => deleteLayover(layover.id, layover.city)} style={styles.deleteButton}>
+                    <TouchableOpacity 
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        deleteLayover(layover.id, layover.city);
+                      }} 
+                      style={styles.deleteButton}
+                    >
                       <Ionicons name="trash-outline" size={22} color={Colors.error} />
                     </TouchableOpacity>
                   </View>
@@ -683,7 +704,10 @@ export default function MyLayoverScreen() {
                 <View style={styles.layoverActions}>
                   <TouchableOpacity
                     style={styles.checkInButton}
-                    onPress={() => checkInToLayover(layover)}
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      checkInToLayover(layover);
+                    }}
                     disabled={verifying}
                   >
                     {verifying ? (
@@ -698,13 +722,16 @@ export default function MyLayoverScreen() {
 
                   <TouchableOpacity
                     style={styles.viewPlansButton}
-                    onPress={() => router.push('/(tabs)/plans')}
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      router.push(`/(tabs)/plans?city=${layover.city}`);
+                    }}
                   >
                     <ThemedText style={styles.viewPlansButtonText}>View Plans</ThemedText>
                     <Ionicons name="arrow-forward" size={16} color={Colors.primary} />
                   </TouchableOpacity>
                 </View>
-              </View>
+              </TouchableOpacity>
             ))
           )}
 
@@ -789,11 +816,11 @@ export default function MyLayoverScreen() {
           )}
 
           {/* Area Picker */}
-          {pickerStep === 'area' && selectedCityData && (
+          {pickerStep === 'area' && (selectedCityData || selectedAirportData) && (
             <View style={styles.pickerContent}>
               <ThemedText style={styles.pickerSubtitle}>{selectedCity}</ThemedText>
               <FlatList
-                data={selectedCityData.areas}
+                data={selectedAirportData?.areas || selectedCityData?.areas || []}
                 keyExtractor={(item) => item}
                 renderItem={({ item }) => (
                   <TouchableOpacity

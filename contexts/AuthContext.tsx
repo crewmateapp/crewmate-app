@@ -6,8 +6,9 @@ import {
   sendEmailVerification,
   signInWithEmailAndPassword,
 } from 'firebase/auth';
+import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { createContext, useContext, useEffect, useState } from 'react';
-import { auth } from '../config/firebase';
+import { auth, db } from '../config/firebase';
 
 type AuthContextType = {
   user: User | null;
@@ -34,15 +35,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signUp = async (email: string, password: string) => {
+    // Create Firebase Auth user
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     
-    // Send verification email with proper settings
+    // Send verification email
     const actionCodeSettings = {
-      url: 'https://crewmate-4399c.firebaseapp.com', // Your Firebase project URL
-      handleCodeInApp: false, // Important: set to false for email verification
+      url: 'https://crewmate-4399c.firebaseapp.com',
+      handleCodeInApp: false,
     };
     
     await sendEmailVerification(userCredential.user, actionCodeSettings);
+    
+    // Create Firestore user document
+    await setDoc(doc(db, 'users', userCredential.user.uid), {
+      email: email.toLowerCase(),
+      createdAt: serverTimestamp(),
+      emailVerified: false,
+      onboardingComplete: false,
+      currentLayover: null,
+      upcomingLayovers: [],
+    });
   };
 
   const signIn = async (email: string, password: string) => {

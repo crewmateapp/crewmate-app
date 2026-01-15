@@ -30,6 +30,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Keyboard,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -108,6 +109,11 @@ export default function CreatePlanScreen() {
   const [visibility, setVisibility] = useState<'public' | 'connections' | 'invite_only'>('public');
   const [showSpotSelector, setShowSpotSelector] = useState(false);
   const [drawerVisible, setDrawerVisible] = useState(false);
+  
+  // Layover selection state
+  const [showLayoverPicker, setShowLayoverPicker] = useState(false);
+  const [availableLayovers, setAvailableLayovers] = useState<any[]>([]);
+  const [selectedLayoverId, setSelectedLayoverId] = useState<string | null>(null);
 
   // Pre-fill spot if coming from spot detail page
   useEffect(() => {
@@ -172,15 +178,44 @@ export default function CreatePlanScreen() {
       if (userDoc.exists()) {
         const data = userDoc.data();
         
-        if (layoverId && data.upcomingLayovers) {
-          console.log('🔍 Looking for layover:', layoverId);
-          const foundLayover = data.upcomingLayovers.find((l: any) => l.id === layoverId);
+        // Build list of available layovers
+        const layoverOptions: any[] = [];
+        
+        // Add current layover if exists
+        if (data.currentLayover?.city) {
+          layoverOptions.push({
+            id: 'current',
+            city: data.currentLayover.city,
+            area: data.currentLayover.area,
+            startDate: data.currentLayover.startDate || Timestamp.now(),
+            endDate: data.currentLayover.endDate || Timestamp.now(),
+            isCurrent: true,
+          });
+        }
+        
+        // Add upcoming layovers
+        if (data.upcomingLayovers && Array.isArray(data.upcomingLayovers)) {
+          data.upcomingLayovers.forEach((l: any) => {
+            layoverOptions.push({
+              ...l,
+              isCurrent: false,
+            });
+          });
+        }
+        
+        console.log('🛫 Available layovers:', layoverOptions.length);
+        setAvailableLayovers(layoverOptions);
+        
+        // Handle layover selection logic
+        if (layoverId) {
+          // Specific layover ID was passed in URL
+          const foundLayover = layoverOptions.find((l: any) => l.id === layoverId);
           if (foundLayover) {
-            console.log('✅ Found layover:', foundLayover);
+            console.log('✅ Found layover from URL:', foundLayover);
             setLayover(foundLayover);
+            setSelectedLayoverId(layoverId);
             setCurrentCity(foundLayover.city);
             setCurrentArea(foundLayover.area);
-            console.log('🏙️ Set currentCity to:', foundLayover.city);
             
             // Auto-generate title if empty
             if (!title) {
@@ -192,14 +227,46 @@ export default function CreatePlanScreen() {
             if (foundLayover.startDate?.toDate) {
               setScheduledDate(foundLayover.startDate.toDate());
             }
-          } else {
-            console.log('❌ Layover not found in upcomingLayovers');
+          }
+        } else if (layoverOptions.length === 0) {
+          // No layovers at all - show alert and go back
+          Alert.alert(
+            'Add a Layover First',
+            'You need to add a layover before creating plans.',
+            [
+              {
+                text: 'Add Layover',
+                onPress: () => router.replace('/(tabs)/'),
+              },
+              {
+                text: 'Cancel',
+                style: 'cancel',
+                onPress: () => router.back(),
+              },
+            ]
+          );
+        } else if (layoverOptions.length === 1) {
+          // Only one layover - auto-select it
+          const onlyLayover = layoverOptions[0];
+          console.log('✅ Auto-selecting only layover:', onlyLayover);
+          setLayover(onlyLayover);
+          setSelectedLayoverId(onlyLayover.id);
+          setCurrentCity(onlyLayover.city);
+          setCurrentArea(onlyLayover.area);
+          
+          if (!title) {
+            const date = onlyLayover.startDate?.toDate?.() || new Date();
+            const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            setTitle(`${onlyLayover.city} - ${dateStr}`);
+          }
+          
+          if (onlyLayover.startDate?.toDate) {
+            setScheduledDate(onlyLayover.startDate.toDate());
           }
         } else {
-          console.log('📍 Using currentLayover from user data');
-          setCurrentCity(data.currentLayover?.city || null);
-          setCurrentArea(data.currentLayover?.area || null);
-          console.log('🏙️ Set currentCity to:', data.currentLayover?.city || null);
+          // Multiple layovers - show picker
+          console.log('🔍 Multiple layovers, showing picker');
+          setShowLayoverPicker(true);
         }
       }
       setLoading(false);
@@ -252,6 +319,27 @@ export default function CreatePlanScreen() {
 
     fetchSpots();
   }, [currentCity]);
+
+  const selectLayover = (layoverToSelect: any) => {
+    console.log('✅ User selected layover:', layoverToSelect);
+    setLayover(layoverToSelect);
+    setSelectedLayoverId(layoverToSelect.id);
+    setCurrentCity(layoverToSelect.city);
+    setCurrentArea(layoverToSelect.area);
+    
+    // Auto-generate title if empty
+    if (!title) {
+      const date = layoverToSelect.startDate?.toDate?.() || new Date();
+      const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      setTitle(`${layoverToSelect.city} - ${dateStr}`);
+    }
+    
+    if (layoverToSelect.startDate?.toDate) {
+      setScheduledDate(layoverToSelect.startDate.toDate());
+    }
+    
+    setShowLayoverPicker(false);
+  };
 
   const addStop = () => {
     console.log('🔍 addStop called, selectedSpotId:', selectedSpotId);
@@ -364,7 +452,7 @@ export default function CreatePlanScreen() {
         attendeeIds: [user.uid],
         attendeeCount: 1,
         status: 'active',
-        layoverId: layoverId || null,
+        layoverId: selectedLayoverId || layoverId || null,
         isMultiStop: isMultiStop,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -907,6 +995,83 @@ export default function CreatePlanScreen() {
               onClose={() => setShowTimePicker(false)}
               onSelect={(date) => setScheduledDate(date)}
             />
+
+            {/* Layover Picker Modal */}
+            <Modal
+              visible={showLayoverPicker}
+              animationType="slide"
+              presentationStyle="pageSheet"
+              onRequestClose={() => {
+                if (availableLayovers.length > 0) {
+                  setShowLayoverPicker(false);
+                  router.back();
+                }
+              }}
+            >
+              <ThemedView style={styles.modalContainer}>
+                <View style={styles.modalHeader}>
+                  <TouchableOpacity onPress={() => {
+                    setShowLayoverPicker(false);
+                    router.back();
+                  }}>
+                    <Ionicons name="close" size={28} color={Colors.text.primary} />
+                  </TouchableOpacity>
+                  <ThemedText style={styles.modalTitle}>Select Layover</ThemedText>
+                  <View style={{ width: 28 }} />
+                </View>
+
+                <ScrollView style={styles.modalContent}>
+                  <ThemedText style={styles.modalDescription}>
+                    Which layover is this plan for?
+                  </ThemedText>
+
+                  {availableLayovers.map((layover) => (
+                    <TouchableOpacity
+                      key={layover.id}
+                      style={styles.layoverOption}
+                      onPress={() => selectLayover(layover)}
+                    >
+                      <View style={styles.layoverOptionContent}>
+                        <View style={styles.layoverIconContainer}>
+                          <Ionicons 
+                            name={layover.isCurrent ? "location" : "airplane"} 
+                            size={24} 
+                            color={layover.isCurrent ? Colors.success : Colors.primary} 
+                          />
+                        </View>
+                        <View style={styles.layoverDetails}>
+                          <View style={styles.layoverTitleRow}>
+                            <ThemedText style={styles.layoverOptionCity}>
+                              {layover.city}
+                            </ThemedText>
+                            {layover.isCurrent && (
+                              <View style={styles.currentBadge}>
+                                <ThemedText style={styles.currentBadgeText}>Current</ThemedText>
+                              </View>
+                            )}
+                          </View>
+                          <ThemedText style={styles.layoverOptionArea}>
+                            {layover.area}
+                          </ThemedText>
+                          <ThemedText style={styles.layoverOptionDates}>
+                            {layover.startDate?.toDate?.().toLocaleDateString('en-US', { 
+                              month: 'short', 
+                              day: 'numeric',
+                              year: 'numeric'
+                            })} - {layover.endDate?.toDate?.().toLocaleDateString('en-US', { 
+                              month: 'short', 
+                              day: 'numeric',
+                              year: 'numeric'
+                            })}
+                          </ThemedText>
+                        </View>
+                      </View>
+                      <Ionicons name="chevron-forward" size={20} color={Colors.text.secondary} />
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </ThemedView>
+            </Modal>
           </ThemedView>
         </KeyboardAvoidingView>
       </SafeAreaView>
@@ -1231,6 +1396,95 @@ const styles = StyleSheet.create({
   },
   layoverBannerDate: {
     fontSize: 14,
+    color: Colors.text.secondary,
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: Colors.text.primary,
+  },
+  modalContent: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+  },
+  modalDescription: {
+    fontSize: 16,
+    color: Colors.text.secondary,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  layoverOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.card,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  layoverOptionContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 12,
+  },
+  layoverIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: Colors.primary + '15',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  layoverDetails: {
+    flex: 1,
+  },
+  layoverTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  layoverOptionCity: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: Colors.text.primary,
+  },
+  currentBadge: {
+    backgroundColor: Colors.success + '20',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  currentBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.success,
+  },
+  layoverOptionArea: {
+    fontSize: 14,
+    color: Colors.text.secondary,
+    marginBottom: 4,
+  },
+  layoverOptionDates: {
+    fontSize: 13,
     color: Colors.text.secondary,
   },
 });

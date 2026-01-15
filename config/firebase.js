@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { initializeApp } from 'firebase/app';
 import { getAuth, getReactNativePersistence, initializeAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { getFunctions } from 'firebase/functions';
 import { getStorage } from 'firebase/storage';
 import { Platform } from 'react-native';
 
@@ -32,3 +33,15 @@ if (Platform.OS === 'web') {
 export { auth };
 export const db = getFirestore(app);
 export const storage = getStorage(app);
+
+// Initialize functions with error handling
+let functions;
+try {
+  functions = getFunctions(app);
+  console.log('✅ Firebase Functions initialized');
+} catch (error) {
+  console.error('⚠️ Functions initialization error:', error);
+  functions = null;
+}
+
+export { functions };

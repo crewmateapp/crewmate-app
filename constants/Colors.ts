@@ -64,6 +64,13 @@ export const DarkColors = {
   black: '#000000',
 };
 
-// Legacy export for backward compatibility
-// This will use light colors by default - components should migrate to useTheme hook
+// Theme-structured export for theme system (used by hooks)
+export const ThemeColors = {
+  light: LightColors,
+  dark: DarkColors,
+};
+
+// Main export - backwards compatible (always light mode for now)
+// Components will continue to work, but won't be theme-aware
+// TODO: Migrate components to use useColors() hook for theme support
 export const Colors = LightColors;

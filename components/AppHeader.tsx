@@ -6,6 +6,7 @@ import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAdminNotifications } from '@/hooks/useAdminNotifications';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import {
@@ -91,9 +92,13 @@ export default function AppHeader({
         </TouchableOpacity>
 
         {/* Logo */}
-        <View style={styles.logoContainer}>
+        <TouchableOpacity 
+          style={styles.logoContainer}
+          onPress={() => router.push("/(tabs)/")}
+          activeOpacity={0.7}
+        >
           <Logo variant="full" size="small" />
-        </View>
+        </TouchableOpacity>
 
         {/* Right Section */}
         <View style={styles.rightSection}>

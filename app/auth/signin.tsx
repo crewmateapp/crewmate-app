@@ -25,13 +25,17 @@ export default function SignInScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const { signIn } = useAuth();
+  const { signIn, signOut, sendVerificationEmail } = useAuth();
 
   // Forgot password state
   const [forgotModalVisible, setForgotModalVisible] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
   const [resetLoading, setResetLoading] = useState(false);
   const [resetSent, setResetSent] = useState(false);
+
+  // Email verification state
+  const [showResendVerification, setShowResendVerification] = useState(false);
+  const [resendingVerification, setResendingVerification] = useState(false);
 
   const handleSignIn = async () => {
     if (!email || !password) {
@@ -40,11 +44,29 @@ export default function SignInScreen() {
     }
 
     setLoading(true);
+    setShowResendVerification(false);
+    
     try {
       await signIn(email, password);
+      
+      // Check if email is verified
+      if (auth.currentUser && !auth.currentUser.emailVerified) {
+        // Sign them back out since email isn't verified
+        await signOut();
+        setShowResendVerification(true);
+        Alert.alert(
+          'Email Not Verified',
+          'Please verify your email address before signing in. Check your inbox for the verification link.',
+          [
+            { text: 'OK' }
+          ]
+        );
+        return;
+      }
+      
       router.replace('/(tabs)');
     } catch (error: any) {
-      console.log('Sign in error:', error.code, error.message); // Debug log
+      console.log('Sign in error:', error.code, error.message);
       
       let message = 'Failed to sign in';
       switch (error.code) {
@@ -81,6 +103,47 @@ export default function SignInScreen() {
       Alert.alert('Sign In Failed', message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    if (!email || !password) {
+      Alert.alert('Error', 'Please enter your email and password first');
+      return;
+    }
+
+    setResendingVerification(true);
+    
+    try {
+      // Sign in temporarily to get the user object
+      await signIn(email, password);
+      
+      // Send verification email
+      await sendVerificationEmail();
+      
+      // Sign them back out
+      await signOut();
+      
+      Alert.alert(
+        'Verification Email Sent!',
+        `A new verification link has been sent to ${email}.\n\n⚠️ If you don't see it:\n• Check your spam/junk folder\n• Airline emails may take longer to arrive\n• Some airline email servers may block automated emails`,
+        [{ text: 'OK' }]
+      );
+      
+      setShowResendVerification(false);
+    } catch (error: any) {
+      console.error('Resend verification error:', error);
+      
+      let message = 'Failed to resend verification email';
+      if (error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found') {
+        message = 'Invalid email or password. Please check your credentials.';
+      } else if (error.code === 'auth/too-many-requests') {
+        message = 'Too many attempts. Please try again later.';
+      }
+      
+      Alert.alert('Error', message);
+    } finally {
+      setResendingVerification(false);
     }
   };
 
@@ -184,6 +247,31 @@ export default function SignInScreen() {
                 {loading ? 'Signing In...' : 'Sign In'}
               </ThemedText>
             </TouchableOpacity>
+
+            {/* Resend Verification Email */}
+            {showResendVerification && (
+              <View style={styles.verificationBanner}>
+                <View style={styles.verificationContent}>
+                  <Ionicons name="mail-outline" size={20} color={Colors.warning} />
+                  <ThemedText style={styles.verificationText}>
+                    Email not verified
+                  </ThemedText>
+                </View>
+                <TouchableOpacity
+                  style={[styles.resendVerificationButton, resendingVerification && styles.buttonDisabled]}
+                  onPress={handleResendVerification}
+                  disabled={resendingVerification}
+                >
+                  {resendingVerification ? (
+                    <ActivityIndicator size="small" color={Colors.primary} />
+                  ) : (
+                    <ThemedText style={styles.resendVerificationText}>
+                      Resend Verification Email
+                    </ThemedText>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
 
             <TouchableOpacity onPress={() => router.push('/auth/signup')}>
               <ThemedText style={styles.link}>
@@ -356,6 +444,38 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 16,
     marginTop: 10,
+  },
+  // Verification banner styles
+  verificationBanner: {
+    backgroundColor: Colors.warning + '15',
+    borderWidth: 1,
+    borderColor: Colors.warning,
+    borderRadius: 12,
+    padding: 16,
+    gap: 12,
+  },
+  verificationContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  verificationText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.warning,
+  },
+  resendVerificationButton: {
+    backgroundColor: Colors.white,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  resendVerificationText: {
+    color: Colors.primary,
+    fontSize: 15,
+    fontWeight: '600',
   },
   // Modal styles
   modalOverlay: {

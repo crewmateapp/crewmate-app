@@ -8,6 +8,8 @@ import * as ImagePicker from 'expo-image-picker';
 import {
   addDoc,
   collection,
+  doc,
+  getDoc,
   onSnapshot,
   orderBy,
   query,
@@ -49,7 +51,30 @@ export function PlanChat({ planId, planTitle }: PlanChatProps) {
   const [sending, setSending] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
+  const [userProfile, setUserProfile] = useState<{ displayName: string; photoURL: string | null } | null>(null);
 
+
+  // Fetch current user's profile
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    const fetchUserProfile = async () => {
+      try {
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (userDoc.exists()) {
+          const data = userDoc.data();
+          setUserProfile({
+            displayName: data.displayName || 'Crew Member',
+            photoURL: data.photoURL || null,
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching user profile:', error);
+      }
+    };
+
+    fetchUserProfile();
+  }, [user]);
   // Fetch messages in real-time
   useEffect(() => {
     if (!planId) return;
@@ -87,8 +112,8 @@ export function PlanChat({ planId, planTitle }: PlanChatProps) {
     try {
       await addDoc(collection(db, 'plans', planId, 'messages'), {
         userId: user.uid,
-        userName: user.displayName || 'Crew Member',
-        userPhoto: user.photoURL || null,
+        userName: userProfile?.displayName || 'Crew Member',
+        userPhoto: userProfile?.photoURL || null,
         message: messageText,
         photoURL: null,
         createdAt: serverTimestamp(),
@@ -139,8 +164,8 @@ export function PlanChat({ planId, planTitle }: PlanChatProps) {
       // Add photo message to chat
       await addDoc(collection(db, 'plans', planId, 'messages'), {
         userId: user.uid,
-        userName: user.displayName || 'Crew Member',
-        userPhoto: user.photoURL || null,
+        userName: userProfile?.displayName || 'Crew Member',
+        userPhoto: userProfile?.photoURL || null,
         message: null,
         photoURL: downloadURL,
         createdAt: serverTimestamp(),

@@ -3,7 +3,7 @@
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { db } from '@/config/firebase';
+import { db, functions } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { isSuperAdmin, useAdminRole } from '@/hooks/useAdminRole';
@@ -24,6 +24,7 @@ import {
   updateDoc,
   where
 } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -142,6 +143,12 @@ export default function AdminScreen() {
   // Migration
   const [migrating, setMigrating] = useState(false);
   const [migrationStatus, setMigrationStatus] = useState<string>('');
+  const [fixingOrphanedUsers, setFixingOrphanedUsers] = useState(false);
+  const [orphanedUsersResult, setOrphanedUsersResult] = useState<any>(null);
+  
+  // City Name Migration
+  const [fixingCityNames, setFixingCityNames] = useState(false);
+  const [cityMigrationResult, setCityMigrationResult] = useState<any>(null);
 
   // Analytics data
   const [stats, setStats] = useState({
@@ -950,6 +957,291 @@ export default function AdminScreen() {
       console.error('Error loading analytics:', error);
     }
   };
+  // Fix Orphaned Users (users in Auth but not in Firestore)
+const handleFixOrphanedUsers = async () => {
+  if (!isSuperAdmin(role)) {
+    Alert.alert('Permission Denied', 'Only super admins can run this operation.');
+    return;
+  }
+
+  Alert.alert(
+    'Fix Orphaned Users',
+    'This will create Firestore documents for users who exist in Authentication but are missing from the users collection. Continue?',
+    [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Fix Users',
+        onPress: async () => {
+          try {
+            setFixingOrphanedUsers(true);
+            setOrphanedUsersResult(null);
+            const fixOrphanedUsers = httpsCallable(functions, 'fixOrphanedUsers');
+            const response = await fixOrphanedUsers();
+            setOrphanedUsersResult(response.data);
+            Alert.alert(
+              'Success!',
+              `Fixed ${(response.data as any).fixed} orphaned users out of ${(response.data as any).processed} total users.`
+            );
+          } catch (error: any) {
+            console.error('Error fixing orphaned users:', error);
+            Alert.alert('Error', error.message || 'Failed to fix orphaned users');
+          } finally {
+            setFixingOrphanedUsers(false);
+          }
+        },
+      },
+    ]
+  );
+};
+
+  // Fix City Names Migration
+  const handleFixCityNames = async () => {
+    if (!isSuperAdmin(role)) {
+      Alert.alert('Permission Denied', 'Only super admins can run this operation.');
+      return;
+    }
+
+    Alert.alert(
+      'Fix City Names',
+      'This will standardize city names in all spots (e.g., "Minneapolis" → "Minneapolis-St Paul"). Want to preview changes first?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Preview',
+          onPress: async () => {
+            try {
+              setFixingCityNames(true);
+              setCityMigrationResult(null);
+              
+              // Fetch all approved spots
+              const spotsSnapshot = await getDocs(query(collection(db, 'spots'), where('status', '==', 'approved')));
+              
+              // Define city mappings
+              const cityMappings: Record<string, string> = {
+                'Minneapolis': 'Minneapolis-St Paul',
+                'St Paul': 'Minneapolis-St Paul',
+                'St. Paul': 'Minneapolis-St Paul',
+                'Charleston': 'Charleston SC',
+                'Greenville': 'Greenville SC',
+                'Raleigh': 'Raleigh-Durham',
+                'Durham': 'Raleigh-Durham',
+                'Columbia': 'Columbia SC',
+                'Fort Lauderdale': 'Fort Lauderdale',
+                'Fort Myers': 'Fort Myers',
+                'New York': 'New York JFK', // Could also be LGA, but we'll default to JFK
+                'Los Angeles': 'Los Angeles',
+                'San Francisco': 'San Francisco',
+                'Chicago': 'Chicago',
+                'Dallas': 'Dallas-Fort Worth',
+                'Fort Worth': 'Dallas-Fort Worth',
+                'Houston': 'Houston',
+                'Phoenix': 'Phoenix',
+                'Philadelphia': 'Philadelphia',
+                'San Antonio': 'San Antonio',
+                'San Diego': 'San Diego',
+                'San Jose': 'San Jose',
+                'Austin': 'Austin',
+                'Jacksonville': 'Jacksonville',
+                'Indianapolis': 'Indianapolis',
+                'Columbus': 'Columbus',
+                'Charlotte': 'Charlotte',
+                'Seattle': 'Seattle',
+                'Denver': 'Denver',
+                'Boston': 'Boston',
+                'Nashville': 'Nashville',
+                'Baltimore': 'Baltimore',
+                'Oklahoma City': 'Oklahoma City',
+                'Portland': 'Portland',
+                'Las Vegas': 'Las Vegas',
+                'Detroit': 'Detroit',
+                'Memphis': 'Memphis',
+                'Louisville': 'Louisville',
+                'Milwaukee': 'Milwaukee',
+                'Albuquerque': 'Albuquerque',
+                'Tucson': 'Tucson',
+                'Fresno': 'Fresno',
+                'Sacramento': 'Sacramento',
+                'Kansas City': 'Kansas City',
+                'Atlanta': 'Atlanta',
+                'Miami': 'Miami',
+                'Cleveland': 'Cleveland',
+                'New Orleans': 'New Orleans',
+                'Tampa': 'Tampa',
+                'Honolulu': 'Honolulu',
+                'Omaha': 'Omaha',
+                'Oakland': 'Oakland',
+                'Tulsa': 'Tulsa',
+                'Minneapolis': 'Minneapolis-St Paul',
+                'Wichita': 'Wichita',
+                'Arlington': 'Dallas-Fort Worth',
+              };
+              
+              const changes: any[] = [];
+              let unchangedCount = 0;
+              
+              spotsSnapshot.docs.forEach((doc) => {
+                const spot = doc.data();
+                const currentCity = spot.city;
+                const standardizedCity = cityMappings[currentCity];
+                
+                if (standardizedCity && standardizedCity !== currentCity) {
+                  changes.push({
+                    id: doc.id,
+                    name: spot.name,
+                    oldCity: currentCity,
+                    newCity: standardizedCity,
+                  });
+                } else {
+                  unchangedCount++;
+                }
+              });
+              
+              setCityMigrationResult({
+                preview: true,
+                changes,
+                unchangedCount,
+                totalProcessed: spotsSnapshot.docs.length,
+              });
+              
+              if (changes.length === 0) {
+                Alert.alert('No Changes Needed', `All ${spotsSnapshot.docs.length} spots already have standardized city names!`);
+              } else {
+                Alert.alert(
+                  'Preview Complete',
+                  `Found ${changes.length} spots to update out of ${spotsSnapshot.docs.length} total.\n\nReview the changes below, then click "Apply Changes" to update.`
+                );
+              }
+            } catch (error: any) {
+              console.error('Error previewing city name changes:', error);
+              Alert.alert('Error', error.message || 'Failed to preview changes');
+            } finally {
+              setFixingCityNames(false);
+            }
+          },
+        },
+        {
+          text: 'Apply Now',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setFixingCityNames(true);
+              setCityMigrationResult(null);
+              
+              // Fetch all approved spots
+              const spotsSnapshot = await getDocs(query(collection(db, 'spots'), where('status', '==', 'approved')));
+              
+              // Define city mappings (same as above)
+              const cityMappings: Record<string, string> = {
+                'Minneapolis': 'Minneapolis-St Paul',
+                'St Paul': 'Minneapolis-St Paul',
+                'St. Paul': 'Minneapolis-St Paul',
+                'Charleston': 'Charleston SC',
+                'Greenville': 'Greenville SC',
+                'Raleigh': 'Raleigh-Durham',
+                'Durham': 'Raleigh-Durham',
+                'Columbia': 'Columbia SC',
+                'Fort Lauderdale': 'Fort Lauderdale',
+                'Fort Myers': 'Fort Myers',
+                'New York': 'New York JFK',
+                'Los Angeles': 'Los Angeles',
+                'San Francisco': 'San Francisco',
+                'Chicago': 'Chicago',
+                'Dallas': 'Dallas-Fort Worth',
+                'Fort Worth': 'Dallas-Fort Worth',
+                'Houston': 'Houston',
+                'Phoenix': 'Phoenix',
+                'Philadelphia': 'Philadelphia',
+                'San Antonio': 'San Antonio',
+                'San Diego': 'San Diego',
+                'San Jose': 'San Jose',
+                'Austin': 'Austin',
+                'Jacksonville': 'Jacksonville',
+                'Indianapolis': 'Indianapolis',
+                'Columbus': 'Columbus',
+                'Charlotte': 'Charlotte',
+                'Seattle': 'Seattle',
+                'Denver': 'Denver',
+                'Boston': 'Boston',
+                'Nashville': 'Nashville',
+                'Baltimore': 'Baltimore',
+                'Oklahoma City': 'Oklahoma City',
+                'Portland': 'Portland',
+                'Las Vegas': 'Las Vegas',
+                'Detroit': 'Detroit',
+                'Memphis': 'Memphis',
+                'Louisville': 'Louisville',
+                'Milwaukee': 'Milwaukee',
+                'Albuquerque': 'Albuquerque',
+                'Tucson': 'Tucson',
+                'Fresno': 'Fresno',
+                'Sacramento': 'Sacramento',
+                'Kansas City': 'Kansas City',
+                'Atlanta': 'Atlanta',
+                'Miami': 'Miami',
+                'Cleveland': 'Cleveland',
+                'New Orleans': 'New Orleans',
+                'Tampa': 'Tampa',
+                'Honolulu': 'Honolulu',
+                'Omaha': 'Omaha',
+                'Oakland': 'Oakland',
+                'Tulsa': 'Tulsa',
+                'Wichita': 'Wichita',
+                'Arlington': 'Dallas-Fort Worth',
+              };
+              
+              const changes: any[] = [];
+              let unchangedCount = 0;
+              let errorCount = 0;
+              
+              // Update spots
+              for (const docSnapshot of spotsSnapshot.docs) {
+                const spot = docSnapshot.data();
+                const currentCity = spot.city;
+                const standardizedCity = cityMappings[currentCity];
+                
+                if (standardizedCity && standardizedCity !== currentCity) {
+                  try {
+                    await updateDoc(doc(db, 'spots', docSnapshot.id), {
+                      city: standardizedCity,
+                    });
+                    changes.push({
+                      id: docSnapshot.id,
+                      name: spot.name,
+                      oldCity: currentCity,
+                      newCity: standardizedCity,
+                    });
+                  } catch (error) {
+                    console.error(`Error updating spot ${docSnapshot.id}:`, error);
+                    errorCount++;
+                  }
+                } else {
+                  unchangedCount++;
+                }
+              }
+              
+              setCityMigrationResult({
+                preview: false,
+                changes,
+                unchangedCount,
+                errorCount,
+                totalProcessed: spotsSnapshot.docs.length,
+              });
+              
+              Alert.alert(
+                'Migration Complete!',
+                `✅ Updated: ${changes.length} spots\n📍 Unchanged: ${unchangedCount} spots\n${errorCount > 0 ? `❌ Errors: ${errorCount} spots\n` : ''}\n\nAll spots now have standardized city names!`
+              );
+            } catch (error: any) {
+              console.error('Error fixing city names:', error);
+              Alert.alert('Error', error.message || 'Failed to fix city names');
+            } finally {
+              setFixingCityNames(false);
+            }
+          },
+        },
+      ]
+    );
+  };
 
   // Migration function (kept from original)
   const handleMigrateCities = async () => {
@@ -1051,6 +1343,15 @@ export default function AdminScreen() {
             >
               <ThemedText style={[styles.tabText, activeTab === 'feedback' && styles.tabTextActive]}>
                 Feedback {feedbackList.filter(f => f.status === 'new').length > 0 && `(${feedbackList.filter(f => f.status === 'new').length})`}
+              </ThemedText>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.tab, activeTab === 'migration' && styles.tabActive]}
+              onPress={() => setActiveTab('migration')}
+            >
+              <ThemedText style={[styles.tabText, activeTab === 'migration' && styles.tabTextActive]}>
+                Migration
               </ThemedText>
             </TouchableOpacity>
           </>
@@ -1739,6 +2040,113 @@ export default function AdminScreen() {
               </View>
             }
           />
+        )}
+
+        {/* Migration Tab */}
+        {activeTab === 'migration' && (
+          <ScrollView contentContainerStyle={{ padding: 20 }}>
+            <ThemedText style={styles.sectionTitle}>🔧 User Management</ThemedText>
+            
+            <View style={styles.card}>
+              <ThemedText style={styles.cardTitle}>Fix Orphaned Users</ThemedText>
+              <ThemedText style={styles.cardDescription}>
+                Find users who exist in Firebase Authentication but are missing from the Firestore users collection and create their documents.
+              </ThemedText>
+              
+              <TouchableOpacity
+                style={[styles.button, fixingOrphanedUsers && styles.buttonDisabled]}
+                onPress={handleFixOrphanedUsers}
+                disabled={fixingOrphanedUsers}
+              >
+                {fixingOrphanedUsers ? (
+                  <ActivityIndicator color={Colors.white} />
+                ) : (
+                  <ThemedText style={styles.buttonText}>Fix Orphaned Users</ThemedText>
+                )}
+              </TouchableOpacity>
+              
+              {orphanedUsersResult && (
+                <View style={[styles.card, { marginTop: 16, backgroundColor: Colors.success + '10' }]}>
+                  <ThemedText style={styles.cardTitle}>✅ Results</ThemedText>
+                  <ThemedText style={styles.cardDescription}>
+                    • Processed: {orphanedUsersResult.processed} users{'\n'}
+                    • Fixed: {orphanedUsersResult.fixed} orphaned users{'\n'}
+                    • Already existed: {orphanedUsersResult.alreadyExisted} users
+                  </ThemedText>
+                  
+                  {orphanedUsersResult.fixedUsers && orphanedUsersResult.fixedUsers.length > 0 && (
+                    <>
+                      <ThemedText style={[styles.cardTitle, { marginTop: 12 }]}>Fixed Users:</ThemedText>
+                      {orphanedUsersResult.fixedUsers.map((user: any, index: number) => (
+                        <ThemedText key={index} style={styles.cardDescription}>
+                          • {user.email}
+                        </ThemedText>
+                      ))}
+                    </>
+                  )}
+                </View>
+              )}
+            </View>
+
+            {/* City Name Migration Card */}
+            <View style={[styles.card, { marginTop: 20 }]}>
+              <ThemedText style={styles.cardTitle}>Fix City Names in Spots</ThemedText>
+              <ThemedText style={styles.cardDescription}>
+                Standardize city names in all spots to match your cities database. For example:{'\n'}
+                • "Minneapolis" → "Minneapolis-St Paul"{'\n'}
+                • "Charleston" → "Charleston SC"{'\n'}
+                • "Raleigh" → "Raleigh-Durham"{'\n'}
+                {'\n'}
+                Click "Preview" to see what will change, or "Apply Now" to fix immediately.
+              </ThemedText>
+              
+              <TouchableOpacity
+                style={[styles.button, fixingCityNames && styles.buttonDisabled]}
+                onPress={handleFixCityNames}
+                disabled={fixingCityNames}
+              >
+                {fixingCityNames ? (
+                  <ActivityIndicator color={Colors.white} />
+                ) : (
+                  <ThemedText style={styles.buttonText}>Fix City Names</ThemedText>
+                )}
+              </TouchableOpacity>
+              
+              {cityMigrationResult && (
+                <View style={[styles.card, { marginTop: 16, backgroundColor: cityMigrationResult.preview ? Colors.info + '10' : Colors.success + '10' }]}>
+                  <ThemedText style={styles.cardTitle}>
+                    {cityMigrationResult.preview ? '👀 Preview' : '✅ Complete'}
+                  </ThemedText>
+                  <ThemedText style={styles.cardDescription}>
+                    • Total Spots: {cityMigrationResult.totalProcessed}{'\n'}
+                    • To Update: {cityMigrationResult.changes.length}{'\n'}
+                    • Already Correct: {cityMigrationResult.unchangedCount}
+                    {cityMigrationResult.errorCount > 0 && `\n• Errors: ${cityMigrationResult.errorCount}`}
+                  </ThemedText>
+                  
+                  {cityMigrationResult.changes && cityMigrationResult.changes.length > 0 && (
+                    <>
+                      <ThemedText style={[styles.cardTitle, { marginTop: 12 }]}>
+                        {cityMigrationResult.preview ? 'Changes to Apply:' : 'Changes Applied:'}
+                      </ThemedText>
+                      <ScrollView style={{ maxHeight: 200 }}>
+                        {cityMigrationResult.changes.slice(0, 20).map((change: any, index: number) => (
+                          <ThemedText key={index} style={styles.cardDescription}>
+                            • {change.name}: "{change.oldCity}" → "{change.newCity}"
+                          </ThemedText>
+                        ))}
+                        {cityMigrationResult.changes.length > 20 && (
+                          <ThemedText style={[styles.cardDescription, { fontStyle: 'italic' }]}>
+                            ... and {cityMigrationResult.changes.length - 20} more
+                          </ThemedText>
+                        )}
+                      </ScrollView>
+                    </>
+                  )}
+                </View>
+              )}
+            </View>
+          </ScrollView>
         )}
       </View>
 

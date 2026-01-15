@@ -104,6 +104,11 @@ interface PlaceDetails {
   };
   types?: string[];
   place_id: string;
+  photos?: Array<{
+    photo_reference: string;
+    height: number;
+    width: number;
+  }>;
 }
 
 // FIXED: Removed 'async' keyword - React components cannot be async functions
@@ -115,6 +120,7 @@ export default function AddSpotScreen() {
   // Form fields
   const [name, setName] = useState('');
   const [placeId, setPlaceId] = useState(''); // Google Place ID for fetching details
+  const [googlePhotoUrls, setGooglePhotoUrls] = useState<string[]>([]); // Google Places photo URLs
   const [categories, setCategories] = useState<string[]>([]);
   const [categorySearch, setCategorySearch] = useState('');
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
@@ -163,6 +169,28 @@ export default function AddSpotScreen() {
     }
     
     return { city: extractedCity, neighborhood: extractedNeighborhood };
+  };
+
+  // Helper function to map extracted city to standardized city name from database
+  const mapToStandardizedCity = (extractedCity: string): string => {
+    if (!extractedCity || cities.length === 0) return extractedCity;
+    
+    const lowerExtracted = extractedCity.toLowerCase().trim();
+    
+    // Try to find exact match first
+    const exactMatch = cities.find(c => c.name.toLowerCase() === lowerExtracted);
+    if (exactMatch) return exactMatch.name;
+    
+    // Try to find city that starts with extracted name
+    const startsWithMatch = cities.find(c => c.name.toLowerCase().startsWith(lowerExtracted));
+    if (startsWithMatch) return startsWithMatch.name;
+    
+    // Try to find city that contains extracted name
+    const containsMatch = cities.find(c => c.name.toLowerCase().includes(lowerExtracted));
+    if (containsMatch) return containsMatch.name;
+    
+    // If no match found, return original (user can manually correct)
+    return extractedCity;
   };
 
   const filteredCities = useMemo(() => {
@@ -303,7 +331,9 @@ export default function AddSpotScreen() {
       const { city: extractedCity, neighborhood: extractedNeighborhood } = extractCityAndNeighborhood(details.address_components);
       
       if (extractedCity) {
-        setCity(extractedCity);
+        // Map to standardized city name from database (e.g., "Minneapolis" → "Minneapolis-St Paul")
+        const standardizedCity = mapToStandardizedCity(extractedCity);
+        setCity(standardizedCity);
       }
       
       if (extractedNeighborhood) {
@@ -311,9 +341,22 @@ export default function AddSpotScreen() {
       }
     }
 
+    // Check for Google Places photos
+    let photoMessage = '';
+    if (details.photos && details.photos.length > 0) {
+      photoMessage = `\n\n📸 ${details.photos.length} photo${details.photos.length > 1 ? 's' : ''} found from Google! Will be added automatically.`;
+      
+      // Build Google Places Photo URLs (take up to 3 photos)
+      const photoUrls = details.photos.slice(0, 3).map(photo => 
+        `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photo_reference=${photo.photo_reference}&key=${GOOGLE_PLACES_API_KEY}`
+      );
+      
+      setGooglePhotoUrls(photoUrls);
+    }
+
     Alert.alert(
       'Business Found! 🎯',
-      `${details.name} info loaded. City and area auto-filled!`
+      `${details.name} info loaded. City and area auto-filled!${photoMessage}`
     );
   };
 
@@ -439,8 +482,13 @@ export default function AddSpotScreen() {
 
     setSaving(true);
     try {
-      // Upload photos
-      const photoURLs = await uploadPhotos();
+      // Upload user photos
+      const uploadedPhotoURLs = await uploadPhotos();
+      
+      // Combine user photos with Google Places photos (Google photos first if user didn't upload any)
+      const allPhotoURLs = uploadedPhotoURLs.length > 0 
+        ? uploadedPhotoURLs  // User uploaded photos - use only those
+        : googlePhotoUrls;   // No user photos - use Google photos
 
       // Get user display name
       const userDisplayName = await getUserDisplayName();
@@ -459,7 +507,7 @@ export default function AddSpotScreen() {
         ...(website.trim() && { website: website.trim() }),
         ...(reservationUrl.trim() && { reservationUrl: reservationUrl.trim() }),
         ...(tips.trim() && { tips: tips.trim() }),
-        ...(photoURLs.length > 0 && { photoURLs }),
+        ...(allPhotoURLs.length > 0 && { photoURLs: allPhotoURLs }),
         addedBy: user.uid,
         addedByName: userDisplayName,
         status: 'pending', // Requires approval

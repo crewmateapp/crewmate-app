@@ -7,7 +7,7 @@ import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { Plan } from '@/types/plan';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import {
     collection,
     doc,
@@ -47,6 +47,7 @@ type GroupedPlans = {
 
 export default function PlansScreen() {
   const { user } = useAuth();
+  const { city: cityParam } = useLocalSearchParams<{ city?: string }>();
   const [activeTab, setActiveTab] = useState<TabType>('my');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -95,15 +96,18 @@ export default function PlansScreen() {
         console.log('📋 User layovers:', userLayovers.map(l => l.city));
         setLayovers(userLayovers);
         
-        // Set selected city to first layover's city if not set
-        if (!selectedCity && userLayovers.length > 0) {
+        // Set selected city from URL param if provided, otherwise default to first layover
+        if (cityParam && userLayovers.some(l => l.city === cityParam)) {
+          console.log('🎯 Setting city from URL param:', cityParam);
+          setSelectedCity(cityParam);
+        } else if (!selectedCity && userLayovers.length > 0) {
           setSelectedCity(userLayovers[0].city);
         }
       }
     });
 
     return () => unsubscribe();
-  }, [user]);
+  }, [user, cityParam]);
 
   // Fetch user's plans across ALL their layover cities
   useEffect(() => {
