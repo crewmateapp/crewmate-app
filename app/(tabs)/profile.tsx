@@ -3,6 +3,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
+import { useColors } from '@/hooks/use-theme-color';
 import { useAuth } from '@/contexts/AuthContext';
 import { isAdmin, useAdminRole } from '@/hooks/useAdminRole';
 import { useAdminNotifications } from '@/hooks/useAdminNotifications';
@@ -44,6 +45,7 @@ type UserStats = {
 };
 
 export default function ProfileScreen() {
+  const colors = useColors();
   const { user, signOut } = useAuth();
   const { role, cities, loading: adminLoading } = useAdminRole();
   const { counts: adminCounts } = useAdminNotifications();
@@ -213,16 +215,16 @@ export default function ProfileScreen() {
         icon = 'add-circle';
         iconColor = Colors.success;
         text = (
-          <Text style={styles.activityText}>
+          <Text style={[styles.activityText, { color: colors.text.primary }]}>
             {'Added '}
             <Text 
-              style={styles.clickableText}
+              style={[styles.clickableText, { color: colors.primary }]}
               onPress={() => activity.spotId && handleSpotPress(activity.spotId)}
             >
               {activity.spotName}
             </Text>
             {' in '}
-            <Text style={styles.cityText}>{activity.city}</Text>
+            <Text style={[styles.cityText, { color: colors.text.secondary }]}>{activity.city}</Text>
           </Text>
         );
         break;
@@ -231,12 +233,12 @@ export default function ProfileScreen() {
         icon = 'star';
         iconColor = Colors.accent;
         text = (
-          <Text style={styles.activityText}>
+          <Text style={[styles.activityText, { color: colors.text.primary }]}>
             {'Left a '}
             <Text style={styles.stars}>{renderStars(activity.rating || 0)}</Text>
             {' review on '}
             <Text 
-              style={styles.clickableText}
+              style={[styles.clickableText, { color: colors.primary }]}
               onPress={() => activity.spotId && handleSpotPress(activity.spotId)}
             >
               {activity.spotName}
@@ -249,10 +251,10 @@ export default function ProfileScreen() {
         icon = 'camera';
         iconColor = Colors.primary;
         text = (
-          <Text style={styles.activityText}>
+          <Text style={[styles.activityText, { color: colors.text.primary }]}>
             {'Posted a photo at '}
             <Text 
-              style={styles.clickableText}
+              style={[styles.clickableText, { color: colors.primary }]}
               onPress={() => activity.spotId && handleSpotPress(activity.spotId)}
             >
               {activity.spotName}
@@ -281,7 +283,7 @@ export default function ProfileScreen() {
   }
 
   return (
-    <ScrollView style={styles.scrollContainer} showsVerticalScrollIndicator={false}>
+    <ScrollView style={[styles.scrollContainer, { backgroundColor: colors.background }]} showsVerticalScrollIndicator={false}>
       <ThemedView style={styles.container}>
         {/* Header Section */}
         <View style={styles.topSection}>
@@ -308,7 +310,7 @@ export default function ProfileScreen() {
           {/* Action Buttons */}
           <View style={styles.headerButtons}>
             <TouchableOpacity 
-              style={styles.iconButton}
+              style={[styles.iconButton, { backgroundColor: colors.card, borderColor: colors.border }]}
               onPress={() => router.push('/qr-code')}
             >
               <Ionicons name="qr-code" size={22} color={Colors.primary} />
@@ -329,33 +331,38 @@ export default function ProfileScreen() {
             <Image source={{ uri: profile.photoURL }} style={styles.avatar} />
           ) : (
             <View style={styles.avatarFallback}>
-              <ThemedText style={styles.avatarText}>
-                {profile?.firstName?.charAt(0) || '?'}
-              </ThemedText>
+              <Text style={styles.avatarText}>
+                {profile?.firstName?.[0]}{profile?.lastInitial}
+              </Text>
             </View>
           )}
-          <ThemedText style={styles.name}>
-            {profile?.firstName} {profile?.lastInitial}.
+          
+          <ThemedText style={[styles.name, { color: colors.text.primary }]}>{profile?.displayName}</ThemedText>
+          <ThemedText style={styles.position}>{profile?.position}</ThemedText>
+          <ThemedText style={[styles.base, { color: colors.text.secondary }]}>
+            {profile?.airline} • {profile?.base}
           </ThemedText>
-          <ThemedText style={styles.position}>
-            {profile?.position} • {profile?.airline}
-          </ThemedText>
-          <ThemedText style={styles.base}>Based in {profile?.base}</ThemedText>
+          
           {profile?.bio && (
-            <ThemedText style={styles.bio}>{profile.bio}</ThemedText>
+            <ThemedText style={[styles.bio, { color: colors.text.primary }]}>{profile.bio}</ThemedText>
           )}
 
           {/* Favorite Cities */}
           {profile?.favoriteCities && profile.favoriteCities.length > 0 && (
             <View style={styles.favoriteCitiesContainer}>
               <View style={styles.sectionHeaderRow}>
-                <Ionicons name="heart" size={16} color={Colors.primary} />
-                <ThemedText style={styles.sectionHeaderText}>Favorite Layovers</ThemedText>
+                <Ionicons name="location" size={16} color={colors.primary} />
+                <ThemedText style={[styles.sectionHeaderText, { color: colors.text.primary }]}>
+                  Favorite Cities
+                </ThemedText>
               </View>
               <View style={styles.tagsContainer}>
                 {profile.favoriteCities.map((city, index) => (
-                  <View key={index} style={styles.cityTag}>
-                    <ThemedText style={styles.cityTagText}>{city}</ThemedText>
+                  <View key={index} style={[styles.cityTag, { 
+                    backgroundColor: colors.primary + '15',
+                    borderColor: colors.primary + '30'
+                  }]}>
+                    <Text style={[styles.cityTagText, { color: colors.primary }]}>{city}</Text>
                   </View>
                 ))}
               </View>
@@ -366,13 +373,18 @@ export default function ProfileScreen() {
           {profile?.interests && profile.interests.length > 0 && (
             <View style={styles.interestsContainer}>
               <View style={styles.sectionHeaderRow}>
-                <Ionicons name="sparkles" size={16} color={Colors.accent} />
-                <ThemedText style={styles.sectionHeaderText}>Interests</ThemedText>
+                <Ionicons name="heart" size={16} color={Colors.accent} />
+                <ThemedText style={[styles.sectionHeaderText, { color: colors.text.primary }]}>
+                  Interests
+                </ThemedText>
               </View>
               <View style={styles.tagsContainer}>
                 {profile.interests.map((interest, index) => (
-                  <View key={index} style={styles.interestTag}>
-                    <ThemedText style={styles.interestTagText}>{interest}</ThemedText>
+                  <View key={index} style={[styles.interestTag, {
+                    backgroundColor: Colors.accent + '15',
+                    borderColor: Colors.accent + '30'
+                  }]}>
+                    <Text style={[styles.interestTagText, { color: Colors.accent }]}>{interest}</Text>
                   </View>
                 ))}
               </View>
@@ -381,103 +393,81 @@ export default function ProfileScreen() {
         </View>
 
         {/* Stats */}
-        <View style={styles.statsContainer}>
-          <TouchableOpacity 
-            style={styles.statBox}
-            onPress={() => router.push({
-              pathname: '/user-activity/[userId]',
-              params: { 
-                userId: user.uid,
-                type: 'spots',
-                userName: profile?.displayName
-              }
-            })}
-          >
+        <View style={[styles.statsContainer, { 
+          backgroundColor: colors.card,
+          borderColor: colors.border
+        }]}>
+          <View style={styles.statBox}>
+            <ThemedText style={styles.statNumber}>{friendCount}</ThemedText>
+            <ThemedText style={[styles.statLabel, { color: colors.text.primary }]}>Friends</ThemedText>
+          </View>
+          <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
+          <View style={styles.statBox}>
             <ThemedText style={styles.statNumber}>{stats.spotsAdded}</ThemedText>
-            <ThemedText style={styles.statLabel}>Spots</ThemedText>
-          </TouchableOpacity>
-          <View style={styles.statDivider} />
-          <TouchableOpacity 
-            style={styles.statBox}
-            onPress={() => router.push({
-              pathname: '/user-activity/[userId]',
-              params: { 
-                userId: user.uid,
-                type: 'photos',
-                userName: profile?.displayName
-              }
-            })}
-          >
-            <ThemedText style={styles.statNumber}>{stats.photosPosted}</ThemedText>
-            <ThemedText style={styles.statLabel}>Photos</ThemedText>
-          </TouchableOpacity>
-          <View style={styles.statDivider} />
-          <TouchableOpacity 
-            style={styles.statBox}
-            onPress={() => router.push({
-              pathname: '/user-activity/[userId]',
-              params: { 
-                userId: user.uid,
-                type: 'reviews',
-                userName: profile?.displayName
-              }
-            })}
-          >
+            <ThemedText style={[styles.statLabel, { color: colors.text.primary }]}>Spots</ThemedText>
+          </View>
+          <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
+          <View style={styles.statBox}>
             <ThemedText style={styles.statNumber}>{stats.reviewsLeft}</ThemedText>
-            <ThemedText style={styles.statLabel}>Reviews</ThemedText>
-          </TouchableOpacity>
+            <ThemedText style={[styles.statLabel, { color: colors.text.primary }]}>Reviews</ThemedText>
+          </View>
         </View>
 
-        {/* Friends Section */}
+        {/* Friends Card */}
         <TouchableOpacity 
-          style={styles.friendsCard}
-          onPress={() => router.push('/friends')}
+          style={[styles.friendsCard, {
+            backgroundColor: colors.card,
+            borderColor: colors.border
+          }]}
+          onPress={() => router.push('/connections')}
+          activeOpacity={0.7}
         >
           <View style={styles.friendsLeft}>
-            <Ionicons name="people" size={22} color={Colors.primary} />
-            <ThemedText style={styles.friendsTitle}>Friends</ThemedText>
+            <Ionicons name="people" size={24} color={Colors.primary} />
+            <ThemedText style={[styles.friendsTitle, { color: colors.text.primary }]}>My Crew</ThemedText>
           </View>
           <View style={styles.friendsRight}>
             <View style={styles.friendsBadge}>
               <ThemedText style={styles.friendsCount}>{friendCount}</ThemedText>
             </View>
-            <Ionicons name="chevron-forward" size={20} color={Colors.text.secondary} />
+            <Ionicons name="chevron-forward" size={20} color={colors.text.secondary} />
           </View>
         </TouchableOpacity>
 
-        {/* Admin Panel - With notification badge */}
+        {/* Admin Panel Card */}
         {isAdmin(role) && (
-          <TouchableOpacity
+          <TouchableOpacity 
             style={styles.adminCard}
             onPress={() => router.push('/admin')}
+            activeOpacity={0.7}
           >
             <View style={styles.adminLeft}>
               <View style={styles.adminIconContainer}>
-                <Ionicons name="shield-checkmark" size={22} color="#9C27B0" />
+                <Ionicons name="shield-checkmark" size={24} color="#9C27B0" />
                 {adminCounts.total > 0 && (
                   <View style={styles.adminBadge}>
-                    <ThemedText style={styles.adminBadgeText}>
-                      {adminCounts.total > 99 ? '99+' : adminCounts.total}
-                    </ThemedText>
+                    <Text style={styles.adminBadgeText}>
+                      {adminCounts.total > 9 ? '9+' : adminCounts.total}
+                    </Text>
                   </View>
                 )}
               </View>
               <View>
-                <ThemedText style={styles.adminTitle}>Admin Panel</ThemedText>
-                <ThemedText style={styles.adminSubtitle}>
-                  {role === 'super' ? 'Super Admin' : `City Admin: ${cities.join(', ')}`}
-                </ThemedText>
+                <Text style={styles.adminTitle}>Admin Panel</Text>
+                <Text style={[styles.adminSubtitle, { color: colors.text.secondary }]}>
+                  {role === 'super' ? 'Super Admin' : 'City Admin'}
+                </Text>
               </View>
             </View>
             <View style={styles.adminRight}>
               {adminCounts.total > 0 && (
                 <View style={styles.adminPendingBadge}>
-                  <ThemedText style={styles.adminPendingText}>
-                    {adminCounts.total} pending
-                  </ThemedText>
+                  <Text style={styles.adminPendingText}>
+                    {adminCounts.total}
+                  </Text>
                 </View>
               )}
-              <Ionicons name="chevron-forward" size={20} color={Colors.text.secondary} />
+              <Ionicons name="chevron-forward" size={20} color={colors.text.secondary} />
             </View>
           </TouchableOpacity>
         )}
@@ -486,35 +476,41 @@ export default function ProfileScreen() {
         {recentActivities.length > 0 && (
           <View style={styles.activitySection}>
             <View style={styles.activityHeader}>
-              <ThemedText style={styles.sectionTitle}>Recent Activity</ThemedText>
-              {recentActivities.length >= 3 && (
-                <TouchableOpacity onPress={() => router.push('/feed')}>
-                  <ThemedText style={styles.viewAllButton}>View All</ThemedText>
-                </TouchableOpacity>
-              )}
+              <ThemedText style={[styles.sectionTitle, { color: colors.text.primary }]}>Recent Activity</ThemedText>
+              <TouchableOpacity onPress={() => router.push(`/user-activity/${user?.uid}`)}>
+                <ThemedText style={styles.viewAllButton}>View All</ThemedText>
+              </TouchableOpacity>
             </View>
-            <View style={styles.activityContainer}>
-              {recentActivities.map(activity => renderActivity(activity))}
+            <View style={[styles.activityContainer, {
+              backgroundColor: colors.card,
+              borderColor: colors.border
+            }]}>
+              {recentActivities.map(renderActivity)}
             </View>
           </View>
         )}
 
         {/* Account Section */}
         <View style={styles.accountSection}>
-          <ThemedText style={styles.sectionTitle}>Account</ThemedText>
-          <View style={styles.emailRow}>
-            <ThemedText style={styles.emailLabel}>Email</ThemedText>
-            <ThemedText style={styles.emailValue}>{profile?.email}</ThemedText>
+          <ThemedText style={[styles.sectionTitle, { color: colors.text.primary }]}>Account</ThemedText>
+          <View style={[styles.emailRow, {
+            backgroundColor: colors.card,
+            borderColor: colors.border
+          }]}>
+            <ThemedText style={[styles.emailLabel, { color: colors.text.secondary }]}>Email</ThemedText>
+            <ThemedText style={[styles.emailValue, { color: colors.text.primary }]}>{user?.email}</ThemedText>
           </View>
         </View>
 
         {/* Sign Out Button */}
-        <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
+        <TouchableOpacity 
+          style={styles.signOutButton}
+          onPress={handleSignOut}
+        >
           <Ionicons name="log-out-outline" size={20} color={Colors.white} />
-          <ThemedText style={styles.signOutText}>Sign Out</ThemedText>
+          <Text style={styles.signOutText}>Sign Out</Text>
         </TouchableOpacity>
 
-        {/* Bottom spacer */}
         <View style={{ height: 40 }} />
       </ThemedView>
     </ScrollView>
@@ -524,87 +520,77 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   scrollContainer: {
     flex: 1,
-    backgroundColor: Colors.background,
   },
   container: {
     flex: 1,
-    paddingBottom: 20,
   },
   topSection: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 20,
+    paddingTop: 16,
+    paddingBottom: 12,
   },
   currentlyInContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
   },
   activeIndicator: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
     backgroundColor: Colors.success,
   },
   locationInfo: {
-    flexDirection: 'column',
+    gap: 2,
   },
   currentlyInLabel: {
-    fontSize: 11,
+    fontSize: 12,
     color: Colors.text.secondary,
-    fontWeight: '500',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
   currentlyInCity: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: Colors.text.primary,
+    fontSize: 15,
+    fontWeight: '600',
   },
   offlineEmoji: {
     fontSize: 20,
   },
   offlineText: {
-    fontSize: 12,
+    fontSize: 14,
     color: Colors.text.secondary,
-    fontWeight: '600',
   },
   headerButtons: {
     flexDirection: 'row',
-    alignItems: 'center',
     gap: 10,
   },
   iconButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: Colors.card,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: Colors.border,
   },
   editButtonHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     backgroundColor: Colors.primary,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 19,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
   },
   editButtonText: {
-    color: Colors.white,
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
+    color: Colors.white,
   },
   profileHeader: {
     alignItems: 'center',
     paddingHorizontal: 20,
-    marginBottom: 25,
+    paddingVertical: 24,
   },
   avatar: {
     width: 120,
@@ -634,7 +620,6 @@ const styles = StyleSheet.create({
     fontSize: 26,
     fontWeight: '700',
     marginBottom: 6,
-    color: Colors.text.primary,
   },
   position: {
     fontSize: 16,
@@ -644,25 +629,21 @@ const styles = StyleSheet.create({
   },
   base: {
     fontSize: 15,
-    color: Colors.text.secondary,
     marginBottom: 12,
   },
   bio: {
     fontSize: 15,
-    color: Colors.text.primary,
     textAlign: 'center',
     lineHeight: 22,
     paddingHorizontal: 10,
   },
   statsContainer: {
     flexDirection: 'row',
-    backgroundColor: Colors.card,
     marginHorizontal: 20,
     borderRadius: 16,
     padding: 20,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: Colors.border,
   },
   statBox: {
     flex: 1,
@@ -676,24 +657,20 @@ const styles = StyleSheet.create({
   },
   statLabel: {
     fontSize: 13,
-    color: Colors.text.primary,
     fontWeight: '500',
   },
   statDivider: {
     width: 1,
-    backgroundColor: Colors.border,
   },
   friendsCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: Colors.card,
     marginHorizontal: 20,
     padding: 16,
     borderRadius: 12,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: Colors.border,
   },
   friendsLeft: {
     flexDirection: 'row',
@@ -703,7 +680,6 @@ const styles = StyleSheet.create({
   friendsTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: Colors.text.primary,
   },
   friendsRight: {
     flexDirection: 'row',
@@ -766,7 +742,6 @@ const styles = StyleSheet.create({
   },
   adminSubtitle: {
     fontSize: 12,
-    color: Colors.text.secondary,
     marginTop: 2,
   },
   adminRight: {
@@ -798,7 +773,6 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 13,
     fontWeight: '700',
-    color: Colors.text.primary,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
@@ -808,11 +782,9 @@ const styles = StyleSheet.create({
     color: Colors.primary,
   },
   activityContainer: {
-    backgroundColor: Colors.card,
     borderRadius: 12,
     padding: 16,
     borderWidth: 1,
-    borderColor: Colors.border,
     gap: 12,
   },
   activityItem: {
@@ -826,15 +798,12 @@ const styles = StyleSheet.create({
   activityText: {
     fontSize: 14,
     lineHeight: 20,
-    color: Colors.text.primary,
   },
   clickableText: {
     fontWeight: '700',
-    color: Colors.primary,
   },
   cityText: {
     fontWeight: '600',
-    color: Colors.text.secondary,
   },
   stars: {
     fontSize: 12,
@@ -847,21 +816,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: Colors.card,
     padding: 16,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.border,
     marginTop: 8,
   },
   emailLabel: {
     fontSize: 15,
-    color: Colors.text.secondary,
     fontWeight: '500',
   },
   emailValue: {
     fontSize: 15,
-    color: Colors.text.primary,
     fontWeight: '600',
   },
   signOutButton: {
@@ -896,7 +861,6 @@ const styles = StyleSheet.create({
   sectionHeaderText: {
     fontSize: 14,
     fontWeight: '700',
-    color: Colors.text.primary,
   },
   tagsContainer: {
     flexDirection: 'row',
@@ -904,29 +868,23 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   cityTag: {
-    backgroundColor: Colors.primary + '15',
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: Colors.primary + '30',
   },
   cityTagText: {
     fontSize: 13,
     fontWeight: '600',
-    color: Colors.primary,
   },
   interestTag: {
-    backgroundColor: Colors.accent + '15',
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: Colors.accent + '30',
   },
   interestTagText: {
     fontSize: 13,
     fontWeight: '600',
-    color: Colors.accent,
   },
 });

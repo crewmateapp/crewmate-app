@@ -128,7 +128,7 @@ function RootLayoutNav() {
     };
 
     checkUserState();
-  }, [user, loading, hasNavigated]);
+  }, [user, loading]); // FIXED: Removed hasNavigated from deps to prevent race condition
 
   return (
     <NavThemeProvider value={isDark ? DarkTheme : DefaultTheme}>

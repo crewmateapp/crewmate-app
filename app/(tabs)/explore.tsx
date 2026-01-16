@@ -166,6 +166,18 @@ export default function ExploreScreen() {
     }
   };
 
+  // Handle city selection - navigate to city page unless in selection mode
+  const handleCitySelect = (cityName: string) => {
+    if (selectionMode) {
+      // If in selection mode (choosing spot for plan), just filter
+      setSelectedCity(cityName);
+      saveRecentCity(cityName);
+    } else {
+      // Normal mode - navigate to dedicated city page with stars
+      router.push(`/city/${encodeURIComponent(cityName)}`);
+    }
+  };
+
   const fetchSpots = async () => {
     if (!selectedCity) return;
 
@@ -362,7 +374,7 @@ export default function ExploreScreen() {
             selectedCity={selectedCity}
             userLayoverCity={userLayoverCity}
             recentCities={recentCities}
-            onSelectCity={setSelectedCity}
+            onSelectCity={handleCitySelect}
           />
 
           {/* Selection Mode Banner */}

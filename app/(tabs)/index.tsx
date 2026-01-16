@@ -4,10 +4,12 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
+import { useColors } from '@/hooks/use-theme-color';
 import { useAuth } from '@/contexts/AuthContext';
 import { useCities } from '@/hooks/useCities';
 import { Plan } from '@/types/plan';
 import { searchAirports, AirportData } from '@/utils/airportData';
+import { getCurrentLocation, verifyCityLocation } from '@/utils/locationVerification';
 import { notifyAdminsNewCityRequest } from '@/utils/notifications';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
@@ -89,6 +91,7 @@ const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number): nu
 export default function MyLayoverScreen() {
   const { user } = useAuth();
   const { cities, loading: citiesLoading } = useCities();
+  const colors = useColors();
 
   // Layover state
   const [currentLayover, setCurrentLayover] = useState<UserLayover | null>(null);
@@ -283,13 +286,38 @@ export default function MyLayoverScreen() {
     return results;
   }, [searchQuery, cities, userLocation]);
 
-  // Check in to a layover
+  // Check in to a layover with GPS verification
   const checkInToLayover = async (layover: UpcomingLayover) => {
     if (!user?.uid) return;
 
     try {
       setVerifying(true);
 
+      // Step 1: Get current location
+      const locationResult = await getCurrentLocation();
+      
+      if (!locationResult.success) {
+        Alert.alert('Location Required', locationResult.error || 'Unable to verify your location.');
+        return;
+      }
+
+      // Step 2: Verify user is in the city
+      const verification = await verifyCityLocation(
+        locationResult.latitude!,
+        locationResult.longitude!,
+        layover.city
+      );
+
+      if (!verification.verified) {
+        Alert.alert(
+          'Not in ' + layover.city,
+          verification.message,
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
+      // Step 3: Check in AND go live immediately (GPS verified!)
       const expiresAt = Timestamp.fromDate(
         new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
       );
@@ -298,15 +326,19 @@ export default function MyLayoverScreen() {
         currentLayover: {
           city: layover.city,
           area: layover.area,
-          discoverable: false, // Start offline
-          isLive: false,
+          discoverable: true, // Go live immediately after GPS verification
+          isLive: true,
           lastVerified: serverTimestamp(),
           updatedAt: serverTimestamp(),
           expiresAt: expiresAt,
         },
       });
 
-      Alert.alert('Checked In!', `You're checked in to ${layover.city}. Tap "Go Live" when you're ready to connect with crew.`);
+      Alert.alert(
+        '✅ You\'re Live!',
+        `You're checked in and visible to crew in ${layover.city}!`,
+        [{ text: 'Great!' }]
+      );
     } catch (error) {
       console.error('Error checking in:', error);
       Alert.alert('Error', 'Failed to check in. Please try again.');
@@ -315,15 +347,39 @@ export default function MyLayoverScreen() {
     }
   };
 
-  // Go live (make discoverable)
+  // Go live (make discoverable) - also requires GPS verification
   const handleGoLive = async () => {
     if (!user?.uid || !currentLayover) return;
 
     try {
       setVerifying(true);
 
+      // Re-verify GPS location
+      const locationResult = await getCurrentLocation();
+      
+      if (!locationResult.success) {
+        Alert.alert('Location Required', locationResult.error || 'Unable to verify your location.');
+        return;
+      }
+
+      const verification = await verifyCityLocation(
+        locationResult.latitude!,
+        locationResult.longitude!,
+        currentLayover.city
+      );
+
+      if (!verification.verified) {
+        Alert.alert(
+          'Not in ' + currentLayover.city,
+          verification.message + ' You need to be in the city to go live.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
+      // GPS verified - go live!
       const expiresAt = Timestamp.fromDate(
-        new Date(Date.now() + 8 * 60 * 60 * 1000) // 8 hours
+        new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
       );
 
       await updateDoc(doc(db, 'users', user.uid), {
@@ -332,6 +388,12 @@ export default function MyLayoverScreen() {
         'currentLayover.lastVerified': serverTimestamp(),
         'currentLayover.expiresAt': expiresAt,
       });
+
+      Alert.alert(
+        '✅ You\'re Live!',
+        `You're now visible to crew in ${currentLayover.city}!`,
+        [{ text: 'Great!' }]
+      );
     } catch (error) {
       console.error('Error going live:', error);
       Alert.alert('Error', 'Failed to go live. Please try again.');
@@ -593,7 +655,10 @@ export default function MyLayoverScreen() {
                     disabled={verifying}
                   >
                     {verifying ? (
-                      <ActivityIndicator size="small" color={Colors.white} />
+                      <>
+                        <ActivityIndicator size="small" color={Colors.white} />
+                        <ThemedText style={styles.goLiveText}>Verifying...</ThemedText>
+                      </>
                     ) : (
                       <>
                         <Ionicons name="radio-outline" size={20} color={Colors.white} />
@@ -711,11 +776,14 @@ export default function MyLayoverScreen() {
                     disabled={verifying}
                   >
                     {verifying ? (
-                      <ActivityIndicator size="small" color={Colors.white} />
+                      <>
+                        <ActivityIndicator size="small" color={Colors.white} />
+                        <ThemedText style={styles.checkInButtonText}>Verifying...</ThemedText>
+                      </>
                     ) : (
                       <>
                         <Ionicons name="location" size={18} color={Colors.white} />
-                        <ThemedText style={styles.checkInButtonText}>Check In</ThemedText>
+                        <ThemedText style={styles.checkInButtonText}>Check In & Go Live</ThemedText>
                       </>
                     )}
                   </TouchableOpacity>
@@ -770,7 +838,11 @@ export default function MyLayoverScreen() {
 
           {/* City Picker */}
           {pickerStep === 'city' && (
-            <View style={styles.pickerContent}>
+            <ScrollView 
+              style={styles.pickerContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
               <TextInput
                 style={styles.searchInput}
                 placeholder="Search cities or airport codes..."
@@ -812,12 +884,15 @@ export default function MyLayoverScreen() {
                   </View>
                 }
               />
-            </View>
+            </ScrollView>
           )}
 
           {/* Area Picker */}
           {pickerStep === 'area' && (selectedCityData || selectedAirportData) && (
-            <View style={styles.pickerContent}>
+            <ScrollView 
+              style={styles.pickerContent}
+              showsVerticalScrollIndicator={false}
+            >
               <ThemedText style={styles.pickerSubtitle}>{selectedCity}</ThemedText>
               <FlatList
                 data={selectedAirportData?.areas || selectedCityData?.areas || []}
@@ -832,12 +907,16 @@ export default function MyLayoverScreen() {
                   </TouchableOpacity>
                 )}
               />
-            </View>
+            </ScrollView>
           )}
 
           {/* Date Picker */}
           {pickerStep === 'dates' && (
-            <View style={styles.pickerContent}>
+            <ScrollView 
+              style={styles.pickerContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
               <ThemedText style={styles.pickerSubtitle}>
                 {selectedCity} • {selectedArea}
               </ThemedText>
@@ -899,7 +978,7 @@ export default function MyLayoverScreen() {
                   </ThemedText>
                 </TouchableOpacity>
               </View>
-            </View>
+            </ScrollView>
           )}
         </ThemedView>
       </Modal>

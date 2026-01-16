@@ -1,11 +1,16 @@
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { db } from '@/config/firebase';
+import { Colors } from '@/constants/Colors';
+import { useColors } from '@/hooks/use-theme-color';
+import { useAdminRole } from '@/hooks/useAdminRole';
+import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { collection, onSnapshot, orderBy, query, where } from 'firebase/firestore';
+import { collection, doc, onSnapshot, orderBy, query, updateDoc, where } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
@@ -20,12 +25,13 @@ type Spot = {
   city: string;
   area: string;
   addedByName: string;
+  recommended?: boolean;
 };
 
 const categoryEmoji: Record<string, string> = {
   coffee: '☕',
   food: '🍽️',
-  bar: '🍸',
+  bar: '�',
   activity: '🎯',
   gym: '💪',
 };
@@ -40,9 +46,14 @@ const categoryColors: Record<string, string> = {
 
 export default function CityScreen() {
   const { name } = useLocalSearchParams<{ name: string }>();
+  const { role } = useAdminRole();
+  const colors = useColors();
+  const isSuperAdmin = role === 'super';
+  
   const [spots, setSpots] = useState<Spot[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [togglingSpot, setTogglingSpot] = useState<string | null>(null);
 
   // Load spots from Firestore
   useEffect(() => {
@@ -88,17 +99,37 @@ export default function CityScreen() {
     router.push(`/spot/${spotId}`);
   };
 
+  const toggleRecommended = async (spotId: string, currentValue: boolean) => {
+    if (!isSuperAdmin) return;
+    
+    setTogglingSpot(spotId);
+    try {
+      await updateDoc(doc(db, 'spots', spotId), {
+        recommended: !currentValue
+      });
+      
+      // Optional: Show success feedback
+      // Alert.alert('Success', `Spot ${!currentValue ? 'added to' : 'removed from'} recommendations`);
+    } catch (error) {
+      console.error('Error toggling recommended:', error);
+      Alert.alert('Error', 'Failed to update recommendation status');
+    } finally {
+      setTogglingSpot(null);
+    }
+  };
+
   return (
     <ThemedView style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <ThemedText style={styles.backText}>← Back</ThemedText>
+          <Ionicons name="chevron-back" size={28} color={Colors.primary} />
+          <ThemedText style={[styles.backText, { color: Colors.primary }]}>Back</ThemedText>
         </TouchableOpacity>
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false}>
         <ThemedText type="title" style={styles.title}>{name}</ThemedText>
-        <ThemedText style={styles.subtitle}>
+        <ThemedText style={[styles.subtitle, { color: colors.text.secondary }]}>
           {spots.length} crew-recommended spot{spots.length !== 1 ? 's' : ''}
         </ThemedText>
 
@@ -111,18 +142,23 @@ export default function CityScreen() {
           <TouchableOpacity
             style={[
               styles.categoryChip,
-              !selectedCategory && styles.categoryChipActive,
+              { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 },
+              !selectedCategory && { backgroundColor: Colors.primary }
             ]}
             onPress={() => setSelectedCategory(null)}
           >
-            <ThemedText style={styles.categoryChipText}>All</ThemedText>
+            <ThemedText style={[
+              styles.categoryChipText,
+              !selectedCategory && { color: Colors.white }
+            ]}>All</ThemedText>
           </TouchableOpacity>
           {Object.entries(categoryEmoji).map(([cat, emoji]) => (
             <TouchableOpacity
               key={cat}
               style={[
                 styles.categoryChip,
-                selectedCategory === cat && styles.categoryChipActive,
+                { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 },
+                selectedCategory === cat && { backgroundColor: Colors.primary }
               ]}
               onPress={() => setSelectedCategory(cat)}
             >
@@ -134,7 +170,7 @@ export default function CityScreen() {
         {/* Loading State */}
         {loading ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#2196F3" />
+            <ActivityIndicator size="large" color={Colors.primary} />
           </View>
         ) : filteredSpots.length === 0 ? (
           /* Empty State */
@@ -154,7 +190,10 @@ export default function CityScreen() {
             {filteredSpots.map((spot) => (
               <TouchableOpacity
                 key={spot.id}
-                style={styles.spotCard}
+                style={[styles.spotCard, { 
+                  backgroundColor: colors.card,
+                  borderColor: colors.border
+                }]}
                 onPress={() => handleSpotPress(spot.id)}
                 activeOpacity={0.7}
               >
@@ -176,11 +215,33 @@ export default function CityScreen() {
                       {spot.area && ` • ${spot.area}`}
                     </ThemedText>
                   </View>
+                  
+                  {/* Recommended Toggle - Super Admin Only */}
+                  {isSuperAdmin && (
+                    <TouchableOpacity
+                      style={styles.starButton}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        toggleRecommended(spot.id, spot.recommended || false);
+                      }}
+                      disabled={togglingSpot === spot.id}
+                    >
+                      {togglingSpot === spot.id ? (
+                        <ActivityIndicator size="small" color="#FFD700" />
+                      ) : (
+                        <Ionicons
+                          name={spot.recommended ? "star" : "star-outline"}
+                          size={24}
+                          color="#FFD700"
+                        />
+                      )}
+                    </TouchableOpacity>
+                  )}
                 </View>
-                <ThemedText style={styles.spotDescription} numberOfLines={2}>
+                <ThemedText style={[styles.spotDescription, { color: colors.text.secondary }]} numberOfLines={2}>
                   "{spot.description}"
                 </ThemedText>
-                <ThemedText style={styles.addedBy}>
+                <ThemedText style={[styles.addedBy, { color: Colors.primary }]}>
                   Added by {spot.addedByName}
                 </ThemedText>
               </TouchableOpacity>
@@ -189,8 +250,8 @@ export default function CityScreen() {
         )}
 
         {/* Add Spot Button */}
-        <TouchableOpacity style={styles.addButton} onPress={handleAddSpot}>
-          <ThemedText style={styles.addButtonText}>
+        <TouchableOpacity style={[styles.addButton, { backgroundColor: Colors.primary }]} onPress={handleAddSpot}>
+          <ThemedText style={[styles.addButtonText, { color: Colors.white }]}>
             ➕ Add a Spot
           </ThemedText>
         </TouchableOpacity>
@@ -207,12 +268,15 @@ const styles = StyleSheet.create({
   header: {
     paddingTop: 40,
     marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   backButton: {
-    padding: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   backText: {
-    color: '#2196F3',
     fontSize: 16,
     fontWeight: '600',
   },
@@ -223,21 +287,16 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 16,
-    color: '#888',
     marginBottom: 20,
   },
   categoryFilter: {
     marginBottom: 20,
   },
   categoryChip: {
-    backgroundColor: '#333',
     paddingHorizontal: 15,
     paddingVertical: 10,
     borderRadius: 20,
     marginRight: 10,
-  },
-  categoryChipActive: {
-    backgroundColor: '#2196F3',
   },
   categoryChipText: {
     fontSize: 18,
@@ -266,11 +325,9 @@ const styles = StyleSheet.create({
     gap: 15,
   },
   spotCard: {
-    backgroundColor: '#1a1a1a',
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#333',
   },
   spotHeader: {
     flexDirection: 'row',
@@ -300,19 +357,20 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#888',
   },
+  starButton: {
+    padding: 8,
+    marginLeft: 8,
+  },
   spotDescription: {
     fontSize: 15,
     fontStyle: 'italic',
-    color: '#ccc',
     marginBottom: 10,
     lineHeight: 22,
   },
   addedBy: {
     fontSize: 12,
-    color: '#2196F3',
   },
   addButton: {
-    backgroundColor: '#2196F3',
     padding: 16,
     borderRadius: 12,
     alignItems: 'center',
@@ -320,7 +378,6 @@ const styles = StyleSheet.create({
     marginBottom: 40,
   },
   addButtonText: {
-    color: '#fff',
     fontSize: 16,
     fontWeight: '600',
   },
