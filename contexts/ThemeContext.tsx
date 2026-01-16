@@ -17,39 +17,15 @@ type ThemeContextType = {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const systemColorScheme = useColorScheme();
-  const [themeMode, setThemeMode] = useState<ThemeMode>('auto');
-
-  // Load saved theme preference on mount
-  useEffect(() => {
-    const loadTheme = async () => {
-      try {
-        const savedTheme = await AsyncStorage.getItem('theme');
-        if (savedTheme && (savedTheme === 'light' || savedTheme === 'dark' || savedTheme === 'auto')) {
-          setThemeMode(savedTheme);
-        }
-      } catch (error) {
-        console.error('Error loading theme:', error);
-      }
-    };
-    loadTheme();
-  }, []);
-
-  // Determine actual theme based on mode
-  const actualTheme = themeMode === 'auto' 
-    ? (systemColorScheme || 'light')
-    : themeMode;
-
-  const isDark = actualTheme === 'dark';
-  const colors = isDark ? DarkColors : LightColors;
+  // TEMPORARY: Force light mode only
+  // Dark mode disabled until post-alpha
+  const themeMode: ThemeMode = 'light';
+  const isDark = false;
+  const colors = LightColors;
 
   const setTheme = async (theme: ThemeMode) => {
-    try {
-      await AsyncStorage.setItem('theme', theme);
-      setThemeMode(theme);
-    } catch (error) {
-      console.error('Error saving theme:', error);
-    }
+    // No-op for now - theme switching disabled
+    console.log('Theme switching disabled - light mode only');
   };
 
   return (
@@ -58,7 +34,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         theme: themeMode,
         colors,
         isDark,
-        isLight: !isDark,
+        isLight: true,
         setTheme,
       }}
     >

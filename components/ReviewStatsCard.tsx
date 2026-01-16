@@ -1,8 +1,7 @@
 // components/ReviewStatsCard.tsx
-import { ThemedText } from '@/components/themed-text';
-import { Colors } from '@/constants/Colors';
+import { LightColors } from '@/constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 type ReviewStats = {
   totalReviews: number;
@@ -47,26 +46,26 @@ export function ReviewStatsCard({
       {/* Overall Rating */}
       <View style={styles.overallSection}>
         <View style={styles.ratingDisplay}>
-          <ThemedText style={styles.bigNumber}>
+          <Text style={styles.bigNumber}>
             {displayRating > 0 ? displayRating.toFixed(1) : '—'}
-          </ThemedText>
+          </Text>
           <View style={styles.starsDisplay}>
             {[1, 2, 3, 4, 5].map((star) => (
               <Ionicons
                 key={star}
                 name={displayRating >= star ? 'star' : displayRating >= star - 0.5 ? 'star-half' : 'star-outline'}
                 size={20}
-                color={Colors.accent}
+                color={LightColors.accent}
               />
             ))}
           </View>
-          <ThemedText style={styles.countText}>
+          <Text style={styles.countText}>
             {displayCount} {displayCount === 1 ? 'rating' : 'ratings'}
-          </ThemedText>
+          </Text>
           {hasReviews && (
-            <ThemedText style={styles.reviewsText}>
+            <Text style={styles.reviewsText}>
               {stats.totalReviews} {stats.totalReviews === 1 ? 'review' : 'reviews'}
-            </ThemedText>
+            </Text>
           )}
         </View>
 
@@ -75,7 +74,7 @@ export function ReviewStatsCard({
           <View style={styles.breakdownSection}>
             {[5, 4, 3, 2, 1].map((rating) => (
               <View key={rating} style={styles.breakdownRow}>
-                <ThemedText style={styles.breakdownLabel}>{rating}★</ThemedText>
+                <Text style={styles.breakdownLabel}>{rating}★</Text>
                 <View style={styles.barContainer}>
                   <View 
                     style={[
@@ -84,9 +83,9 @@ export function ReviewStatsCard({
                     ]} 
                   />
                 </View>
-                <ThemedText style={styles.breakdownCount}>
+                <Text style={styles.breakdownCount}>
                   {stats.ratingBreakdown[rating as keyof typeof stats.ratingBreakdown]}
-                </ThemedText>
+                </Text>
               </View>
             ))}
           </View>
@@ -99,16 +98,16 @@ export function ReviewStatsCard({
           style={[styles.actionButton, styles.primaryButton]}
           onPress={onWriteReview}
         >
-          <Ionicons name="create-outline" size={20} color={Colors.white} />
-          <ThemedText style={styles.primaryButtonText}>Write Review</ThemedText>
+          <Ionicons name="create-outline" size={20} color={LightColors.white} />
+          <Text style={styles.primaryButtonText}>Write Review</Text>
         </TouchableOpacity>
 
         <TouchableOpacity 
           style={[styles.actionButton, styles.secondaryButton]}
           onPress={onQuickRate}
         >
-          <Ionicons name="star-outline" size={20} color={Colors.primary} />
-          <ThemedText style={styles.secondaryButtonText}>Quick Rate</ThemedText>
+          <Ionicons name="star-outline" size={20} color={LightColors.primary} />
+          <Text style={styles.secondaryButtonText}>Quick Rate</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -117,12 +116,12 @@ export function ReviewStatsCard({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: Colors.card,
+    backgroundColor: LightColors.card,
     borderRadius: 16,
     padding: 20,
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: LightColors.border,
   },
   overallSection: {
     flexDirection: 'row',
@@ -136,7 +135,7 @@ const styles = StyleSheet.create({
   bigNumber: {
     fontSize: 48,
     fontWeight: '700',
-    color: Colors.text.primary,
+    color: LightColors.text.primary,
     lineHeight: 52,
   },
   starsDisplay: {
@@ -146,12 +145,12 @@ const styles = StyleSheet.create({
   },
   countText: {
     fontSize: 14,
-    color: Colors.text.secondary,
+    color: LightColors.text.secondary,
     marginTop: 8,
   },
   reviewsText: {
     fontSize: 12,
-    color: Colors.text.secondary,
+    color: LightColors.text.secondary,
     marginTop: 2,
   },
   breakdownSection: {
@@ -166,24 +165,24 @@ const styles = StyleSheet.create({
   breakdownLabel: {
     fontSize: 14,
     fontWeight: '600',
-    color: Colors.text.primary,
+    color: LightColors.text.primary,
     width: 30,
   },
   barContainer: {
     flex: 1,
     height: 8,
-    backgroundColor: Colors.border,
+    backgroundColor: LightColors.border,
     borderRadius: 4,
     overflow: 'hidden',
   },
   barFill: {
     height: '100%',
-    backgroundColor: Colors.accent,
+    backgroundColor: LightColors.accent,
     borderRadius: 4,
   },
   breakdownCount: {
     fontSize: 12,
-    color: Colors.text.secondary,
+    color: LightColors.text.secondary,
     width: 30,
     textAlign: 'right',
   },
@@ -201,20 +200,20 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   primaryButton: {
-    backgroundColor: Colors.primary,
+    backgroundColor: LightColors.primary,
   },
   primaryButtonText: {
-    color: Colors.white,
+    color: LightColors.white,
     fontSize: 16,
     fontWeight: '600',
   },
   secondaryButton: {
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: Colors.primary,
+    borderColor: LightColors.primary,
   },
   secondaryButtonText: {
-    color: Colors.primary,
+    color: LightColors.primary,
     fontSize: 16,
     fontWeight: '600',
   },

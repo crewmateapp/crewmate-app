@@ -74,22 +74,7 @@ export default function AppDrawer({ visible, onClose }: AppDrawerProps) {
     }, 300);
   };
 
-  const handleThemeChange = () => {
-    const nextTheme = theme === 'light' ? 'dark' : theme === 'dark' ? 'auto' : 'light';
-    setTheme(nextTheme);
-  };
-
-  const getThemeIcon = () => {
-    if (theme === 'light') return 'sunny';
-    if (theme === 'dark') return 'moon';
-    return 'phone-portrait'; // auto mode
-  };
-
-  const getThemeLabel = () => {
-    if (theme === 'light') return 'Light';
-    if (theme === 'dark') return 'Dark';
-    return 'Auto';
-  };
+  // Theme functions removed - light mode only
 
   const handleMyReviews = () => {
     handleNavigation('/my-reviews');
@@ -234,14 +219,7 @@ Device: ${Platform.OS} ${Platform.Version}
                 {profile?.position || 'Crew Member'}
               </ThemedText>
 
-              {/* Theme Toggle - Now under position */}
-              <TouchableOpacity 
-                style={[styles.themeToggle, { backgroundColor: colors.background }]}
-                onPress={handleThemeChange}
-              >
-                <Ionicons name={getThemeIcon()} size={20} color={colors.text.primary} />
-                <ThemedText style={styles.themeToggleText}>Theme: {getThemeLabel()}</ThemedText>
-              </TouchableOpacity>
+              {/* Theme toggle removed - light mode only for now */}
             </View>
 
             {/* Menu Items */}

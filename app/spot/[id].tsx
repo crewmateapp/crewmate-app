@@ -10,6 +10,7 @@ import { WriteReviewModal } from '@/components/WriteReviewModal';
 import { db, storage } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
+import { useColors } from '@/hooks/use-theme-color';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -99,6 +100,7 @@ type ReviewStats = {
 export default function SpotDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user } = useAuth();
+  const colors = useColors();
   const [spot, setSpot] = useState<Spot | null>(null);
   const [votes, setVotes] = useState<Vote[]>([]);
   const [myVote, setMyVote] = useState<number | null>(null);
@@ -710,8 +712,8 @@ export default function SpotDetailScreen() {
             // Fallback if no photos - show back button normally
             <View style={styles.headerRow}>
               <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-                <Ionicons name="arrow-back" size={24} color={Colors.text.primary} />
-                <ThemedText style={styles.backText}>Back</ThemedText>
+                <Ionicons name="arrow-back" size={24} color={colors.text.primary} />
+                <ThemedText style={[styles.backText, { color: colors.text.primary }]}>Back</ThemedText>
               </TouchableOpacity>
               
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
@@ -735,7 +737,7 @@ export default function SpotDetailScreen() {
             </View>
           )}
 
-        <ThemedText type="title" style={styles.title}>
+        <ThemedText type="title" style={[styles.title, { color: colors.text.primary }]}>
           {spot.name}
         </ThemedText>
 
@@ -743,7 +745,7 @@ export default function SpotDetailScreen() {
           <View style={styles.typeTag}>
             <ThemedText style={styles.typeText}>{spot.category || spot.type}</ThemedText>
           </View>
-          <ThemedText style={styles.cityText}>📍 {spot.city}</ThemedText>
+          <ThemedText style={[styles.cityText, { color: colors.text.secondary }]}>📍 {spot.city}</ThemedText>
         </View>
 
         {/* CREATE PLAN BUTTON */}
@@ -758,7 +760,7 @@ export default function SpotDetailScreen() {
 
         {spot.description && (
           <View style={styles.descriptionCard}>
-            <ThemedText style={styles.description}>{spot.description}</ThemedText>
+            <ThemedText style={[styles.description, { color: colors.text.primary }]}>{spot.description}</ThemedText>
           </View>
         )}
 
@@ -769,7 +771,7 @@ export default function SpotDetailScreen() {
               <Ionicons name="bulb" size={20} color={Colors.accent} />
               <ThemedText style={styles.tipsTitle}>Crew Tips</ThemedText>
             </View>
-            <ThemedText style={styles.tipsText}>{spot.tips}</ThemedText>
+            <ThemedText style={[styles.tipsText, { color: colors.text.primary }]}>{spot.tips}</ThemedText>
           </View>
         )}
 
@@ -785,7 +787,7 @@ export default function SpotDetailScreen() {
         {/* More Photos Section - Show remaining photos (skip first since it's hero) */}
         {spotPhotos.length > 1 && (
           <View style={styles.photosSection}>
-            <ThemedText style={styles.sectionTitle}>📸 More Photos</ThemedText>
+            <ThemedText style={[styles.sectionTitle, { color: colors.text.primary }]}>📸 More Photos</ThemedText>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               {spotPhotos.slice(1).map((photoUrl, index) => (
                 <TouchableOpacity 
@@ -829,7 +831,7 @@ export default function SpotDetailScreen() {
 
         {/* Details Card */}
         <View style={styles.infoCard}>
-          <ThemedText style={styles.sectionTitle}>Details</ThemedText>
+          <ThemedText style={[styles.sectionTitle, { color: colors.text.primary }]}>Details</ThemedText>
           {spot.address && (
             <TouchableOpacity
               style={styles.infoRow}
@@ -921,7 +923,7 @@ export default function SpotDetailScreen() {
             <View style={styles.quickRateHeader}>
               <ThemedText style={styles.quickRateTitle}>Quick Rate</ThemedText>
               <TouchableOpacity onPress={() => setShowQuickRate(false)}>
-                <Ionicons name="close" size={28} color={Colors.text.primary} />
+                <Ionicons name="close" size={28} color={colors.text.primary} />
               </TouchableOpacity>
             </View>
             

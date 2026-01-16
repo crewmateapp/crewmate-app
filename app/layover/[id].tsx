@@ -591,7 +591,7 @@ export default function LayoverDetailScreen() {
             <View style={[styles.layoverIcon, { backgroundColor: Colors.primary + '15' }]}>
               <Ionicons name="airplane" size={32} color={Colors.primary} />
             </View>
-            <ThemedText style={styles.cityName}>{layover.city}</ThemedText>
+            <ThemedText style={[styles.cityName, { color: colors.text.primary }]}>{layover.city}</ThemedText>
             <ThemedText style={[styles.areaName, { color: colors.text.secondary }]}>{layover.area}</ThemedText>
             <ThemedText style={[styles.dates, { color: colors.text.secondary }]}>
               {formatDateRange(layover.startDate, layover.endDate)}
@@ -633,7 +633,7 @@ export default function LayoverDetailScreen() {
           {/* Notes Section */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <ThemedText style={styles.sectionTitle}>My Notes</ThemedText>
+              <ThemedText style={[styles.sectionTitle, { color: colors.text.primary }]}>My Notes</ThemedText>
               {!editingNotes && (
                 <TouchableOpacity onPress={() => setEditingNotes(true)}>
                   <Ionicons name="pencil" size={18} color={Colors.primary} />
@@ -726,7 +726,7 @@ export default function LayoverDetailScreen() {
           {myPlans.length > 0 && (
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
-                <ThemedText style={styles.sectionTitle}>My Plans</ThemedText>
+                <ThemedText style={[styles.sectionTitle, { color: colors.text.primary }]}>My Plans</ThemedText>
               </View>
               {myPlans.map(plan => (
                 <PlanCard key={plan.id} plan={plan} />
@@ -738,7 +738,7 @@ export default function LayoverDetailScreen() {
           {allPlans.length > 0 && (
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
-                <ThemedText style={styles.sectionTitle}>
+                <ThemedText style={[styles.sectionTitle, { color: colors.text.primary }]}>
                   Other Plans in {layover.city}
                 </ThemedText>
                 <ThemedText style={[styles.sectionCount, { color: colors.text.secondary }]}>
@@ -755,7 +755,7 @@ export default function LayoverDetailScreen() {
           {recommendedSpots.length > 0 && (
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
-                <ThemedText style={styles.sectionTitle}>Recommended Spots</ThemedText>
+                <ThemedText style={[styles.sectionTitle, { color: colors.text.primary }]}>Recommended Spots</ThemedText>
                 <TouchableOpacity onPress={() => router.push(`/explore?city=${layover.city}`)}>
                   <ThemedText style={[styles.viewAllLink, { color: Colors.primary }]}>
                     View All
@@ -787,7 +787,7 @@ export default function LayoverDetailScreen() {
                     </View>
                   )}
                   <View style={styles.spotInfo}>
-                    <ThemedText style={styles.spotName}>{spot.name}</ThemedText>
+                    <ThemedText style={[styles.spotName, { color: colors.text.primary }]}>{spot.name}</ThemedText>
                     {spot.description && (
                       <ThemedText 
                         style={[styles.spotDesc, { color: colors.text.secondary }]}
@@ -809,7 +809,7 @@ export default function LayoverDetailScreen() {
           {/* Crew Section */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <ThemedText style={styles.sectionTitle}>
+              <ThemedText style={[styles.sectionTitle, { color: colors.text.primary }]}>
                 Crew on this Layover
               </ThemedText>
               <ThemedText style={[styles.sectionCount, { color: colors.text.secondary }]}>
@@ -840,7 +840,7 @@ export default function LayoverDetailScreen() {
                     )}
 
                     <View style={styles.crewInfo}>
-                      <ThemedText style={styles.crewName}>{member.displayName}</ThemedText>
+                      <ThemedText style={[styles.crewName, { color: colors.text.primary }]}>{member.displayName}</ThemedText>
                       {member.airline && (
                         <ThemedText style={[styles.crewDetail, { color: colors.text.secondary }]}>
                           {member.airline} {member.base ? `• ${member.base}` : ''}

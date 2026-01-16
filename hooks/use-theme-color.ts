@@ -1,6 +1,5 @@
 // hooks/use-theme-color.ts
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from './use-color-scheme';
+import { useTheme } from '@/contexts/ThemeContext';
 
 /**
  * Original hook for ThemedText/ThemedView components
@@ -8,27 +7,29 @@ import { useColorScheme } from './use-color-scheme';
  */
 export function useThemeColor(
   props: { light?: string; dark?: string },
-  colorName: keyof typeof Colors.light & keyof typeof Colors.dark
+  colorName: string
 ) {
-  const theme = useColorScheme() ?? 'light';
+  const { colors, isDark } = useTheme();
+  const theme = isDark ? 'dark' : 'light';
   const colorFromProps = props[theme];
 
   if (colorFromProps) {
     return colorFromProps;
   } else {
-    return Colors[theme][colorName];
+    // Access color from the colors object
+    return (colors as any)[colorName];
   }
 }
 
 /**
  * New simplified hook to get all theme colors
- * Returns the appropriate color scheme based on system theme
+ * Returns the appropriate color scheme based on user preference from ThemeContext
  * 
  * Usage:
  * const colors = useColors();
  * backgroundColor: colors.background
  */
 export function useColors() {
-  const colorScheme = useColorScheme();
-  return colorScheme === 'dark' ? Colors.dark : Colors.light;
+  const { colors } = useTheme();
+  return colors;
 }

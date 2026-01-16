@@ -28,12 +28,20 @@ type Spot = {
   recommended?: boolean;
 };
 
-const categoryEmoji: Record<string, string> = {
-  coffee: '☕',
-  food: '🍽️',
-  bar: '�',
-  activity: '🎯',
-  gym: '💪',
+const categoryIcons: Record<string, string> = {
+  coffee: 'cafe',
+  food: 'restaurant',
+  bar: 'wine',
+  activity: 'tennisball',
+  gym: 'barbell',
+};
+
+const categoryLabels: Record<string, string> = {
+  coffee: 'Coffee',
+  food: 'Food',
+  bar: 'Bar',
+  activity: 'Activity',
+  gym: 'Gym',
 };
 
 const categoryColors: Record<string, string> = {
@@ -152,7 +160,7 @@ export default function CityScreen() {
               !selectedCategory && { color: Colors.white }
             ]}>All</ThemedText>
           </TouchableOpacity>
-          {Object.entries(categoryEmoji).map(([cat, emoji]) => (
+          {Object.entries(categoryLabels).map(([cat, label]) => (
             <TouchableOpacity
               key={cat}
               style={[
@@ -162,7 +170,10 @@ export default function CityScreen() {
               ]}
               onPress={() => setSelectedCategory(cat)}
             >
-              <ThemedText style={styles.categoryChipText}>{emoji}</ThemedText>
+              <ThemedText style={[
+                styles.categoryChipText,
+                selectedCategory === cat && { color: Colors.white }
+              ]}>{label}</ThemedText>
             </TouchableOpacity>
           ))}
         </ScrollView>
@@ -201,17 +212,21 @@ export default function CityScreen() {
                   <View
                     style={[
                       styles.categoryBadge,
-                      { backgroundColor: categoryColors[spot.category] },
+                      { backgroundColor: spot.category ? categoryColors[spot.category] : '#666' },
                     ]}
                   >
-                    <ThemedText style={styles.categoryBadgeText}>
-                      {categoryEmoji[spot.category]}
-                    </ThemedText>
+                    <Ionicons 
+                      name={spot.category ? categoryIcons[spot.category] as any : 'location'}
+                      size={24} 
+                      color="#FFFFFF" 
+                    />
                   </View>
                   <View style={styles.spotInfo}>
-                    <ThemedText style={styles.spotName}>{spot.name}</ThemedText>
-                    <ThemedText style={styles.spotCategory}>
-                      {spot.category.charAt(0).toUpperCase() + spot.category.slice(1)}
+                    <ThemedText style={[styles.spotName, { color: colors.text.primary }]}>{spot.name}</ThemedText>
+                    <ThemedText style={[styles.spotCategory, { color: colors.text.secondary }]}>
+                      {spot.category ? 
+                        categoryLabels[spot.category] : 
+                        'Uncategorized'}
                       {spot.area && ` • ${spot.area}`}
                     </ThemedText>
                   </View>
@@ -293,13 +308,14 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   categoryChip: {
-    paddingHorizontal: 15,
+    paddingHorizontal: 18,
     paddingVertical: 10,
     borderRadius: 20,
     marginRight: 10,
   },
   categoryChipText: {
-    fontSize: 18,
+    fontSize: 15,
+    fontWeight: '600',
   },
   loadingContainer: {
     paddingVertical: 60,
@@ -326,8 +342,9 @@ const styles = StyleSheet.create({
   },
   spotCard: {
     borderRadius: 16,
-    padding: 16,
+    padding: 18,
     borderWidth: 1,
+    marginBottom: 4,
   },
   spotHeader: {
     flexDirection: 'row',
@@ -335,37 +352,33 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   categoryBadge: {
-    width: 45,
-    height: 45,
+    width: 48,
+    height: 48,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
-  },
-  categoryBadgeText: {
-    fontSize: 20,
+    marginRight: 14,
   },
   spotInfo: {
     flex: 1,
   },
   spotName: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '700',
-    marginBottom: 2,
+    marginBottom: 4,
   },
   spotCategory: {
-    fontSize: 13,
-    color: '#888',
+    fontSize: 14,
   },
   starButton: {
     padding: 8,
     marginLeft: 8,
   },
   spotDescription: {
-    fontSize: 15,
+    fontSize: 16,
     fontStyle: 'italic',
-    marginBottom: 10,
-    lineHeight: 22,
+    marginBottom: 12,
+    lineHeight: 24,
   },
   addedBy: {
     fontSize: 12,

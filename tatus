@@ -1,0 +1,183 @@
+[33mcommit 32bf6cbdfec32f73647bf73043ac7be3d2ac1d88[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmaster[m[33m, [m[1;31morigin/master[m[33m)[m
+Author: Zach <crewmateapphq@gmail.com>
+Date:   Thu Jan 15 19:17:06 2026 -0500
+
+    Feature: GPS-verified check-in flow (Phase 3)
+    
+    - Add location verification utilities with 50-mile city radius
+    - Require GPS verification before allowing check-in
+    - Combine check-in + go-live into one verified action
+    - Show 'Verifying...' status during GPS check
+    - Handle permission denied, wrong location, GPS errors
+    - Auto-expire after 24 hours
+    - Update button text: 'Check In' → 'Check In & Go Live'
+    
+    Privacy: Only verify location at check-in, never store coordinates
+    Safety: Prevents fake check-ins from users not in the city
+    UX: Clear error messages for all failure cases
+
+ app/(tabs)/explore.tsx        |  14 [32m+[m[31m-[m
+ app/(tabs)/index.tsx          | 109 [32m+++++[m[31m-[m
+ app/(tabs)/profile.tsx        | 286 [32m++++++[m[31m--------[m
+ app/_layout.tsx               |   2 [32m+[m[31m-[m
+ app/city/[name].tsx           | 111 [32m++++[m[31m--[m
+ app/layover/[id].tsx          | 861 [32m+++++++++++++++++++++++++++++++++++++[m[31m-----[m
+ utils/locationVerification.ts | 143 [32m+++++++[m
+ 7 files changed, 1214 insertions(+), 312 deletions(-)
+
+[33mcommit b471f86b5cc9dac5d46dbaa796ea95aee1d22b74[m
+Author: Zach <crewmateapphq@gmail.com>
+Date:   Thu Jan 15 16:45:39 2026 -0500
+
+    Fix: Multiple bug fixes and features
+    
+    - Fix GPS bug: Airport names now display correctly (not undefined)
+    - Fix Chapel Hill error: Airport areas now load properly
+    - Fix spot visibility: Standardize city names (MSP, CHS, etc)
+    - Add city name migration tool to admin panel
+    - Add Google Places photo auto-population
+    - Make logo clickable (navigate home)
+    - Show real names/avatars in plan chats
+    - Make layover cards fully clickable
+    - Add theme system foundation (Colors, use-theme-color hook)
+    
+    Files changed:
+    - app/(tabs)/index.tsx
+    - components/AppHeader.tsx
+    - components/PlanChat.tsx
+    - constants/Colors.ts, theme.ts
+    - hooks/use-theme-color.ts
+    - app/add-spot.tsx
+    - app/admin.tsx
+
+ .firebaserc                 |    5 [32m+[m
+ app/(tabs)/index.tsx        |   51 [32m+[m[31m-[m
+ app/(tabs)/plans.tsx        |   12 [32m+[m[31m-[m
+ app/add-spot.tsx            |   58 [32m+[m[31m-[m
+ app/admin.tsx               |  410 [32m+[m[31m-[m
+ app/admin/fix-users.tsx     |  148 [32m+[m
+ app/auth/signin.tsx         |  124 [32m+[m[31m-[m
+ app/create-plan.tsx         |  278 [32m+[m[31m-[m
+ components/AppHeader.tsx    |    9 [32m+[m[31m-[m
+ components/PlanChat.tsx     |   33 [32m+[m[31m-[m
+ config/firebase.js          |   13 [32m+[m
+ constants/Colors.ts         |   11 [32m+[m[31m-[m
+ constants/theme.ts          |   56 [32m+[m[31m-[m
+ contexts/AuthContext.tsx    |   20 [32m+[m[31m-[m
+ firebase.json               |   19 [32m+[m
+ functions/.eslintrc.js      |   33 [32m+[m
+ functions/.gitignore        |   10 [32m+[m
+ functions/package-lock.json | 9921 [32m+++++++++++++++++++++++++++++++++++++++++++[m
+ functions/package.json      |   32 [32m+[m
+ functions/src/index.ts      |  137 [32m+[m
+ functions/tsconfig.dev.json |    5 [32m+[m
+ functions/tsconfig.json     |   17 [32m+[m
+ hooks/use-theme-color.ts    |   25 [32m+[m[31m-[m
+ scripts/fixOrphanedUsers.ts |    0
+ 24 files changed, 11320 insertions(+), 107 deletions(-)
+
+[33mcommit 69309cabe526811a918556b02466756d265946f4[m
+Author: Zach <crewmateapphq@gmail.com>
+Date:   Tue Jan 13 15:32:02 2026 -0500
+
+    Phase 3: My Layover redesign + multi-city plans + notifications
+    
+    Major Changes:
+    - Redesigned My Layover tab with no gates, full layover management
+    - Plans tab now shows all layovers (current + upcoming)
+    - Notifications auto-clear when viewing
+    - Multi-stop plan state preservation fixed
+    - Airport search function signature updated
+    
+    Features Added:
+    - Add/edit/delete layovers with date picker
+    - Check-in system separate from going live
+    - Edit layover dates via pencil icon
+    - Delete layovers via trash icon
+    - City filtering in Plans tab
+    - Multi-city plan support
+    
+    Bug Fixes:
+    - Plans tab empty state (city mismatch)
+    - Multi-stop plans state preservation
+    - Notification clearing
+    - Airport search undefined query
+    - Firebase serverTimestamp in arrays
+    - Duplicate function declarations
+    
+    Files Changed:
+    - app/(tabs)/index.tsx - Complete redesign
+    - app/(tabs)/plans.tsx - Multi-city support
+    - components/ProfileMenu.tsx - Auto-clear notifications
+    - utils/airportData.ts - Function signature fix
+    - app/plan-notifications.tsx - getDocs bug fix
+    - Multi-stop files (create/edit/explore)
+    
+    Build: v1.1.1 → v1.2.0
+
+ app.json                      |   11 [32m+[m[31m-[m
+ app/(tabs)/connections.tsx    |   40 [32m+[m[31m-[m
+ app/(tabs)/explore.tsx        |   41 [32m+[m[31m-[m
+ app/(tabs)/index.tsx          | 1934 [32m++++++++++++++++++[m[31m-----------------------[m
+ app/(tabs)/plans.tsx          |  470 [32m+++++++[m[31m---[m
+ app/(tabs)/profile.tsx        |   46 [31m-[m
+ app/create-plan-multistop.tsx | 1129 [31m------------------------[m
+ app/create-plan.tsx           |   47 [32m+[m[31m-[m
+ app/edit-plan.tsx             |  553 [32m++++++++++[m[31m--[m
+ app/layover/[id].tsx          |    2 [32m+[m[31m-[m
+ app/plan-notifications.tsx    |    3 [32m+[m[31m-[m
+ components/PlanCard.tsx       |   61 [32m+[m[31m-[m
+ components/ProfileMenu.tsx    |   35 [32m+[m[31m-[m
+ components/SpotCard.tsx       |   12 [32m+[m[31m-[m
+ eas.json                      |   11 [32m+[m[31m-[m
+ package-lock.json             |   86 [32m++[m
+ package.json                  |    1 [32m+[m
+ utils/airportData.ts          |  100 [32m++[m[31m-[m
+ 18 files changed, 2064 insertions(+), 2518 deletions(-)
+
+[33mcommit d2521bc1cddba8f41ba88f09e685f17e16a19c76[m
+Author: Zach <crewmateapphq@gmail.com>
+Date:   Mon Jan 12 21:24:03 2026 -0500
+
+    Phase 3: Multi-stop plans and UX improvements
+
+ app/(tabs)/connections.tsx    |  238 [32m++++++++[m[31m-[m
+ app/(tabs)/explore.tsx        |  102 [32m+++[m[31m-[m
+ app/(tabs)/index.tsx          |  187 [32m+++++++[m
+ app/SpotCard.tsx              |   20 [32m+[m[31m-[m
+ app/_layout.tsx               |   25 [32m+[m[31m-[m
+ app/add-layover.tsx           |  651 [32m+++++++++++++++++++++++[m
+ app/add-spot.tsx              |  328 [32m++++++++++[m[31m--[m
+ app/create-plan-multistop.tsx | 1129 [32m+++++++++++++++++++++++++++++++++++++++[m
+ app/create-plan.tsx           | 1181 [32m++++++++++++++++++++++++++++[m[31m-------------[m
+ app/discover-crew.tsx         |  726 [32m+++++++++++++++++++++++++[m
+ app/layover/[id].tsx          |  654 [32m+++++++++++++++++++++++[m
+ app/manage-layovers.tsx       |  398 [32m++++++++++++++[m
+ app/photo-viewer.tsx          |  277 [32m++++++++[m[31m--[m
+ app/plan/[id].tsx             |  214 [32m+++++++[m[31m-[m
+ app/spot/[id].tsx             |   98 [32m++[m[31m--[m
+ components/SimpleCalendar.tsx |  202 [32m+++++++[m
+ components/SpotCard.tsx       |   20 [32m+[m[31m-[m
+ types/plan.ts                 |   34 [32m+[m[31m-[m
+ utils/categoryHelpers.ts      |  121 [32m+++++[m
+ 19 files changed, 6020 insertions(+), 585 deletions(-)
+
+[33mcommit 1177ab9d0a07b14479f369546e31ea265b40ab46[m
+Author: Zach <crewmateapphq@gmail.com>
+Date:   Mon Jan 12 14:32:23 2026 -0500
+
+    Add user photos to feeds, clickable profile stats, crewfie timestamps/locations, fix navigation issues
+
+ app.json                                        |   2 [32m+[m[31m-[m
+ app/_layout.tsx                                 |  39 [32m++[m[31m-[m
+ app/admin.tsx                                   |   8 [32m+[m
+ app/create-post.tsx                             |   1 [32m+[m
+ app/friends.tsx                                 |  20 [32m+[m[31m-[m
+ app/profile/[userId].tsx                        |  33 [32m++[m[31m-[m
+ app/profile/friend/[userId].tsx                 |  33 [32m++[m[31m-[m
+ app/profile/friend/[userId]/user-activities.tsx | 325 [32m++++++++++++++++++++++++[m
+ app/profile/user-activities.tsx                 | 325 [32m++++++++++++++++++++++++[m
+ components/activity-feed.tsx                    |   8 [32m+[m[31m-[m
+ components/crewfies-feed.tsx                    |  55 [32m+++[m[31m-[m
+ utils/backfillActivities.ts                     |  26 [32m++[m
+ 12 files changed, 848 insertions(+), 27 deletions(-)
