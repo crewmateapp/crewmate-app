@@ -1,11 +1,11 @@
 // components/ReviewCard.tsx
-import { ThemedText } from '@/components/themed-text';
-import { Colors } from '@/constants/Colors';
+import { LightColors } from '@/constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import {
   Image,
   StyleSheet,
+  Text,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -81,21 +81,21 @@ export function ReviewCard({
           <Image source={{ uri: review.userPhoto }} style={styles.avatar} />
         ) : (
           <View style={styles.avatarFallback}>
-            <ThemedText style={styles.avatarText}>
+            <Text style={styles.avatarText}>
               {review.userName.slice(0, 2).toUpperCase()}
-            </ThemedText>
+            </Text>
           </View>
         )}
 
         <View style={styles.userInfo}>
           <View style={styles.nameRow}>
-            <ThemedText style={styles.userName}>{review.userName}</ThemedText>
+            <Text style={styles.userName}>{review.userName}</Text>
             {review.verified && (
-              <Ionicons name="checkmark-circle" size={16} color={Colors.success} />
+              <Ionicons name="checkmark-circle" size={16} color={LightColors.success} />
             )}
           </View>
           {review.userPosition && (
-            <ThemedText style={styles.userPosition}>{review.userPosition}</ThemedText>
+            <Text style={styles.userPosition}>{review.userPosition}</Text>
           )}
         </View>
       </TouchableOpacity>
@@ -108,20 +108,20 @@ export function ReviewCard({
               key={star}
               name={review.rating >= star ? 'star' : 'star-outline'}
               size={16}
-              color={Colors.accent}
+              color={LightColors.accent}
             />
           ))}
         </View>
-        <ThemedText style={styles.timeAgo}>{getTimeAgo(review.createdAt)}</ThemedText>
+        <Text style={styles.timeAgo}>{getTimeAgo(review.createdAt)}</Text>
       </View>
 
       {/* Review Text */}
-      <ThemedText style={styles.reviewText}>{displayText}</ThemedText>
+      <Text style={styles.reviewText}>{displayText}</Text>
       {isLongReview && (
         <TouchableOpacity onPress={() => setExpanded(!expanded)}>
-          <ThemedText style={styles.readMoreText}>
+          <Text style={styles.readMoreText}>
             {expanded ? 'Show less' : 'Read more'}
-          </ThemedText>
+          </Text>
         </TouchableOpacity>
       )}
 
@@ -137,9 +137,9 @@ export function ReviewCard({
               <Image source={{ uri: photo }} style={styles.photo} />
               {index === 2 && review.photos.length > 3 && (
                 <View style={styles.photoOverlay}>
-                  <ThemedText style={styles.photoOverlayText}>
+                  <Text style={styles.photoOverlayText}>
                     +{review.photos.length - 3}
-                  </ThemedText>
+                  </Text>
                 </View>
               )}
             </TouchableOpacity>
@@ -156,11 +156,11 @@ export function ReviewCard({
           <Ionicons 
             name={hasVoted ? 'thumbs-up' : 'thumbs-up-outline'} 
             size={18} 
-            color={hasVoted ? Colors.primary : Colors.text.secondary} 
+            color={hasVoted ? LightColors.primary : LightColors.text.secondary} 
           />
-          <ThemedText style={[styles.helpfulText, hasVoted && styles.helpfulTextActive]}>
+          <Text style={[styles.helpfulText, hasVoted && styles.helpfulTextActive]}>
             Helpful {helpfulCount > 0 && `(${helpfulCount})`}
-          </ThemedText>
+          </Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -169,12 +169,12 @@ export function ReviewCard({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: Colors.card,
+    backgroundColor: LightColors.card,
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: LightColors.border,
   },
   userSection: {
     flexDirection: 'row',
@@ -191,14 +191,14 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: Colors.primary,
+    backgroundColor: LightColors.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarText: {
     fontSize: 16,
     fontWeight: '700',
-    color: Colors.white,
+    color: LightColors.white,
   },
   userInfo: {
     flex: 1,
@@ -211,11 +211,11 @@ const styles = StyleSheet.create({
   userName: {
     fontSize: 16,
     fontWeight: '700',
-    color: Colors.text.primary,
+    color: LightColors.text.primary,
   },
   userPosition: {
     fontSize: 14,
-    color: Colors.text.secondary,
+    color: LightColors.text.secondary,
     marginTop: 2,
   },
   metaRow: {
@@ -230,17 +230,17 @@ const styles = StyleSheet.create({
   },
   timeAgo: {
     fontSize: 13,
-    color: Colors.text.secondary,
+    color: LightColors.text.secondary,
   },
   reviewText: {
     fontSize: 15,
     lineHeight: 22,
-    color: Colors.text.primary,
+    color: LightColors.text.primary,
     marginBottom: 8,
   },
   readMoreText: {
     fontSize: 14,
-    color: Colors.primary,
+    color: LightColors.primary,
     fontWeight: '600',
     marginBottom: 8,
   },
@@ -271,7 +271,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   photoOverlayText: {
-    color: Colors.white,
+    color: LightColors.white,
     fontSize: 24,
     fontWeight: '700',
   },
@@ -280,7 +280,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: Colors.border,
+    borderTopColor: LightColors.border,
   },
   helpfulButton: {
     flexDirection: 'row',
@@ -292,15 +292,15 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   helpfulButtonActive: {
-    backgroundColor: Colors.primary + '20',
+    backgroundColor: LightColors.primary + '20',
   },
   helpfulText: {
     fontSize: 14,
-    color: Colors.text.secondary,
+    color: LightColors.text.secondary,
     fontWeight: '500',
   },
   helpfulTextActive: {
-    color: Colors.primary,
+    color: LightColors.primary,
     fontWeight: '600',
   },
 });

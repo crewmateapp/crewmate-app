@@ -43,6 +43,9 @@ export function ReviewStatsCard({
 
   return (
     <View style={styles.container}>
+      {/* Header */}
+      <Text style={styles.header}>⭐ Ratings & Reviews</Text>
+      
       {/* Overall Rating */}
       <View style={styles.overallSection}>
         <View style={styles.ratingDisplay}>
@@ -62,6 +65,9 @@ export function ReviewStatsCard({
           <Text style={styles.countText}>
             {displayCount} {displayCount === 1 ? 'rating' : 'ratings'}
           </Text>
+          {!hasReviews && displayCount === 0 && (
+            <Text style={styles.noReviewsText}>No ratings yet</Text>
+          )}
           {hasReviews && (
             <Text style={styles.reviewsText}>
               {stats.totalReviews} {stats.totalReviews === 1 ? 'review' : 'reviews'}
@@ -123,6 +129,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: LightColors.border,
   },
+  header: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: LightColors.text.primary,
+    marginBottom: 16,
+  },
   overallSection: {
     flexDirection: 'row',
     gap: 20,
@@ -147,6 +159,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: LightColors.text.secondary,
     marginTop: 8,
+  },
+  noReviewsText: {
+    fontSize: 13,
+    color: LightColors.text.secondary,
+    marginTop: 4,
+    fontStyle: 'italic',
   },
   reviewsText: {
     fontSize: 12,

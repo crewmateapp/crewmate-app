@@ -2,6 +2,8 @@
 import { PlanCard } from '@/components/PlanCard';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import AppHeader from '@/components/AppHeader';
+import AppDrawer from '@/components/AppDrawer';
 import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useColors } from '@/hooks/use-theme-color';
@@ -22,6 +24,7 @@ import {
   deleteDoc,
   limit,
   orderBy,
+  onSnapshot,
 } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import {
@@ -102,12 +105,74 @@ export default function LayoverDetailScreen() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [editStartDate, setEditStartDate] = useState(new Date());
   const [editEndDate, setEditEndDate] = useState(new Date());
+  
+  // Drawer and notifications
+  const [drawerVisible, setDrawerVisible] = useState(false);
+  const [connectionRequestCount, setConnectionRequestCount] = useState(0);
+  const [planNotificationCount, setPlanNotificationCount] = useState(0);
+  const [messageCount, setMessageCount] = useState(0);
 
   useEffect(() => {
     if (id && user) {
       fetchLayoverData();
     }
   }, [id, user]);
+
+  // Listen for incoming connection requests
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    const q = query(
+      collection(db, 'connectionRequests'),
+      where('toUserId', '==', user.uid),
+      where('status', '==', 'pending')
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setConnectionRequestCount(snapshot.size);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // Listen for unread plan notifications
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    const q = query(
+      collection(db, 'planNotifications'),
+      where('userId', '==', user.uid),
+      where('read', '==', false)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setPlanNotificationCount(snapshot.size);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // Listen for unread messages
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    const connectionsRef = collection(db, 'connections');
+    const q = query(
+      connectionsRef,
+      where('userIds', 'array-contains', user.uid)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      let totalUnread = 0;
+      snapshot.docs.forEach((doc) => {
+        const data = doc.data();
+        totalUnread += data.unreadCount?.[user.uid] || 0;
+      });
+      setMessageCount(totalUnread);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
 
   const fetchLayoverData = async () => {
     setLoading(true);
@@ -549,37 +614,51 @@ export default function LayoverDetailScreen() {
     );
   }
 
-  return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
-      <ThemedView style={styles.container}>
-        {/* Header */}
-        <View style={[styles.header, { borderBottomColor: colors.border }]}>
-          <TouchableOpacity onPress={() => router.back()}>
-            <Ionicons name="chevron-back" size={28} color={Colors.primary} />
-          </TouchableOpacity>
-          <View style={styles.headerActions}>
-            <TouchableOpacity 
-              style={[styles.headerButton, { backgroundColor: colors.card, borderColor: colors.border }]}
-              onPress={handleShare}
-            >
-              <Ionicons name="share-outline" size={20} color={Colors.primary} />
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.headerButton, { backgroundColor: colors.card, borderColor: colors.border }]}
-              onPress={() => setShowEditModal(true)}
-            >
-              <Ionicons name="pencil-outline" size={20} color={Colors.primary} />
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.headerButton, { backgroundColor: colors.card, borderColor: colors.border }]}
-              onPress={handleDeleteLayover}
-            >
-              <Ionicons name="trash-outline" size={20} color={Colors.error} />
-            </TouchableOpacity>
-          </View>
-        </View>
+  const totalUnreadCount = connectionRequestCount + planNotificationCount + messageCount;
 
-        <ScrollView 
+  return (
+    <>
+      <AppDrawer 
+        visible={drawerVisible}
+        onClose={() => setDrawerVisible(false)}
+      />
+      
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
+        <ThemedView style={styles.container}>
+          {/* App Header */}
+          <AppHeader
+            onMenuPress={() => setDrawerVisible(true)}
+            unreadCount={totalUnreadCount}
+          />
+          
+          {/* Action Buttons Row */}
+          <View style={[styles.actionBar, { borderBottomColor: colors.border }]}>
+            <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+              <Ionicons name="chevron-back" size={28} color={Colors.primary} />
+            </TouchableOpacity>
+            <View style={styles.headerActions}>
+              <TouchableOpacity 
+                style={[styles.headerButton, { backgroundColor: colors.card, borderColor: colors.border }]}
+                onPress={handleShare}
+              >
+                <Ionicons name="share-outline" size={20} color={Colors.primary} />
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.headerButton, { backgroundColor: colors.card, borderColor: colors.border }]}
+                onPress={() => setShowEditModal(true)}
+              >
+                <Ionicons name="pencil-outline" size={20} color={Colors.primary} />
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.headerButton, { backgroundColor: colors.card, borderColor: colors.border }]}
+                onPress={handleDeleteLayover}
+              >
+                <Ionicons name="trash-outline" size={20} color={Colors.error} />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <ScrollView 
           style={styles.content} 
           showsVerticalScrollIndicator={false}
           refreshControl={
@@ -910,7 +989,6 @@ export default function LayoverDetailScreen() {
 
           <View style={{ height: 40 }} />
         </ScrollView>
-      </ThemedView>
 
       {/* Edit Modal - Simple for now, can enhance later */}
       <Modal
@@ -939,7 +1017,9 @@ export default function LayoverDetailScreen() {
           </View>
         </View>
       </Modal>
+      </ThemedView>
     </SafeAreaView>
+    </>
   );
 }
 
@@ -950,13 +1030,16 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  header: {
+  actionBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
+  },
+  backButton: {
+    padding: 4,
   },
   headerActions: {
     flexDirection: 'row',

@@ -1,11 +1,11 @@
 // components/ReviewList.tsx
 import { ReviewCard } from '@/components/ReviewCard';
-import { ThemedText } from '@/components/themed-text';
-import { Colors } from '@/constants/Colors';
+import { LightColors } from '@/constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import {
   StyleSheet,
+  Text,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -80,11 +80,11 @@ export function ReviewList({
   if (reviews.length === 0) {
     return (
       <View style={styles.emptyState}>
-        <Ionicons name="chatbubbles-outline" size={64} color={Colors.text.secondary} />
-        <ThemedText style={styles.emptyTitle}>No Reviews Yet</ThemedText>
-        <ThemedText style={styles.emptyText}>
+        <Ionicons name="chatbubbles-outline" size={64} color={LightColors.text.secondary} />
+        <Text style={styles.emptyTitle}>No Reviews Yet</Text>
+        <Text style={styles.emptyText}>
           Be the first to share your experience!
-        </ThemedText>
+        </Text>
       </View>
     );
   }
@@ -95,19 +95,19 @@ export function ReviewList({
     <View style={styles.container}>
       {/* Header with Sort */}
       <View style={styles.header}>
-        <ThemedText style={styles.title}>
+        <Text style={styles.title}>
           💬 Reviews ({reviews.length})
-        </ThemedText>
+        </Text>
         
         <TouchableOpacity 
           style={styles.sortButton}
           onPress={() => setShowSortMenu(!showSortMenu)}
         >
-          <ThemedText style={styles.sortButtonText}>{currentSortLabel}</ThemedText>
+          <Text style={styles.sortButtonText}>{currentSortLabel}</Text>
           <Ionicons 
             name={showSortMenu ? 'chevron-up' : 'chevron-down'} 
             size={16} 
-            color={Colors.primary} 
+            color={LightColors.primary} 
           />
         </TouchableOpacity>
       </View>
@@ -130,16 +130,16 @@ export function ReviewList({
               <Ionicons 
                 name={option.icon as any} 
                 size={20} 
-                color={sortBy === option.value ? Colors.primary : Colors.text.secondary} 
+                color={sortBy === option.value ? LightColors.primary : LightColors.text.secondary} 
               />
-              <ThemedText style={[
+              <Text style={[
                 styles.sortOptionText,
                 sortBy === option.value && styles.sortOptionTextActive
               ]}>
                 {option.label}
-              </ThemedText>
+              </Text>
               {sortBy === option.value && (
-                <Ionicons name="checkmark" size={20} color={Colors.primary} />
+                <Ionicons name="checkmark" size={20} color={LightColors.primary} />
               )}
             </TouchableOpacity>
           ))}
@@ -176,7 +176,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 20,
     fontWeight: '700',
-    color: Colors.text.primary,
+    color: LightColors.text.primary,
   },
   sortButton: {
     flexDirection: 'row',
@@ -186,19 +186,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: Colors.card,
+    borderColor: LightColors.border,
+    backgroundColor: LightColors.card,
   },
   sortButtonText: {
     fontSize: 14,
-    color: Colors.primary,
+    color: LightColors.primary,
     fontWeight: '600',
   },
   sortMenu: {
-    backgroundColor: Colors.card,
+    backgroundColor: LightColors.card,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: LightColors.border,
     marginBottom: 16,
     overflow: 'hidden',
   },
@@ -209,18 +209,18 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: LightColors.border,
   },
   sortOptionActive: {
-    backgroundColor: Colors.primary + '10',
+    backgroundColor: LightColors.primary + '10',
   },
   sortOptionText: {
     flex: 1,
     fontSize: 15,
-    color: Colors.text.primary,
+    color: LightColors.text.primary,
   },
   sortOptionTextActive: {
-    color: Colors.primary,
+    color: LightColors.primary,
     fontWeight: '600',
   },
   reviewsList: {
@@ -233,12 +233,12 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: Colors.text.primary,
+    color: LightColors.text.primary,
     marginTop: 16,
   },
   emptyText: {
     fontSize: 14,
-    color: Colors.text.secondary,
+    color: LightColors.text.secondary,
     marginTop: 8,
     textAlign: 'center',
   },
