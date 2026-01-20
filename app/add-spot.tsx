@@ -259,7 +259,7 @@ export default function AddSpotScreen() {
     setLoadingDetails(true);
     try {
       const response = await fetch(
-        `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=name,formatted_address,address_components,formatted_phone_number,international_phone_number,website,geometry,types,place_id&key=${GOOGLE_PLACES_API_KEY}`
+        `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=name,formatted_address,address_components,formatted_phone_number,international_phone_number,website,geometry,types,place_id,photos&key=${GOOGLE_PLACES_API_KEY}`
       );
 
       const data = await response.json();

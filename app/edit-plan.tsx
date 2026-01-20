@@ -25,6 +25,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Keyboard,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -106,6 +107,11 @@ export default function EditPlanScreen() {
   const [selectedSpotId, setSelectedSpotId] = useState('');
   const [selectedSpotName, setSelectedSpotName] = useState('');
   const [currentCity, setCurrentCity] = useState<string | null>(null);
+
+  // Edit stop state
+  const [showEditStopModal, setShowEditStopModal] = useState(false);
+  const [editingStopIndex, setEditingStopIndex] = useState<number | null>(null);
+  const [editStopTime, setEditStopTime] = useState(new Date());
 
   // Track if we've restored stops from params (to prevent multiple restorations)
   const hasRestoredStops = useRef(false);
@@ -297,6 +303,43 @@ export default function EditPlanScreen() {
     setStops(updated);
   };
 
+  const handleEditStop = (index: number) => {
+    setEditingStopIndex(index);
+    setEditStopTime(new Date(stops[index].scheduledTime));
+    setShowEditStopModal(true);
+  };
+
+  const confirmEditStop = () => {
+    if (editingStopIndex === null) return;
+    
+    const updated = [...stops];
+    updated[editingStopIndex] = {
+      ...updated[editingStopIndex],
+      scheduledTime: editStopTime
+    };
+    
+    // Sort by time after editing
+    updated.sort((a, b) => a.scheduledTime.getTime() - b.scheduledTime.getTime());
+    
+    // Update order values
+    updated.forEach((stop, i) => {
+      stop.order = i;
+    });
+    
+    setStops(updated);
+    setShowEditStopModal(false);
+    setEditingStopIndex(null);
+  };
+
+  const onEditStopTimeChange = (event: any, selectedTime?: Date) => {
+    if (Platform.OS !== 'ios') {
+      setShowEditStopModal(false);
+    }
+    if (selectedTime) {
+      setEditStopTime(selectedTime);
+    }
+  };
+
   const handleSave = async () => {
     if (!plan || !user) return;
 
@@ -480,6 +523,12 @@ export default function EditPlanScreen() {
                   </View>
 
                   <View style={styles.stopActions}>
+                    <TouchableOpacity
+                      style={styles.stopActionButton}
+                      onPress={() => handleEditStop(index)}
+                    >
+                      <Ionicons name="pencil" size={20} color={Colors.primary} />
+                    </TouchableOpacity>
                     {index > 0 && (
                       <TouchableOpacity
                         style={styles.stopActionButton}
@@ -678,6 +727,75 @@ export default function EditPlanScreen() {
             onChange={handleTimeChange}
           />
         )}
+
+        {/* Edit Stop Time Modal */}
+        {showEditStopModal && editingStopIndex !== null && (
+          <View style={styles.modalOverlay}>
+            <View style={styles.editStopModal}>
+              <View style={styles.modalHeader}>
+                <ThemedText style={styles.modalTitle}>Edit Stop Time</ThemedText>
+                <TouchableOpacity onPress={() => setShowEditStopModal(false)}>
+                  <Ionicons name="close" size={24} color={Colors.text} />
+                </TouchableOpacity>
+              </View>
+              
+              <View style={styles.modalContent}>
+                <ThemedText style={styles.editStopName}>
+                  {stops[editingStopIndex]?.spotName}
+                </ThemedText>
+                
+                <View style={styles.timeSection}>
+                  <ThemedText style={styles.timeLabel}>Scheduled Time</ThemedText>
+                  <TouchableOpacity
+                    style={styles.timeButton}
+                    onPress={() => {
+                      // On Android, the picker opens immediately
+                      // On iOS, we show inline picker below
+                    }}
+                  >
+                    <Ionicons name="time-outline" size={20} color={Colors.primary} />
+                    <ThemedText style={styles.timeButtonText}>
+                      {editStopTime.toLocaleTimeString('en-US', { 
+                        hour: 'numeric', 
+                        minute: '2-digit' 
+                      })}
+                    </ThemedText>
+                  </TouchableOpacity>
+                </View>
+                
+                {Platform.OS === 'ios' && (
+                  <DateTimePicker
+                    value={editStopTime}
+                    mode="time"
+                    display="spinner"
+                    onChange={onEditStopTimeChange}
+                    style={styles.iosTimePicker}
+                  />
+                )}
+                
+                {Platform.OS === 'android' && (
+                  <DateTimePicker
+                    value={editStopTime}
+                    mode="time"
+                    display="default"
+                    onChange={onEditStopTimeChange}
+                  />
+                )}
+                
+                <ThemedText style={styles.editStopHint}>
+                  Stops will automatically reorder by time
+                </ThemedText>
+              </View>
+              
+              <TouchableOpacity
+                style={styles.saveButton}
+                onPress={confirmEditStop}
+              >
+                <ThemedText style={styles.saveButtonText}>Save Time</ThemedText>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
       </ThemedView>
     </KeyboardAvoidingView>
   );
@@ -867,5 +985,90 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: Colors.primary,
+  },
+  
+  // Edit Stop Modal
+  modalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  editStopModal: {
+    width: '90%',
+    maxWidth: 400,
+    backgroundColor: Colors.background,
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+  },
+  modalContent: {
+    marginBottom: 20,
+  },
+  editStopName: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 20,
+  },
+  timeSection: {
+    marginBottom: 16,
+  },
+  timeLabel: {
+    fontSize: 14,
+    marginBottom: 8,
+    opacity: 0.7,
+  },
+  timeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 12,
+    backgroundColor: Colors.card,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  timeButtonText: {
+    fontSize: 16,
+  },
+  iosTimePicker: {
+    marginTop: 16,
+  },
+  editStopHint: {
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 16,
+    fontStyle: 'italic',
+    opacity: 0.7,
+  },
+  saveButton: {
+    backgroundColor: Colors.primary,
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  saveButtonText: {
+    color: Colors.white,
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

@@ -2,6 +2,7 @@
 import { PlanCard } from '@/components/PlanCard';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import CreatePlanWizard from '@/components/CreatePlanWizard';
 import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
@@ -55,6 +56,7 @@ export default function PlansScreen() {
   const [allPlans, setAllPlans] = useState<Plan[]>([]);
   const [layovers, setLayovers] = useState<Layover[]>([]);
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
+  const [showCreateWizard, setShowCreateWizard] = useState(false);
 
   // Get user's layovers
   useEffect(() => {
@@ -232,7 +234,7 @@ export default function PlansScreen() {
       alert('Please add a layover first');
       return;
     }
-    router.push('/create-plan');
+    setShowCreateWizard(true);
   };
 
   // Group plans by city
@@ -407,6 +409,13 @@ export default function PlansScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* Create Plan Wizard */}
+      <CreatePlanWizard
+        isOpen={showCreateWizard}
+        onClose={() => setShowCreateWizard(false)}
+        layoverCity={selectedCity || undefined}
+      />
     </ThemedView>
   );
 }

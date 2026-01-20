@@ -402,15 +402,23 @@ export default function ProfileScreen() {
             <ThemedText style={[styles.statLabel, { color: colors.text.primary }]}>Friends</ThemedText>
           </View>
           <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
-          <View style={styles.statBox}>
+          <TouchableOpacity 
+            style={styles.statBox}
+            onPress={() => router.push('/my-spots')}
+            activeOpacity={0.7}
+          >
             <ThemedText style={styles.statNumber}>{stats.spotsAdded}</ThemedText>
             <ThemedText style={[styles.statLabel, { color: colors.text.primary }]}>Spots</ThemedText>
-          </View>
+          </TouchableOpacity>
           <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
-          <View style={styles.statBox}>
+          <TouchableOpacity 
+            style={styles.statBox}
+            onPress={() => router.push('/my-reviews')}
+            activeOpacity={0.7}
+          >
             <ThemedText style={styles.statNumber}>{stats.reviewsLeft}</ThemedText>
             <ThemedText style={[styles.statLabel, { color: colors.text.primary }]}>Reviews</ThemedText>
-          </View>
+          </TouchableOpacity>
         </View>
 
         {/* Friends Card */}

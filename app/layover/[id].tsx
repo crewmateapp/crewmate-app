@@ -1,9 +1,12 @@
 // app/layover/[id].tsx - ENHANCED VERSION
+// UPDATED: Now passes layover context (layoverId, layoverCity, fromLayover) when navigating to spots
+// This enables smart plan creation - no "Set Layover First" error when creating plans from this layover
 import { PlanCard } from '@/components/PlanCard';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import AppHeader from '@/components/AppHeader';
 import AppDrawer from '@/components/AppDrawer';
+import CreatePlanWizard from '@/components/CreatePlanWizard';
 import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useColors } from '@/hooks/use-theme-color';
@@ -95,6 +98,9 @@ export default function LayoverDetailScreen() {
   const [recommendedSpots, setRecommendedSpots] = useState<Spot[]>([]);
   const [weather, setWeather] = useState<Weather | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(false);
+  
+  // Create Plan Wizard
+  const [showCreateWizard, setShowCreateWizard] = useState(false);
   
   // Notes editing
   const [notes, setNotes] = useState('');
@@ -237,26 +243,53 @@ export default function LayoverDetailScreen() {
     if (!user?.uid) return;
 
     try {
-      const plansQuery = query(
+      // Query for plans where user is the host
+      const hostedPlansQuery = query(
         collection(db, 'plans'),
         where('hostUserId', '==', user.uid),
         where('layoverId', '==', id),
         where('status', '==', 'active')
       );
 
-      const plansSnap = await getDocs(plansQuery);
-      const plans: Plan[] = plansSnap.docs.map(doc => ({
+      // Query for plans where user is in the attendees array
+      const joinedPlansQuery = query(
+        collection(db, 'plans'),
+        where('attendeeIds', 'array-contains', user.uid),
+        where('layoverId', '==', id),
+        where('status', '==', 'active')
+      );
+
+      // Fetch both queries in parallel
+      const [hostedSnapshot, joinedSnapshot] = await Promise.all([
+        getDocs(hostedPlansQuery),
+        getDocs(joinedPlansQuery)
+      ]);
+
+      // Map hosted plans with isHost flag
+      const hostedPlans: Plan[] = hostedSnapshot.docs.map(doc => ({
         id: doc.id,
-        ...doc.data()
+        ...doc.data(),
+        isHost: true
       } as Plan));
 
-      plans.sort((a, b) => {
+      // Map joined plans with isHost flag
+      // Filter out plans where user is also the host (to avoid duplicates)
+      const joinedPlans: Plan[] = joinedSnapshot.docs
+        .filter(doc => doc.data().hostUserId !== user.uid)
+        .map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          isHost: false
+        } as Plan));
+
+      // Merge and sort by time
+      const allMyPlans = [...hostedPlans, ...joinedPlans].sort((a, b) => {
         const aTime = a.scheduledTime?.toDate ? a.scheduledTime.toDate() : new Date(a.scheduledTime);
         const bTime = b.scheduledTime?.toDate ? b.scheduledTime.toDate() : new Date(b.scheduledTime);
         return aTime.getTime() - bTime.getTime();
       });
 
-      setMyPlans(plans);
+      setMyPlans(allMyPlans);
     } catch (error) {
       console.error('Error fetching plans:', error);
     }
@@ -782,7 +815,7 @@ export default function LayoverDetailScreen() {
           <View style={styles.quickActions}>
             <TouchableOpacity 
               style={styles.actionButton}
-              onPress={() => router.push(`/create-plan?city=${layover.city}&layoverId=${layover.id}`)}
+              onPress={() => setShowCreateWizard(true)}
             >
               <Ionicons name="add-circle-outline" size={20} color={Colors.white} />
               <ThemedText style={styles.actionButtonText}>Create Plan</ThemedText>
@@ -808,7 +841,14 @@ export default function LayoverDetailScreen() {
                 <ThemedText style={[styles.sectionTitle, { color: colors.text.primary }]}>My Plans</ThemedText>
               </View>
               {myPlans.map(plan => (
-                <PlanCard key={plan.id} plan={plan} />
+                <View key={plan.id} style={{ position: 'relative' }}>
+                  {!plan.isHost && (
+                    <View style={styles.joinedBadge}>
+                      <ThemedText style={styles.joinedBadgeText}>Joined</ThemedText>
+                    </View>
+                  )}
+                  <PlanCard plan={plan} />
+                </View>
               ))}
             </View>
           )}
@@ -848,7 +888,14 @@ export default function LayoverDetailScreen() {
                     backgroundColor: colors.card,
                     borderColor: colors.border
                   }]}
-                  onPress={() => router.push(`/spot/${spot.id}`)}
+                  onPress={() => router.push({
+                    pathname: `/spot/${spot.id}`,
+                    params: {
+                      layoverId: id,
+                      layoverCity: layover?.city || '',
+                      fromLayover: 'true'
+                    }
+                  })}
                   activeOpacity={0.7}
                 >
                   {spot.photoURLs && spot.photoURLs.length > 0 ? (
@@ -1017,6 +1064,14 @@ export default function LayoverDetailScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Create Plan Wizard */}
+      <CreatePlanWizard
+        isOpen={showCreateWizard}
+        onClose={() => setShowCreateWizard(false)}
+        layoverId={id}
+        layoverCity={layover?.city}
+      />
       </ThemedView>
     </SafeAreaView>
     </>
@@ -1029,6 +1084,21 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
+  },
+  joinedBadge: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    backgroundColor: Colors.accent,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    zIndex: 10,
+  },
+  joinedBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#fff',
   },
   actionBar: {
     flexDirection: 'row',

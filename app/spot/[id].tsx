@@ -1,4 +1,7 @@
 // app/spot/[id].tsx
+// UPDATED: Now receives layover context from navigation (layoverId, layoverCity, fromLayover)
+// This enables smart plan creation from layover pages - user doesn't see "Set Layover First" error
+// when navigating from a layover to this spot.
 import AppHeader from '@/components/AppHeader';
 import AppDrawer from '@/components/AppDrawer';
 import { ReviewList } from '@/components/ReviewList';
@@ -99,6 +102,14 @@ type ReviewStats = {
 
 export default function SpotDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  
+  // NEW: Receive layover context from navigation
+  const { layoverId, layoverCity, fromLayover } = useLocalSearchParams<{
+    layoverId?: string;
+    layoverCity?: string;
+    fromLayover?: string;
+  }>();
+  
   const { user } = useAuth();
   const colors = useColors();
   const [spot, setSpot] = useState<Spot | null>(null);
@@ -209,7 +220,10 @@ export default function SpotDetailScreen() {
     const unsubscribe = onSnapshot(userDoc, (docSnap) => {
       if (docSnap.exists()) {
         const userData = docSnap.data();
-        setHasLayover(!!userData.currentLayover);
+        // Check if has layover from user data OR from navigation context
+        const hasLayoverFromData = !!userData.currentLayover;
+        const hasLayoverFromContext = !!(layoverId && layoverCity);
+        setHasLayover(hasLayoverFromData || hasLayoverFromContext);
         
         // Check if verified (has been in this city)
         const layoverHistory = userData.layoverHistory || [];
@@ -218,7 +232,7 @@ export default function SpotDetailScreen() {
     });
 
     return () => unsubscribe();
-  }, [user, spot]);
+  }, [user, spot, layoverId, layoverCity]);
 
   const handleVote = async (rating: number) => {
     if (!user || !id || !spot) return;
@@ -587,12 +601,16 @@ export default function SpotDetailScreen() {
       return;
     }
 
-    // Navigate to create plan with spot pre-selected
+    // Navigate to create plan with spot pre-selected AND layover context
     router.push({
       pathname: '/create-plan',
       params: {
         spotId: id,
-        spotName: spot?.name || ''
+        spotName: spot?.name || '',
+        // Pass layover context if available (from navigation)
+        ...(layoverId && { layoverId }),
+        ...(layoverCity && { layoverCity }),
+        ...(fromLayover && { fromLayover })
       }
     });
   };

@@ -150,6 +150,10 @@ export default function AdminScreen() {
   const [fixingCityNames, setFixingCityNames] = useState(false);
   const [cityMigrationResult, setCityMigrationResult] = useState<any>(null);
 
+  // Google Photos Backfill
+  const [backfillingPhotos, setBackfillingPhotos] = useState(false);
+  const [photoBackfillResult, setPhotoBackfillResult] = useState<any>(null);
+
   // Analytics data
   const [stats, setStats] = useState({
     // User stats
@@ -1243,6 +1247,135 @@ const handleFixOrphanedUsers = async () => {
     );
   };
 
+  const handleBackfillGooglePhotos = async () => {
+    if (!isSuperAdmin(role)) {
+      Alert.alert('Permission Denied', 'Only super admins can run this operation.');
+      return;
+    }
+
+    Alert.alert(
+      'Backfill Google Photos',
+      'This will fetch photos from Google Places for all spots that:\n• Have a placeId (from Google Places)\n• Don\'t have any photos yet\n\nThis may take a few minutes depending on how many spots need photos.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Start Backfill',
+          onPress: async () => {
+            try {
+              setBackfillingPhotos(true);
+              setPhotoBackfillResult(null);
+
+              const GOOGLE_PLACES_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
+              
+              if (!GOOGLE_PLACES_API_KEY) {
+                Alert.alert('Error', 'Google Places API key not found in environment variables');
+                return;
+              }
+
+              // Fetch all approved spots
+              const spotsSnapshot = await getDocs(
+                query(collection(db, 'spots'), where('status', '==', 'approved'))
+              );
+
+              const spotsNeedingPhotos: any[] = [];
+              const spotsWithPhotos: any[] = [];
+              const spotsWithoutPlaceId: any[] = [];
+
+              // Categorize spots
+              spotsSnapshot.docs.forEach((doc) => {
+                const spot = doc.data();
+                
+                if (!spot.placeId) {
+                  spotsWithoutPlaceId.push({ id: doc.id, name: spot.name });
+                } else if (!spot.photoURLs || spot.photoURLs.length === 0) {
+                  spotsNeedingPhotos.push({ id: doc.id, name: spot.name, placeId: spot.placeId });
+                } else {
+                  spotsWithPhotos.push({ id: doc.id, name: spot.name });
+                }
+              });
+
+              console.log(`📊 Found ${spotsNeedingPhotos.length} spots needing photos`);
+
+              let successCount = 0;
+              let noPhotosAvailable = 0;
+              let errorCount = 0;
+              const errors: any[] = [];
+
+              // Process each spot that needs photos
+              for (let i = 0; i < spotsNeedingPhotos.length; i++) {
+                const spot = spotsNeedingPhotos[i];
+                
+                try {
+                  // Fetch place details with photos
+                  const detailsResponse = await fetch(
+                    `https://maps.googleapis.com/maps/api/place/details/json?place_id=${spot.placeId}&fields=photos&key=${GOOGLE_PLACES_API_KEY}`
+                  );
+
+                  const detailsData = await detailsResponse.json();
+
+                  if (detailsData.status === 'OK' && detailsData.result?.photos && detailsData.result.photos.length > 0) {
+                    // Build photo URLs (up to 3 photos)
+                    const photoUrls = detailsData.result.photos.slice(0, 3).map((photo: any) => 
+                      `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photo_reference=${photo.photo_reference}&key=${GOOGLE_PLACES_API_KEY}`
+                    );
+
+                    // Update spot with photos
+                    await updateDoc(doc(db, 'spots', spot.id), {
+                      photoURLs: photoUrls
+                    });
+
+                    successCount++;
+                    console.log(`✅ ${i + 1}/${spotsNeedingPhotos.length} - Added ${photoUrls.length} photos to ${spot.name}`);
+                  } else {
+                    noPhotosAvailable++;
+                    console.log(`⚠️ ${i + 1}/${spotsNeedingPhotos.length} - No photos available for ${spot.name}`);
+                  }
+
+                  // Small delay to avoid rate limiting
+                  await new Promise(resolve => setTimeout(resolve, 100));
+
+                } catch (error: any) {
+                  errorCount++;
+                  errors.push({ name: spot.name, error: error.message });
+                  console.error(`❌ Error processing ${spot.name}:`, error);
+                }
+              }
+
+              // Show results
+              setPhotoBackfillResult({
+                totalSpots: spotsSnapshot.docs.length,
+                spotsNeedingPhotos: spotsNeedingPhotos.length,
+                spotsWithPhotos: spotsWithPhotos.length,
+                spotsWithoutPlaceId: spotsWithoutPlaceId.length,
+                successCount,
+                noPhotosAvailable,
+                errorCount,
+                errors
+              });
+
+              Alert.alert(
+                'Backfill Complete!',
+                `Successfully added photos to ${successCount} spots!\n\n` +
+                `• Total spots: ${spotsSnapshot.docs.length}\n` +
+                `• Already had photos: ${spotsWithPhotos.length}\n` +
+                `• Photos added: ${successCount}\n` +
+                `• No photos available: ${noPhotosAvailable}\n` +
+                `• Errors: ${errorCount}\n` +
+                `• No Place ID: ${spotsWithoutPlaceId.length}`
+              );
+
+            } catch (error: any) {
+              console.error('Error backfilling photos:', error);
+              Alert.alert('Error', error.message || 'Failed to backfill photos');
+            } finally {
+              setBackfillingPhotos(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   // Migration function (kept from original)
   const handleMigrateCities = async () => {
     // This would migrate from hardcoded cities - keeping as placeholder
@@ -2138,6 +2271,62 @@ const handleFixOrphanedUsers = async () => {
                         {cityMigrationResult.changes.length > 20 && (
                           <ThemedText style={[styles.cardDescription, { fontStyle: 'italic' }]}>
                             ... and {cityMigrationResult.changes.length - 20} more
+                          </ThemedText>
+                        )}
+                      </ScrollView>
+                    </>
+                  )}
+                </View>
+              )}
+            </View>
+
+            {/* Google Photos Backfill Card */}
+            <View style={[styles.card, { marginTop: 20 }]}>
+              <ThemedText style={styles.cardTitle}>📸 Backfill Google Photos</ThemedText>
+              <ThemedText style={styles.cardDescription}>
+                Fetch photos from Google Places for all spots that:{'\n'}
+                • Have a placeId (from Google Places){'\n'}
+                • Don't have any photos yet{'\n'}
+                {'\n'}
+                This will automatically add up to 3 photos per spot. May take a few minutes depending on how many spots need photos.
+              </ThemedText>
+              
+              <TouchableOpacity
+                style={[styles.button, backfillingPhotos && styles.buttonDisabled]}
+                onPress={handleBackfillGooglePhotos}
+                disabled={backfillingPhotos}
+              >
+                {backfillingPhotos ? (
+                  <ActivityIndicator color={Colors.white} />
+                ) : (
+                  <ThemedText style={styles.buttonText}>Backfill Google Photos</ThemedText>
+                )}
+              </TouchableOpacity>
+              
+              {photoBackfillResult && (
+                <View style={[styles.card, { marginTop: 16, backgroundColor: Colors.success + '10' }]}>
+                  <ThemedText style={styles.cardTitle}>✅ Backfill Complete</ThemedText>
+                  <ThemedText style={styles.cardDescription}>
+                    • Total Spots: {photoBackfillResult.totalSpots}{'\n'}
+                    • Already had photos: {photoBackfillResult.spotsWithPhotos}{'\n'}
+                    • Photos added: {photoBackfillResult.successCount}{'\n'}
+                    • No photos available: {photoBackfillResult.noPhotosAvailable}{'\n'}
+                    • Errors: {photoBackfillResult.errorCount}{'\n'}
+                    • No Place ID: {photoBackfillResult.spotsWithoutPlaceId}
+                  </ThemedText>
+                  
+                  {photoBackfillResult.errors && photoBackfillResult.errors.length > 0 && (
+                    <>
+                      <ThemedText style={[styles.cardTitle, { marginTop: 12, color: Colors.error }]}>Errors:</ThemedText>
+                      <ScrollView style={{ maxHeight: 200 }}>
+                        {photoBackfillResult.errors.slice(0, 10).map((error: any, index: number) => (
+                          <ThemedText key={index} style={styles.cardDescription}>
+                            • {error.name}: {error.error}
+                          </ThemedText>
+                        ))}
+                        {photoBackfillResult.errors.length > 10 && (
+                          <ThemedText style={[styles.cardDescription, { fontStyle: 'italic' }]}>
+                            ... and {photoBackfillResult.errors.length - 10} more errors
                           </ThemedText>
                         )}
                       </ScrollView>
