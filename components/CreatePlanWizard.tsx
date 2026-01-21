@@ -5,6 +5,7 @@ import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { useColors } from '@/hooks/use-theme-color';
+import { updateStatsForPlanHosted } from '@/utils/updateUserStats';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import {
@@ -40,6 +41,9 @@ const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const BOTTOM_SHEET_HEIGHT = SCREEN_HEIGHT * 0.65;
 const STEP_1_HEIGHT = SCREEN_HEIGHT * 0.85; // Taller for search/browse
 const FULL_SCREEN_HEIGHT = SCREEN_HEIGHT * 0.95;
+
+console.log('✅ CreatePlanWizard.tsx loaded!');
+console.log('✅ updateStatsForPlanHosted imported:', typeof updateStatsForPlanHosted);
 
 // Category options matching your spot categories
 const CATEGORIES = [
@@ -427,7 +431,19 @@ export default function CreatePlanWizard({ isOpen, onClose, layoverId, layoverCi
         }));
       }
       
-      await addDoc(collection(db, 'plans'), planData);
+      const planRef = await addDoc(collection(db, 'plans'), planData);
+      
+      // ✨ ENGAGEMENT: Track plan creation for CMS and badges
+      console.log('🎯 [WIZARD DEBUG] About to track plan creation');
+      console.log('🎯 [WIZARD DEBUG] User ID:', user.uid);
+      console.log('🎯 [WIZARD DEBUG] Plan ID:', planRef.id);
+      try {
+        await updateStatsForPlanHosted(user.uid, planRef.id);
+        console.log('✅ [WIZARD DEBUG] Plan tracking completed successfully!');
+      } catch (error) {
+        console.error('❌ [WIZARD DEBUG] Error tracking plan creation:', error);
+        // Don't fail the plan creation if tracking fails
+      }
       
       Alert.alert('Success', 'Plan created successfully!');
       handleClose();
