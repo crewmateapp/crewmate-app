@@ -1,16 +1,17 @@
 import { DarkTheme, DefaultTheme, ThemeProvider as NavThemeProvider } from '@react-navigation/native';
+import * as Notifications from 'expo-notifications';
 import { router, Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { doc, getDoc } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import 'react-native-reanimated';
-import * as Notifications from 'expo-notifications';
 
 import { db } from '@/config/firebase';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
 import { redirectToOnboardingIfNeeded } from '@/hooks/useOnboardingCheck';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
+import LinkHandler from './link-handler';
 
 // Configure how notifications are handled when app is in foreground
 // Only set if notifications are available (not in Expo Go)
@@ -131,21 +132,25 @@ function RootLayoutNav() {
   }, [user, loading]); // FIXED: Removed hasNavigated from deps to prevent race condition
 
   return (
-    <NavThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="auth/signin" />
-        <Stack.Screen name="auth/signup" />
-        <Stack.Screen name="auth/verify-email" />
-        <Stack.Screen name="auth/create-profile" />
-        <Stack.Screen name="onboarding" />
-        <Stack.Screen name="setup-profile" />
-        <Stack.Screen name="tutorial" />
-        <Stack.Screen name="notifications" />
-        <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
-      </Stack>
-      <StatusBar style={isDark ? "light" : "dark"} />
-    </NavThemeProvider>
+    <>
+      <LinkHandler />
+      <NavThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="auth/signin" />
+          <Stack.Screen name="auth/signup" />
+          <Stack.Screen name="auth/verify-email" />
+          <Stack.Screen name="auth/create-profile" />
+          <Stack.Screen name="onboarding" />
+          <Stack.Screen name="setup-profile" />
+          <Stack.Screen name="tutorial" />
+          <Stack.Screen name="notifications" />
+          <Stack.Screen name="plan-invite" />
+          <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
+        </Stack>
+        <StatusBar style={isDark ? "light" : "dark"} />
+      </NavThemeProvider>
+    </>
   );
 }
 

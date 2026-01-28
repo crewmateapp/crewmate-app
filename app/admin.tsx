@@ -8,7 +8,11 @@ import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { isSuperAdmin, useAdminRole } from '@/hooks/useAdminRole';
 import { AirportData, getAirportByCode, searchAirports } from '@/utils/airportData';
+import { runFullMigration } from '@/utils/migration_resetPlanStats';
 import { notifyCityApproved, notifyCityRejected, notifySpotApproved, notifySpotRejected } from '@/utils/notifications';
+import { seedInitialSkylines } from '@/utils/dynamicBaseSkylines';
+import { analyzeSkylineCoverage, formatCoverageReport, type CoverageReport } from '@/utils/skylineCoverageAnalyzer';
+import { SkylineManager } from '@/components/SkylineManager';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import {
@@ -153,6 +157,22 @@ export default function AdminScreen() {
   // Google Photos Backfill
   const [backfillingPhotos, setBackfillingPhotos] = useState(false);
   const [photoBackfillResult, setPhotoBackfillResult] = useState<any>(null);
+
+  // Badge System Migration
+  const [runningBadgeMigration, setRunningBadgeMigration] = useState(false);
+  const [badgeMigrationResult, setBadgeMigrationResult] = useState<any>(null);
+  
+  // Beta Badge Migration
+  const [awardingBetaBadges, setAwardingBetaBadges] = useState(false);
+  const [betaBadgeResult, setBetaBadgeResult] = useState<any>(null);
+
+  // Skyline Seeding
+  const [seedingSkylines, setSeedingSkylines] = useState(false);
+  const [skylineSeeded, setSkylineSeeded] = useState(false);
+
+  // Skyline Coverage Analysis
+  const [analyzingCoverage, setAnalyzingCoverage] = useState(false);
+  const [coverageReport, setCoverageReport] = useState<CoverageReport | null>(null);
 
   // Analytics data
   const [stats, setStats] = useState({
@@ -1376,6 +1396,210 @@ const handleFixOrphanedUsers = async () => {
     );
   };
 
+  // Badge System Migration
+  const handleRunBadgeMigration = async () => {
+    if (!isSuperAdmin(role)) {
+      Alert.alert('Permission Denied', 'Only super admins can run this operation.');
+      return;
+    }
+
+    Alert.alert(
+      '⚠️ Badge System Migration',
+      'This will:\n• Reset all plan stats for new badge system\n• Set plansCompleted = 0 for all users\n• Copy plansHosted → plansCreated\n• Reset all plans to allow re-check-in\n\nThis is a ONE-TIME operation for alpha testing.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Run Migration',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setRunningBadgeMigration(true);
+              setBadgeMigrationResult(null);
+
+              console.log('🚀 Starting badge system migration...');
+              const result = await runFullMigration();
+
+              console.log('✅ Badge migration complete!', result);
+              setBadgeMigrationResult(result);
+
+              Alert.alert(
+                '✅ Migration Complete!',
+                `Users migrated: ${result.userResults.successCount}\n` +
+                `Plans reset: ${result.planResults.count}\n` +
+                `Errors: ${result.userResults.errorCount}`
+              );
+
+            } catch (error: any) {
+              console.error('❌ Badge migration failed:', error);
+              Alert.alert('Migration Failed', error.message || 'An error occurred during migration');
+              setBadgeMigrationResult({ error: error.message });
+            } finally {
+              setRunningBadgeMigration(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // Award Beta Pioneer Badge to all eligible users
+  const handleAwardBetaBadges = async () => {
+    if (!isSuperAdmin(role)) {
+      Alert.alert('Permission Denied', 'Only super admins can run this operation.');
+      return;
+    }
+
+    Alert.alert(
+      '🚀 Award Beta Pioneer Badge',
+      'This will award the Beta Pioneer badge to all users who signed up before June 2026.\n\nThis gives:\n• Beta Pioneer badge\n• +250 CMS\n\nSafe to run multiple times - skips users who already have it.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Award Badges',
+          onPress: async () => {
+            try {
+              setAwardingBetaBadges(true);
+              setBetaBadgeResult(null);
+
+              console.log('🚀 Starting Beta Pioneer badge migration...');
+
+              // Get all users
+              const usersSnapshot = await getDocs(collection(db, 'users'));
+              const betaLaunchDate = new Date('2026-06-01'); // June 2026
+
+              let awarded = 0;
+              let skipped = 0;
+              let errors = 0;
+              const errorDetails: string[] = [];
+
+              for (const userDoc of usersSnapshot.docs) {
+                const userId = userDoc.id;
+                const userData = userDoc.data();
+                const displayName = userData.displayName || 'Unknown User';
+
+                try {
+                  // Check if user already has the badge
+                  const badges = userData.badges || [];
+                  if (badges.includes('beta_pioneer')) {
+                    console.log(`⏭️  ${displayName}: Already has Beta Pioneer badge`);
+                    skipped++;
+                    continue;
+                  }
+
+                  // Award badge to all alpha users (they're all before June 2026)
+                  // Award the badge and CMS
+                  const updatedBadges = [...badges, 'beta_pioneer'];
+                  const currentCMS = userData.cms || 0;
+
+                  await updateDoc(doc(db, 'users', userId), {
+                    badges: updatedBadges,
+                    cms: currentCMS + 250, // Beta Pioneer CMS value
+                  });
+
+                  awarded++;
+                  console.log(`✅ ${displayName}: Awarded Beta Pioneer badge (+250 CMS)`);
+                } catch (error: any) {
+                  errors++;
+                  errorDetails.push(`${displayName}: ${error.message}`);
+                  console.error(`❌ Error awarding badge to ${userId}:`, error);
+                }
+              }
+
+              const result = {
+                total: usersSnapshot.size,
+                awarded,
+                skipped,
+                errors,
+                errorDetails,
+              };
+
+              console.log('✅ Beta badge migration complete!', result);
+              setBetaBadgeResult(result);
+
+              Alert.alert(
+                '✅ Migration Complete!',
+                `Awarded Beta Pioneer badge to ${awarded} users!\n\nSkipped: ${skipped}\nErrors: ${errors}`
+              );
+
+            } catch (error: any) {
+              console.error('❌ Beta badge migration failed:', error);
+              Alert.alert('Migration Failed', error.message || 'An error occurred during migration');
+              setBetaBadgeResult({ error: error.message });
+            } finally {
+              setAwardingBetaBadges(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // Seed Base Skylines (CLT and PHL)
+  const handleSeedSkylines = async () => {
+    if (!isSuperAdmin(role)) {
+      Alert.alert('Permission Denied', 'Only super admins can run this operation.');
+      return;
+    }
+
+    Alert.alert(
+      '🌱 Seed Base Skylines',
+      'This will add CLT (Charlotte) and PHL (Philadelphia) skylines to Firestore.\n\nRun this ONCE to set up the initial skylines. Safe to run multiple times.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Seed Skylines',
+          onPress: async () => {
+            try {
+              setSeedingSkylines(true);
+              console.log('🌱 Seeding base skylines...');
+              
+              await seedInitialSkylines();
+              
+              setSkylineSeeded(true);
+              console.log('✅ Skylines seeded successfully!');
+              
+              Alert.alert(
+                '✅ Skylines Seeded!',
+                'CLT and PHL skylines have been added to Firestore.\n\nYou can now see them in profile pages!'
+              );
+            } catch (error: any) {
+              console.error('❌ Skyline seeding failed:', error);
+              Alert.alert('Seeding Failed', error.message || 'An error occurred');
+            } finally {
+              setSeedingSkylines(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // Analyze Skyline Coverage
+  const handleAnalyzeCoverage = async () => {
+    try {
+      setAnalyzingCoverage(true);
+      console.log('📊 Analyzing skyline coverage...');
+      
+      const report = await analyzeSkylineCoverage();
+      setCoverageReport(report);
+      
+      console.log('✅ Coverage analysis complete!');
+      console.log(formatCoverageReport(report));
+      
+      Alert.alert(
+        '📊 Coverage Report',
+        `${report.usersWithSkylines}/${report.totalUsers} users have skylines (${report.coveragePercent.toFixed(1)}%)\n\n` +
+        `${report.basesWithoutSkylines.length} bases need skylines.\n\n` +
+        `Check the report below for details.`
+      );
+    } catch (error: any) {
+      console.error('❌ Coverage analysis failed:', error);
+      Alert.alert('Analysis Failed', error.message || 'An error occurred');
+    } finally {
+      setAnalyzingCoverage(false);
+    }
+  };
+
   // Migration function (kept from original)
   const handleMigrateCities = async () => {
     // This would migrate from hardcoded cities - keeping as placeholder
@@ -2178,7 +2402,279 @@ const handleFixOrphanedUsers = async () => {
         {/* Migration Tab */}
         {activeTab === 'migration' && (
           <ScrollView contentContainerStyle={{ padding: 20 }}>
-            <ThemedText style={styles.sectionTitle}>🔧 User Management</ThemedText>
+            <ThemedText style={styles.sectionTitle}>🚀 Engagement System</ThemedText>
+            
+            {/* Engagement System Migration Card */}
+            <View style={styles.card}>
+              <ThemedText style={styles.cardTitle}>✨ Add Engagement Fields to All Users</ThemedText>
+              <ThemedText style={styles.cardDescription}>
+                Add CMS scores, badges, stats, and levels to all existing users. This will:{'\n'}
+                • Award retroactive CMS for past check-ins and plans{'\n'}
+                • Add all engagement tracking fields{'\n'}
+                • Mark alpha testers as Founding Crew{'\n'}
+                • Set appropriate levels based on activity{'\n'}
+                {'\n'}
+                Safe to run multiple times - skips already-migrated users.
+              </ThemedText>
+              
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: '#FF9500' }]}
+                onPress={() => router.push('/admin/migrate-engagement')}
+              >
+                <ThemedText style={styles.buttonText}>🚀 Open Migration Tool</ThemedText>
+              </TouchableOpacity>
+            </View>
+            
+            {/* Badge System Migration Card - NEW */}
+            <View style={[styles.card, { marginTop: 20, backgroundColor: '#FFF3CD', borderColor: '#FFC107' }]}>
+              <ThemedText style={[styles.cardTitle, { color: '#856404' }]}>🏆 Badge System Migration (ONE-TIME)</ThemedText>
+              <ThemedText style={[styles.cardDescription, { color: '#856404' }]}>
+                Run ONCE to reset plan stats for the new badge integrity system. This will:{'\n'}
+                • Copy plansHosted → plansCreated (preserve history){'\n'}
+                • Set plansCompleted = 0 for all users (fresh start){'\n'}
+                • Reset all plans to allow GPS check-in{'\n'}
+                • Set layoversCompleted = totalCheckIns{'\n'}
+                {'\n'}
+                ⚠️ IMPORTANT: Only run once during alpha deployment!
+              </ThemedText>
+              
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: '#FF5722' }, runningBadgeMigration && styles.buttonDisabled]}
+                onPress={handleRunBadgeMigration}
+                disabled={runningBadgeMigration}
+              >
+                {runningBadgeMigration ? (
+                  <ActivityIndicator color={Colors.white} />
+                ) : (
+                  <ThemedText style={styles.buttonText}>⚠️ Run Badge Migration</ThemedText>
+                )}
+              </TouchableOpacity>
+              
+              {badgeMigrationResult && !badgeMigrationResult.error && (
+                <View style={[styles.card, { marginTop: 16, backgroundColor: '#D4EDDA', borderColor: '#28A745' }]}>
+                  <ThemedText style={[styles.cardTitle, { color: '#155724' }]}>✅ Migration Complete!</ThemedText>
+                  <ThemedText style={[styles.cardDescription, { color: '#155724' }]}>
+                    • Users migrated: {badgeMigrationResult.userResults.successCount}{'\n'}
+                    • Plans reset: {badgeMigrationResult.planResults.count}{'\n'}
+                    • Errors: {badgeMigrationResult.userResults.errorCount}
+                  </ThemedText>
+                </View>
+              )}
+              
+              {badgeMigrationResult?.error && (
+                <View style={[styles.card, { marginTop: 16, backgroundColor: '#F8D7DA', borderColor: '#DC3545' }]}>
+                  <ThemedText style={[styles.cardTitle, { color: '#721C24' }]}>❌ Migration Failed</ThemedText>
+                  <ThemedText style={[styles.cardDescription, { color: '#721C24' }]}>
+                    {badgeMigrationResult.error}
+                  </ThemedText>
+                </View>
+              )}
+            </View>
+            
+            {/* Beta Pioneer Badge Migration Card */}
+            <View style={[styles.card, { marginTop: 20, backgroundColor: '#E3F2FD', borderColor: '#2196F3' }]}>
+              <ThemedText style={[styles.cardTitle, { color: '#0D47A1' }]}>🚀 Award Beta Pioneer Badges</ThemedText>
+              <ThemedText style={[styles.cardDescription, { color: '#0D47A1' }]}>
+                Award the Beta Pioneer badge to all users who signed up before June 2026. This will:{'\n'}
+                • Add "Beta Pioneer" badge to user profiles{'\n'}
+                • Award +250 CMS to each user{'\n'}
+                • Safe to run multiple times (skips users who already have it){'\n'}
+                {'\n'}
+                ℹ️ This should be run for all current alpha users!
+              </ThemedText>
+              
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: '#2196F3' }, awardingBetaBadges && styles.buttonDisabled]}
+                onPress={handleAwardBetaBadges}
+                disabled={awardingBetaBadges}
+              >
+                {awardingBetaBadges ? (
+                  <ActivityIndicator color={Colors.white} />
+                ) : (
+                  <ThemedText style={styles.buttonText}>🚀 Award Beta Badges</ThemedText>
+                )}
+              </TouchableOpacity>
+              
+              {betaBadgeResult && !betaBadgeResult.error && (
+                <View style={[styles.card, { marginTop: 16, backgroundColor: '#D4EDDA', borderColor: '#28A745' }]}>
+                  <ThemedText style={[styles.cardTitle, { color: '#155724' }]}>✅ Badges Awarded!</ThemedText>
+                  <ThemedText style={[styles.cardDescription, { color: '#155724' }]}>
+                    • Total users: {betaBadgeResult.total}{'\n'}
+                    • Badges awarded: {betaBadgeResult.awarded}{'\n'}
+                    • Skipped: {betaBadgeResult.skipped}{'\n'}
+                    • Errors: {betaBadgeResult.errors}
+                  </ThemedText>
+                </View>
+              )}
+              
+              {betaBadgeResult?.error && (
+                <View style={[styles.card, { marginTop: 16, backgroundColor: '#F8D7DA', borderColor: '#DC3545' }]}>
+                  <ThemedText style={[styles.cardTitle, { color: '#721C24' }]}>❌ Migration Failed</ThemedText>
+                  <ThemedText style={[styles.cardDescription, { color: '#721C24' }]}>
+                    {betaBadgeResult.error}
+                  </ThemedText>
+                </View>
+              )}
+            </View>
+            
+            {/* Seed Base Skylines Card */}
+            <View style={[styles.card, { marginTop: 20, backgroundColor: '#F3E5F5', borderColor: '#9C27B0' }]}>
+              <ThemedText style={[styles.cardTitle, { color: '#4A148C' }]}>🏙️ Seed Base Skylines</ThemedText>
+              <ThemedText style={[styles.cardDescription, { color: '#4A148C' }]}>
+                Add Charlotte (CLT) and Philadelphia (PHL) skylines to Firestore. This will:{'\n'}
+                • Create baseSkylines collection{'\n'}
+                • Add CLT skyline image{'\n'}
+                • Add PHL skyline image{'\n'}
+                • Enable dynamic skyline system{'\n'}
+                {'\n'}
+                ℹ️ Run this ONCE to initialize the skyline system. Safe to run multiple times.
+              </ThemedText>
+              
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: '#9C27B0' }, (seedingSkylines || skylineSeeded) && styles.buttonDisabled]}
+                onPress={handleSeedSkylines}
+                disabled={seedingSkylines || skylineSeeded}
+              >
+                {seedingSkylines ? (
+                  <ActivityIndicator color={Colors.white} />
+                ) : skylineSeeded ? (
+                  <ThemedText style={styles.buttonText}>✅ Skylines Seeded!</ThemedText>
+                ) : (
+                  <ThemedText style={styles.buttonText}>🌱 Seed Skylines</ThemedText>
+                )}
+              </TouchableOpacity>
+              
+              {skylineSeeded && (
+                <View style={[styles.card, { marginTop: 16, backgroundColor: '#D4EDDA', borderColor: '#28A745' }]}>
+                  <ThemedText style={[styles.cardTitle, { color: '#155724' }]}>✅ Skylines Seeded!</ThemedText>
+                  <ThemedText style={[styles.cardDescription, { color: '#155724' }]}>
+                    CLT and PHL skylines have been added to Firestore.{'\n'}
+                    Profile pages will now show city skylines!
+                  </ThemedText>
+                </View>
+              )}
+            </View>
+            
+            {/* Skyline Coverage Report Card */}
+            <View style={[styles.card, { marginTop: 20, backgroundColor: '#E8F5E9', borderColor: '#4CAF50' }]}>
+              <ThemedText style={[styles.cardTitle, { color: '#1B5E20' }]}>📊 Skyline Coverage Report</ThemedText>
+              <ThemedText style={[styles.cardDescription, { color: '#1B5E20' }]}>
+                Analyze which of your current users have skylines and which don't.{'\n'}
+                {'\n'}
+                This will show you:{'\n'}
+                • How many users have skylines{'\n'}
+                • Which bases need skylines added{'\n'}
+                • Priority order (by user count){'\n'}
+                • List of users per base
+              </ThemedText>
+              
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: '#4CAF50' }, analyzingCoverage && styles.buttonDisabled]}
+                onPress={handleAnalyzeCoverage}
+                disabled={analyzingCoverage}
+              >
+                {analyzingCoverage ? (
+                  <ActivityIndicator color={Colors.white} />
+                ) : (
+                  <ThemedText style={styles.buttonText}>📊 Generate Report</ThemedText>
+                )}
+              </TouchableOpacity>
+              
+              {coverageReport && (
+                <View style={[styles.card, { marginTop: 16, backgroundColor: Colors.card, borderColor: Colors.border }]}>
+                  <ThemedText style={[styles.cardTitle, { color: Colors.text.primary }]}>📈 Coverage Summary</ThemedText>
+                  <ThemedText style={[styles.cardDescription, { color: Colors.text.primary }]}>
+                    Total Users: {coverageReport.totalUsers}{'\n'}
+                    ✅ With Skylines: {coverageReport.usersWithSkylines} ({coverageReport.coveragePercent.toFixed(1)}%){'\n'}
+                    ❌ Without Skylines: {coverageReport.usersWithoutSkylines} ({(100 - coverageReport.coveragePercent).toFixed(1)}%)
+                  </ThemedText>
+                  
+                  {coverageReport.basesWithSkylines.length > 0 && (
+                    <>
+                      <ThemedText style={[styles.cardTitle, { marginTop: 16, color: Colors.text.primary }]}>
+                        ✅ Bases with Skylines ({coverageReport.basesWithSkylines.length})
+                      </ThemedText>
+                      <ThemedText style={[styles.cardDescription, { color: Colors.text.secondary }]}>
+                        {coverageReport.baseDetails
+                          .filter(b => b.hasSkyline)
+                          .map(b => `• ${b.base} (${b.userCount} users)`)
+                          .join('\n')}
+                      </ThemedText>
+                    </>
+                  )}
+                  
+                  {coverageReport.basesWithoutSkylines.length > 0 && (
+                    <>
+                      <ThemedText style={[styles.cardTitle, { marginTop: 16, color: Colors.text.primary }]}>
+                        ❌ Bases Needing Skylines ({coverageReport.basesWithoutSkylines.length})
+                      </ThemedText>
+                      <ThemedText style={[styles.cardDescription, { color: Colors.text.secondary }]}>
+                        {coverageReport.baseDetails
+                          .filter(b => !b.hasSkyline)
+                          .map(b => {
+                            const userNames = b.users.map(u => u.name).join(', ');
+                            return `• ${b.base} (${b.userCount} users): ${userNames}`;
+                          })
+                          .join('\n\n')}
+                      </ThemedText>
+                      
+                      <ThemedText style={[styles.cardTitle, { marginTop: 16, color: Colors.warning }]}>
+                        🎯 Priority Order (add these first)
+                      </ThemedText>
+                      <ThemedText style={[styles.cardDescription, { color: Colors.text.secondary }]}>
+                        {coverageReport.baseDetails
+                          .filter(b => !b.hasSkyline)
+                          .sort((a, b) => b.userCount - a.userCount)
+                          .slice(0, 5)
+                          .map((b, i) => `${i + 1}. ${b.base} (${b.userCount} users waiting)`)
+                          .join('\n')}
+                      </ThemedText>
+                    </>
+                  )}
+                </View>
+              )}
+            </View>
+            
+            {/* Add Skylines Section - Shows after coverage report is generated */}
+            {coverageReport && coverageReport.basesWithoutSkylines.length > 0 && (
+              <View style={{ marginTop: 32 }}>
+                <ThemedText style={styles.sectionTitle}>
+                  ➕ Add Skylines ({coverageReport.basesWithoutSkylines.length} bases)
+                </ThemedText>
+                
+                <View style={[styles.card, { backgroundColor: Colors.primary + '10', borderColor: Colors.primary }]}>
+                  <ThemedText style={[styles.cardTitle, { color: Colors.text.primary }]}>
+                    🎨 Add Skylines from the App
+                  </ThemedText>
+                  <ThemedText style={[styles.cardDescription, { color: Colors.text.primary }]}>
+                    Below are all the bases that need skylines, sorted by priority.{'\n'}
+                    {'\n'}
+                    Tap "Add Skyline" on any base to:{'\n'}
+                    • Search Unsplash for a skyline photo{'\n'}
+                    • Copy the image URL{'\n'}
+                    • Add it directly from your app{'\n'}
+                    • Users see it immediately!
+                  </ThemedText>
+                </View>
+                
+                {/* Render SkylineManager for each base needing a skyline */}
+                {coverageReport.baseDetails
+                  .filter(b => !b.hasSkyline)
+                  .sort((a, b) => b.userCount - a.userCount)
+                  .map((base) => (
+                    <SkylineManager
+                      key={base.base}
+                      baseCode={base.base}
+                      cityName={base.base.length === 3 ? undefined : base.base}
+                      userCount={base.userCount}
+                      users={base.users}
+                      onComplete={handleAnalyzeCoverage}
+                    />
+                  ))}
+              </View>
+            )}
+            
+            <ThemedText style={[styles.sectionTitle, { marginTop: 32 }]}>🔧 User Management</ThemedText>
             
             <View style={styles.card}>
               <ThemedText style={styles.cardTitle}>Fix Orphaned Users</ThemedText>

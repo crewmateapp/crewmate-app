@@ -1,18 +1,30 @@
 // app/(tabs)/profile.tsx
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { LevelProgressBar } from '@/components/LevelProgressBar';
+import { BadgeShowcase } from '@/components/BadgeShowcase';
+import { StatsGrid } from '@/components/StatsGrid';
 import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
+import { getSkylineForBase } from '@/constants/BaseSkylines';
 import { useColors } from '@/hooks/use-theme-color';
 import { useAuth } from '@/contexts/AuthContext';
-import { isAdmin, useAdminRole } from '@/hooks/useAdminRole';
-import { useAdminNotifications } from '@/hooks/useAdminNotifications';
+import { isAdmin } from '@/hooks/useAdminRole';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
-import { collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { doc, getDoc, collection, query, where, onSnapshot } from 'firebase/firestore';
+import { useEffect, useState } from 'react';
+import { 
+  ActivityIndicator, 
+  Alert, 
+  Image, 
+  ScrollView, 
+  StyleSheet, 
+  Text, 
+  TouchableOpacity, 
+  View,
+  RefreshControl
+} from 'react-native';
 
 type UserProfile = {
   firstName: string;
@@ -26,56 +38,85 @@ type UserProfile = {
   photoURL?: string;
   favoriteCities?: string[];
   interests?: string[];
+  
+  // Engagement fields
+  cms?: number;
+  level?: string;
+  badges?: string[];
+  isFoundingCrew?: boolean;
+  
+  // Stats
+  stats?: {
+    totalCheckIns?: number;
+    citiesVisitedCount?: number;
+    plansHosted?: number;
+    plansAttended?: number;
+    reviewsWritten?: number;
+    photosUploaded?: number;
+    connectionsCount?: number;
+  };
 };
 
-type Activity = {
-  id: string;
-  type: 'spot_added' | 'review_left' | 'photo_posted';
-  spotId?: string;
-  spotName?: string;
-  city?: string;
-  rating?: number;
-  createdAt: any;
-};
-
-type UserStats = {
-  spotsAdded: number;
-  photosPosted: number;
-  reviewsLeft: number;
+type CurrentLocation = {
+  city: string;
+  area: string;
 };
 
 export default function ProfileScreen() {
   const colors = useColors();
   const { user, signOut } = useAuth();
-  const { role, cities, loading: adminLoading } = useAdminRole();
-  const { counts: adminCounts } = useAdminNotifications();
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [currentLocation, setCurrentLocation] = useState<{ city: string; area: string } | null>(null);
+  const [currentLocation, setCurrentLocation] = useState<CurrentLocation | null>(null);
   const [loading, setLoading] = useState(true);
-  const [friendCount, setFriendCount] = useState(0);
-  const [recentActivities, setRecentActivities] = useState<Activity[]>([]);
-  const [stats, setStats] = useState<UserStats>({ spotsAdded: 0, photosPosted: 0, reviewsLeft: 0 });
+  const [refreshing, setRefreshing] = useState(false);
+  const [connectionCount, setConnectionCount] = useState(0);
+
+  const fetchProfile = async () => {
+    if (!user?.uid) return;
+    
+    try {
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      if (userDoc.exists()) {
+        setProfile(userDoc.data() as UserProfile);
+      }
+    } catch (error) {
+      console.error('Error fetching profile:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchProfile = async () => {
-      if (!user?.uid) return;
-      
-      try {
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        if (userDoc.exists()) {
-          setProfile(userDoc.data() as UserProfile);
-        }
-      } catch (error) {
-        console.error('Error fetching profile:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchProfile();
   }, [user]);
 
-  // Listen to friend count
+  // Listen to current location
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    const locationQuery = query(
+      collection(db, 'layovers'),
+      where('userId', '==', user.uid),
+      where('isActive', '==', true)
+    );
+
+    const unsubscribe = onSnapshot(locationQuery, (snapshot) => {
+      if (!snapshot.empty) {
+        const layover = snapshot.docs[0].data();
+        setCurrentLocation({
+          city: layover.city,
+          area: layover.area,
+        });
+      } else {
+        setCurrentLocation(null);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // Listen to connection count
   useEffect(() => {
     if (!user?.uid) return;
 
@@ -85,193 +126,38 @@ export default function ProfileScreen() {
     );
 
     const unsubscribe = onSnapshot(connectionsQuery, (snapshot) => {
-      setFriendCount(snapshot.size);
+      setConnectionCount(snapshot.size);
     });
 
     return () => unsubscribe();
   }, [user]);
-
-  // Listen to recent activities and calculate stats
-  useEffect(() => {
-    if (!user?.uid) return;
-
-    const activitiesQuery = query(
-      collection(db, 'activities'),
-      where('userId', '==', user.uid),
-      orderBy('createdAt', 'desc'),
-      limit(3)
-    );
-
-    const unsubscribe = onSnapshot(activitiesQuery, (snapshot) => {
-      const activities: Activity[] = [];
-      snapshot.docs.forEach(doc => {
-        activities.push({
-          id: doc.id,
-          ...doc.data(),
-        } as Activity);
-      });
-      setRecentActivities(activities);
-    });
-
-    return () => unsubscribe();
-  }, [user]);
-
-  // Calculate stats
-  useEffect(() => {
-    const fetchStats = async () => {
-      if (!user?.uid) return;
-
-      try {
-        // Get all activities to calculate stats
-        const activitiesSnapshot = await getDocs(
-          query(collection(db, 'activities'), where('userId', '==', user.uid))
-        );
-
-        let spotsAdded = 0;
-        let photosPosted = 0;
-        let reviewsLeft = 0;
-
-        activitiesSnapshot.docs.forEach(doc => {
-          const data = doc.data();
-          if (data.type === 'spot_added') spotsAdded++;
-          if (data.type === 'photo_posted') photosPosted++;
-          if (data.type === 'review_left') reviewsLeft++;
-        });
-
-        setStats({ spotsAdded, photosPosted, reviewsLeft });
-      } catch (error) {
-        console.error('Error fetching stats:', error);
-      }
-    };
-
-    fetchStats();
-  }, [user]);
-
-  // Listen to current layover location
-  useEffect(() => {
-    if (!user?.uid) return;
-
-    const userDoc = doc(db, 'users', user.uid);
-    const unsubscribe = onSnapshot(userDoc, (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.data();
-        // Check for currentLayover object (new structure)
-        if (data.currentLayover?.city && data.currentLayover?.area) {
-          setCurrentLocation({
-            city: data.currentLayover.city,
-            area: data.currentLayover.area
-          });
-        } else {
-          setCurrentLocation(null);
-        }
-      }
-    });
-
-    return () => unsubscribe();
-  }, [user]);
-
-  useFocusEffect(
-    useCallback(() => {
-      const refreshProfile = async () => {
-        if (!user?.uid) return;
-        
-        try {
-          const userDoc = await getDoc(doc(db, 'users', user.uid));
-          if (userDoc.exists()) {
-            setProfile(userDoc.data() as UserProfile);
-          }
-        } catch (error) {
-          console.error('Error refreshing profile:', error);
-        }
-      };
-
-      refreshProfile();
-    }, [user])
-  );
 
   const handleSignOut = async () => {
-    router.push('/auth/signin');
-    await signOut();
-  };
-
-  const handleSpotPress = (spotId: string) => {
-    router.push({
-      pathname: '/spot/[id]',
-      params: { id: spotId }
-    });
-  };
-
-  const renderStars = (rating: number) => {
-    return '⭐'.repeat(rating);
-  };
-
-  const renderActivity = (activity: Activity) => {
-    let icon;
-    let iconColor;
-    let text;
-
-    switch (activity.type) {
-      case 'spot_added':
-        icon = 'add-circle';
-        iconColor = Colors.success;
-        text = (
-          <Text style={[styles.activityText, { color: colors.text.primary }]}>
-            {'Added '}
-            <Text 
-              style={[styles.clickableText, { color: colors.primary }]}
-              onPress={() => activity.spotId && handleSpotPress(activity.spotId)}
-            >
-              {activity.spotName}
-            </Text>
-            {' in '}
-            <Text style={[styles.cityText, { color: colors.text.secondary }]}>{activity.city}</Text>
-          </Text>
-        );
-        break;
-      
-      case 'review_left':
-        icon = 'star';
-        iconColor = Colors.accent;
-        text = (
-          <Text style={[styles.activityText, { color: colors.text.primary }]}>
-            {'Left a '}
-            <Text style={styles.stars}>{renderStars(activity.rating || 0)}</Text>
-            {' review on '}
-            <Text 
-              style={[styles.clickableText, { color: colors.primary }]}
-              onPress={() => activity.spotId && handleSpotPress(activity.spotId)}
-            >
-              {activity.spotName}
-            </Text>
-          </Text>
-        );
-        break;
-      
-      case 'photo_posted':
-        icon = 'camera';
-        iconColor = Colors.primary;
-        text = (
-          <Text style={[styles.activityText, { color: colors.text.primary }]}>
-            {'Posted a photo at '}
-            <Text 
-              style={[styles.clickableText, { color: colors.primary }]}
-              onPress={() => activity.spotId && handleSpotPress(activity.spotId)}
-            >
-              {activity.spotName}
-            </Text>
-          </Text>
-        );
-        break;
-    }
-
-    return (
-      <View key={activity.id} style={styles.activityItem}>
-        <Ionicons name={icon as any} size={16} color={iconColor} />
-        <View style={styles.activityTextContainer}>
-          {text}
-        </View>
-      </View>
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await signOut();
+              router.replace('/');
+            } catch (error) {
+              console.error('Error signing out:', error);
+              Alert.alert('Error', 'Failed to sign out. Please try again.');
+            }
+          },
+        },
+      ]
     );
+  };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchProfile();
   };
 
   if (loading) {
@@ -282,51 +168,125 @@ export default function ProfileScreen() {
     );
   }
 
+  // Get skyline image for user's base
+  const skyline = getSkylineForBase(profile?.base);
+
+  // Prepare stats for StatsGrid with onPress handlers
+  const statsData = [
+    {
+      icon: 'location' as const,
+      label: 'Cities',
+      value: profile?.stats?.citiesVisitedCount || 0,
+      color: Colors.primary,
+      onPress: () => {
+        // TODO: Navigate to cities visited screen
+        console.log('Navigate to cities');
+      },
+    },
+    {
+      icon: 'people' as const,
+      label: 'Connections',
+      value: connectionCount,
+      color: '#34C759',
+      onPress: () => {
+        router.push('/connections');
+      },
+    },
+    {
+      icon: 'calendar' as const,
+      label: 'Plans',
+      value: (profile?.stats?.plansHosted || 0) + (profile?.stats?.plansAttended || 0),
+      color: '#FF9500',
+      onPress: () => {
+        // TODO: Navigate to plans screen
+        console.log('Navigate to plans');
+      },
+    },
+    {
+      icon: 'star' as const,
+      label: 'Reviews',
+      value: profile?.stats?.reviewsWritten || 0,
+      color: Colors.accent,
+      onPress: () => {
+        // TODO: Navigate to reviews screen
+        console.log('Navigate to reviews');
+      },
+    },
+    {
+      icon: 'camera' as const,
+      label: 'Photos',
+      value: profile?.stats?.photosUploaded || 0,
+      color: '#5856D6',
+      onPress: () => {
+        // TODO: Navigate to photos screen
+        console.log('Navigate to photos');
+      },
+    },
+    {
+      icon: 'airplane' as const,
+      label: 'Check-ins',
+      value: profile?.stats?.totalCheckIns || 0,
+      color: '#007AFF',
+      onPress: () => {
+        // TODO: Navigate to check-in history
+        console.log('Navigate to check-ins');
+      },
+    },
+  ];
+
   return (
-    <ScrollView style={[styles.scrollContainer, { backgroundColor: colors.background }]} showsVerticalScrollIndicator={false}>
-      <ThemedView style={styles.container}>
-        {/* Header Section */}
-        <View style={styles.topSection}>
-          {/* Currently In */}
-          <View style={styles.currentlyInContainer}>
+    <ScrollView 
+      style={[styles.scrollContainer, { backgroundColor: colors.background }]} 
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
+    >
+      {/* Cover Photo - Skyline Image */}
+      <View style={styles.coverPhotoContainer}>
+        <Image 
+          source={{ uri: skyline.imageUrl }}
+          style={styles.coverPhoto}
+          resizeMode="cover"
+        />
+        {/* Dark overlay for text contrast */}
+        <View style={styles.coverOverlay} />
+        
+        {/* Header Buttons on Cover */}
+        <View style={styles.coverHeader}>
+          <View style={styles.coverHeaderLeft}>
             {currentLocation ? (
-              <>
+              <View style={styles.locationBadge}>
                 <View style={styles.activeIndicator} />
-                <View style={styles.locationInfo}>
-                  <ThemedText style={styles.currentlyInLabel}>Currently in</ThemedText>
-                  <ThemedText style={styles.currentlyInCity}>{currentLocation.city}</ThemedText>
-                </View>
-              </>
+                <Text style={styles.locationText}>{currentLocation.city}</Text>
+              </View>
             ) : (
-              <>
-                <ThemedText style={styles.offlineEmoji}>💤</ThemedText>
-                <View style={styles.locationInfo}>
-                  <ThemedText style={styles.offlineText}>Off duty</ThemedText>
-                </View>
-              </>
+              <View style={styles.locationBadge}>
+                <Text style={styles.offlineText}>💤 Off duty</Text>
+              </View>
             )}
           </View>
-
-          {/* Action Buttons */}
-          <View style={styles.headerButtons}>
+          
+          <View style={styles.coverHeaderRight}>
             <TouchableOpacity 
-              style={[styles.iconButton, { backgroundColor: colors.card, borderColor: colors.border }]}
+              style={styles.coverIconButton}
               onPress={() => router.push('/qr-code')}
             >
-              <Ionicons name="qr-code" size={22} color={Colors.primary} />
+              <Ionicons name="qr-code" size={20} color={Colors.white} />
             </TouchableOpacity>
+            
             <TouchableOpacity 
-              style={styles.editButtonHeader}
+              style={styles.coverEditButton}
               onPress={() => router.push('/edit-profile-enhanced')}
             >
-              <Ionicons name="pencil" size={18} color={Colors.white} />
-              <ThemedText style={styles.editButtonText}>Edit</ThemedText>
+              <Ionicons name="pencil" size={16} color={Colors.white} />
+              <Text style={styles.coverEditText}>Edit</Text>
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* Profile Header */}
-        <View style={styles.profileHeader}>
+        {/* Profile Photo (overlaps cover) */}
+        <View style={styles.avatarContainer}>
           {profile?.photoURL ? (
             <Image source={{ uri: profile.photoURL }} style={styles.avatar} />
           ) : (
@@ -336,563 +296,349 @@ export default function ProfileScreen() {
               </Text>
             </View>
           )}
-          
-          <ThemedText style={[styles.name, { color: colors.text.primary }]}>{profile?.displayName}</ThemedText>
-          <ThemedText style={styles.position}>{profile?.position}</ThemedText>
-          <ThemedText style={[styles.base, { color: colors.text.secondary }]}>
-            {profile?.airline} • {profile?.base}
-          </ThemedText>
-          
-          {profile?.bio && (
-            <ThemedText style={[styles.bio, { color: colors.text.primary }]}>{profile.bio}</ThemedText>
-          )}
+        </View>
+      </View>
 
-          {/* Favorite Cities */}
-          {profile?.favoriteCities && profile.favoriteCities.length > 0 && (
-            <View style={styles.favoriteCitiesContainer}>
-              <View style={styles.sectionHeaderRow}>
-                <Ionicons name="location" size={16} color={colors.primary} />
-                <ThemedText style={[styles.sectionHeaderText, { color: colors.text.primary }]}>
-                  Favorite Cities
-                </ThemedText>
-              </View>
-              <View style={styles.tagsContainer}>
-                {profile.favoriteCities.map((city, index) => (
-                  <View key={index} style={[styles.cityTag, { 
-                    backgroundColor: colors.primary + '15',
-                    borderColor: colors.primary + '30'
-                  }]}>
-                    <Text style={[styles.cityTagText, { color: colors.primary }]}>{city}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-          )}
-
-          {/* Interests */}
-          {profile?.interests && profile.interests.length > 0 && (
-            <View style={styles.interestsContainer}>
-              <View style={styles.sectionHeaderRow}>
-                <Ionicons name="heart" size={16} color={Colors.accent} />
-                <ThemedText style={[styles.sectionHeaderText, { color: colors.text.primary }]}>
-                  Interests
-                </ThemedText>
-              </View>
-              <View style={styles.tagsContainer}>
-                {profile.interests.map((interest, index) => (
-                  <View key={index} style={[styles.interestTag, {
-                    backgroundColor: Colors.accent + '15',
-                    borderColor: Colors.accent + '30'
-                  }]}>
-                    <Text style={[styles.interestTagText, { color: Colors.accent }]}>{interest}</Text>
-                  </View>
-                ))}
-              </View>
+      {/* Profile Info Section */}
+      <View style={styles.profileInfo}>
+        {/* Name with inline Founding Badge */}
+        <View style={styles.nameRow}>
+          <Text style={styles.name}>{profile?.displayName}</Text>
+          {profile?.isFoundingCrew && (
+            <View style={styles.foundingBadgeInline}>
+              <Ionicons name="star" size={16} color={Colors.accent} />
             </View>
           )}
         </View>
 
-        {/* Stats */}
-        <View style={[styles.statsContainer, { 
-          backgroundColor: colors.card,
-          borderColor: colors.border
-        }]}>
-          <View style={styles.statBox}>
-            <ThemedText style={styles.statNumber}>{friendCount}</ThemedText>
-            <ThemedText style={[styles.statLabel, { color: colors.text.primary }]}>Friends</ThemedText>
-          </View>
-          <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
-          <TouchableOpacity 
-            style={styles.statBox}
-            onPress={() => router.push('/my-spots')}
-            activeOpacity={0.7}
-          >
-            <ThemedText style={styles.statNumber}>{stats.spotsAdded}</ThemedText>
-            <ThemedText style={[styles.statLabel, { color: colors.text.primary }]}>Spots</ThemedText>
-          </TouchableOpacity>
-          <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
-          <TouchableOpacity 
-            style={styles.statBox}
-            onPress={() => router.push('/my-reviews')}
-            activeOpacity={0.7}
-          >
-            <ThemedText style={styles.statNumber}>{stats.reviewsLeft}</ThemedText>
-            <ThemedText style={[styles.statLabel, { color: colors.text.primary }]}>Reviews</ThemedText>
-          </TouchableOpacity>
+        {/* Founding Crew Label */}
+        {profile?.isFoundingCrew && (
+          <Text style={styles.foundingLabel}>Founding Crew</Text>
+        )}
+
+        {/* All job info on one line */}
+        <Text style={styles.jobInfo}>
+          {profile?.position} • {profile?.airline} • {profile?.base}
+        </Text>
+
+        {/* Bio */}
+        {profile?.bio && (
+          <Text style={styles.bio}>{profile.bio}</Text>
+        )}
+      </View>
+
+      {/* Compact Level & CMS Bar */}
+      <LevelProgressBar 
+        cms={profile?.cms || 0} 
+        level={profile?.level || 'rookie'} 
+      />
+
+      {/* Favorite Cities */}
+      {profile?.favoriteCities && profile.favoriteCities.length > 0 && (
+        <View style={styles.compactSection}>
+          <Text style={styles.compactSectionLabel}>
+            <Ionicons name="location" size={14} color={Colors.text.secondary} />  {profile.favoriteCities.join(', ')}
+          </Text>
         </View>
+      )}
 
-        {/* Friends Card */}
-        <TouchableOpacity 
-          style={[styles.friendsCard, {
-            backgroundColor: colors.card,
-            borderColor: colors.border
-          }]}
-          onPress={() => router.push('/connections')}
-          activeOpacity={0.7}
-        >
-          <View style={styles.friendsLeft}>
-            <Ionicons name="people" size={24} color={Colors.primary} />
-            <ThemedText style={[styles.friendsTitle, { color: colors.text.primary }]}>My Crew</ThemedText>
-          </View>
-          <View style={styles.friendsRight}>
-            <View style={styles.friendsBadge}>
-              <ThemedText style={styles.friendsCount}>{friendCount}</ThemedText>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={colors.text.secondary} />
-          </View>
-        </TouchableOpacity>
+      {/* Interests */}
+      {profile?.interests && profile.interests.length > 0 && (
+        <View style={styles.compactSection}>
+          <Text style={styles.compactSectionLabel}>
+            <Ionicons name="heart" size={14} color={Colors.text.secondary} />  {profile.interests.join(', ')}
+          </Text>
+        </View>
+      )}
 
-        {/* Admin Panel Card */}
-        {isAdmin(role) && (
+      {/* Badge Showcase */}
+      <BadgeShowcase 
+        earnedBadges={profile?.badges || []} 
+        userStats={profile?.stats}
+      />
+
+      {/* Stats Grid (Interactive) */}
+      <StatsGrid stats={statsData} />
+
+      {/* Admin Section */}
+      {isAdmin(user?.email) && (
+        <View style={styles.adminSection}>
           <TouchableOpacity 
-            style={styles.adminCard}
+            style={styles.adminButton}
             onPress={() => router.push('/admin')}
-            activeOpacity={0.7}
           >
-            <View style={styles.adminLeft}>
-              <View style={styles.adminIconContainer}>
-                <Ionicons name="shield-checkmark" size={24} color="#9C27B0" />
-                {adminCounts.total > 0 && (
-                  <View style={styles.adminBadge}>
-                    <Text style={styles.adminBadgeText}>
-                      {adminCounts.total > 9 ? '9+' : adminCounts.total}
-                    </Text>
-                  </View>
-                )}
-              </View>
-              <View>
-                <Text style={styles.adminTitle}>Admin Panel</Text>
-                <Text style={[styles.adminSubtitle, { color: colors.text.secondary }]}>
-                  {role === 'super' ? 'Super Admin' : 'City Admin'}
-                </Text>
-              </View>
-            </View>
-            <View style={styles.adminRight}>
-              {adminCounts.total > 0 && (
-                <View style={styles.adminPendingBadge}>
-                  <Text style={styles.adminPendingText}>
-                    {adminCounts.total}
-                  </Text>
-                </View>
-              )}
-              <Ionicons name="chevron-forward" size={20} color={colors.text.secondary} />
-            </View>
+            <Ionicons name="shield-checkmark" size={20} color={Colors.primary} />
+            <Text style={styles.adminButtonText}>Admin Dashboard</Text>
           </TouchableOpacity>
-        )}
-
-        {/* Recent Activity */}
-        {recentActivities.length > 0 && (
-          <View style={styles.activitySection}>
-            <View style={styles.activityHeader}>
-              <ThemedText style={[styles.sectionTitle, { color: colors.text.primary }]}>Recent Activity</ThemedText>
-              <TouchableOpacity onPress={() => router.push(`/user-activity/${user?.uid}`)}>
-                <ThemedText style={styles.viewAllButton}>View All</ThemedText>
-              </TouchableOpacity>
-            </View>
-            <View style={[styles.activityContainer, {
-              backgroundColor: colors.card,
-              borderColor: colors.border
-            }]}>
-              {recentActivities.map(renderActivity)}
-            </View>
-          </View>
-        )}
-
-        {/* Account Section */}
-        <View style={styles.accountSection}>
-          <ThemedText style={[styles.sectionTitle, { color: colors.text.primary }]}>Account</ThemedText>
-          <View style={[styles.emailRow, {
-            backgroundColor: colors.card,
-            borderColor: colors.border
-          }]}>
-            <ThemedText style={[styles.emailLabel, { color: colors.text.secondary }]}>Email</ThemedText>
-            <ThemedText style={[styles.emailValue, { color: colors.text.primary }]}>{user?.email}</ThemedText>
-          </View>
         </View>
+      )}
 
-        {/* Sign Out Button */}
+      {/* Sign Out */}
+      <View style={styles.signOutSection}>
         <TouchableOpacity 
           style={styles.signOutButton}
           onPress={handleSignOut}
         >
-          <Ionicons name="log-out-outline" size={20} color={Colors.white} />
           <Text style={styles.signOutText}>Sign Out</Text>
         </TouchableOpacity>
+      </View>
 
-        <View style={{ height: 40 }} />
-      </ThemedView>
+      {/* Bottom Padding */}
+      <View style={{ height: 100 }} />
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  scrollContainer: {
-    flex: 1,
-  },
   container: {
     flex: 1,
   },
-  topSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 12,
+  scrollContainer: {
+    flex: 1,
   },
-  currentlyInContainer: {
+  coverPhotoContainer: {
+    position: 'relative',
+    height: 250, // TALLER to show more of the city skyline!
+    marginBottom: -55, // Proper overlap
+  },
+  coverPhoto: {
+    width: '100%',
+    height: 250,
+  },
+  coverOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+  },
+  coverHeader: {
+    position: 'absolute',
+    top: 60,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingHorizontal: 20,
+  },
+  coverHeaderLeft: {
+    flex: 1,
+  },
+  coverHeaderRight: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  locationBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 16,
+    alignSelf: 'flex-start',
   },
   activeIndicator: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: Colors.success,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#34C759',
+    marginRight: 5,
   },
-  locationInfo: {
-    gap: 2,
-  },
-  currentlyInLabel: {
+  locationText: {
     fontSize: 12,
-    color: Colors.text.secondary,
-  },
-  currentlyInCity: {
-    fontSize: 15,
     fontWeight: '600',
-  },
-  offlineEmoji: {
-    fontSize: 20,
+    color: Colors.text.primary,
   },
   offlineText: {
-    fontSize: 14,
+    fontSize: 12,
+    fontWeight: '600',
     color: Colors.text.secondary,
   },
-  headerButtons: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  iconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  coverIconButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
   },
-  editButtonHeader: {
+  coverEditButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    gap: 4,
   },
-  editButtonText: {
-    fontSize: 14,
+  coverEditText: {
+    fontSize: 13,
     fontWeight: '600',
     color: Colors.white,
   },
-  profileHeader: {
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 24,
+  avatarContainer: {
+    position: 'absolute',
+    bottom: -55, // Half the avatar (55px) extends below
+    alignSelf: 'center',
+    zIndex: 10,
   },
   avatar: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    marginBottom: 16,
-    borderWidth: 3,
-    borderColor: Colors.primary,
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    borderWidth: 4,
+    borderColor: Colors.white,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 8,
   },
   avatarFallback: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: Colors.primary,
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    backgroundColor: Colors.white,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
-    borderWidth: 3,
-    borderColor: Colors.primary,
+    borderWidth: 4,
+    borderColor: Colors.white,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 8,
   },
   avatarText: {
     fontSize: 40,
-    fontWeight: 'bold',
-    color: Colors.white,
+    fontWeight: '700',
+    color: Colors.primary,
+  },
+  profileInfo: {
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 115, // 55 (margin offset) + 55 (avatar) + 5 (gap) = 115px
+    paddingBottom: 12,
+    backgroundColor: Colors.background,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   name: {
-    fontSize: 26,
-    fontWeight: '700',
-    marginBottom: 6,
-  },
-  position: {
-    fontSize: 16,
-    color: Colors.primary,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  base: {
-    fontSize: 15,
-    marginBottom: 12,
-  },
-  bio: {
-    fontSize: 15,
-    textAlign: 'center',
-    lineHeight: 22,
-    paddingHorizontal: 10,
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    marginHorizontal: 20,
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
-    borderWidth: 1,
-  },
-  statBox: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  statNumber: {
     fontSize: 24,
     fontWeight: '700',
-    color: Colors.primary,
-    marginBottom: 4,
+    color: Colors.text.primary,
+    letterSpacing: 0.3,
   },
-  statLabel: {
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  statDivider: {
-    width: 1,
-  },
-  friendsCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginHorizontal: 20,
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
-    borderWidth: 1,
-  },
-  friendsLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  friendsTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  friendsRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  friendsBadge: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  friendsCount: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: Colors.white,
-  },
-  // Admin Card with badge
-  adminCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#9C27B0' + '15',
-    marginHorizontal: 20,
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#9C27B0' + '40',
-  },
-  adminLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  adminIconContainer: {
-    position: 'relative',
-  },
-  adminBadge: {
-    position: 'absolute',
-    top: -6,
-    right: -8,
-    backgroundColor: Colors.error,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
+  foundingBadgeInline: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: Colors.background,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 4,
+    borderWidth: 2,
+    borderColor: Colors.accent,
   },
-  adminBadgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: Colors.white,
-  },
-  adminTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#9C27B0',
-  },
-  adminSubtitle: {
-    fontSize: 12,
-    marginTop: 2,
-  },
-  adminRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  adminPendingBadge: {
-    backgroundColor: Colors.error,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  adminPendingText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: Colors.white,
-  },
-  activitySection: {
-    marginHorizontal: 20,
-    marginBottom: 20,
-  },
-  activityHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  sectionTitle: {
+  foundingLabel: {
     fontSize: 13,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  viewAllButton: {
-    fontSize: 14,
     fontWeight: '600',
-    color: Colors.primary,
+    color: Colors.accent,
+    marginTop: 4,
   },
-  activityContainer: {
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    gap: 12,
-  },
-  activityItem: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-  },
-  activityTextContainer: {
-    flex: 1,
-  },
-  activityText: {
+  jobInfo: {
     fontSize: 14,
+    fontWeight: '500',
+    color: Colors.text.secondary,
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  bio: {
+    fontSize: 14,
+    color: Colors.text.primary,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginTop: 12,
+    paddingHorizontal: 20,
+  },
+  compactSection: {
+    paddingHorizontal: 20,
+    marginTop: 12,
+  },
+  compactSectionLabel: {
+    fontSize: 14,
+    color: Colors.text.secondary,
+    textAlign: 'center',
     lineHeight: 20,
   },
-  clickableText: {
-    fontWeight: '700',
+  section: {
+    marginTop: 16,
+    paddingHorizontal: 20,
   },
-  cityText: {
-    fontWeight: '600',
-  },
-  stars: {
-    fontSize: 12,
-  },
-  accountSection: {
-    marginHorizontal: 20,
-    marginBottom: 20,
-  },
-  emailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginTop: 8,
-  },
-  emailLabel: {
-    fontSize: 15,
-    fontWeight: '500',
-  },
-  emailValue: {
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  signOutButton: {
+  sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: Colors.error,
-    marginHorizontal: 20,
-    paddingVertical: 16,
-    borderRadius: 12,
+    marginBottom: 10,
+    gap: 6,
   },
-  signOutText: {
-    color: Colors.white,
+  sectionTitle: {
     fontSize: 16,
     fontWeight: '600',
-  },
-  favoriteCitiesContainer: {
-    marginTop: 20,
-    width: '100%',
-  },
-  interestsContainer: {
-    marginTop: 16,
-    width: '100%',
-  },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
-  },
-  sectionHeaderText: {
-    fontSize: 14,
-    fontWeight: '700',
+    color: Colors.text.primary,
   },
   tagsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
   },
-  cityTag: {
+  tag: {
+    backgroundColor: Colors.card,
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 6,
     borderRadius: 16,
     borderWidth: 1,
+    borderColor: Colors.border,
   },
-  cityTagText: {
+  tagText: {
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '500',
+    color: Colors.text.primary,
   },
-  interestTag: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 16,
+  adminSection: {
+    paddingHorizontal: 20,
+    marginTop: 24,
+  },
+  adminButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.card,
+    borderWidth: 2,
+    borderColor: Colors.primary,
+    borderRadius: 12,
+    paddingVertical: 12,
+    gap: 8,
+  },
+  adminButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.primary,
+  },
+  signOutSection: {
+    paddingHorizontal: 20,
+    marginTop: 24,
+  },
+  signOutButton: {
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: Colors.card,
     borderWidth: 1,
+    borderColor: Colors.border,
   },
-  interestTagText: {
-    fontSize: 13,
+  signOutText: {
+    fontSize: 15,
     fontWeight: '600',
+    color: Colors.error,
   },
 });

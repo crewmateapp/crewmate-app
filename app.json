@@ -21,7 +21,11 @@
           "remote-notification",
           "remote-notification"
         ]
-      }
+      },
+      "associatedDomains": [
+        "applinks:crewmate.app",
+        "applinks:www.crewmate.app"
+      ]
     },
     "android": {
       "versionCode": 15,
@@ -41,6 +45,28 @@
         "RECEIVE_BOOT_COMPLETED",
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "crewmate.app",
+              "pathPrefix": "/plan"
+            },
+            {
+              "scheme": "https",
+              "host": "www.crewmate.app",
+              "pathPrefix": "/plan"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
       ]
     },
     "web": {

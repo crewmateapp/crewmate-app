@@ -11,6 +11,8 @@ import { Plan } from '@/types/plan';
 import { searchAirports, AirportData } from '@/utils/airportData';
 import { getCurrentLocation, verifyCityLocation } from '@/utils/locationVerification';
 import { notifyAdminsNewCityRequest } from '@/utils/notifications';
+import { updateStatsForLayoverCheckIn, updateCheckInStreak } from '@/utils/updateUserStats';
+import { getContinentForCity } from '@/utils/continentMapping';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { router } from 'expo-router';
@@ -19,6 +21,7 @@ import {
   collection,
   doc,
   addDoc,
+  getDoc,
   onSnapshot,
   orderBy,
   query,
@@ -88,6 +91,29 @@ const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number): nu
   return R * c;
 };
 
+// Check if a layover has expired (24 hours)
+const isLayoverExpired = (expiresAt: any): boolean => {
+  if (!expiresAt) return false;
+  const expiryTime = expiresAt.toMillis ? expiresAt.toMillis() : expiresAt;
+  return Date.now() > expiryTime;
+};
+
+// Get time remaining in hours
+const getTimeRemaining = (expiresAt: any): number => {
+  if (!expiresAt) return 0;
+  const expiryTime = expiresAt.toMillis ? expiresAt.toMillis() : expiresAt;
+  const remaining = expiryTime - Date.now();
+  return Math.max(0, Math.floor(remaining / (1000 * 60 * 60))); // Hours
+};
+
+// Format time remaining as string
+const formatTimeRemaining = (expiresAt: any): string => {
+  const hours = getTimeRemaining(expiresAt);
+  if (hours === 0) return 'Expired';
+  if (hours === 1) return '1 hour left';
+  if (hours < 24) return `${hours} hours left`;
+  return `${Math.floor(hours / 24)} days left`;
+};
 export default function MyLayoverScreen() {
   const { user } = useAuth();
   const { cities, loading: citiesLoading } = useCities();
@@ -117,16 +143,39 @@ export default function MyLayoverScreen() {
   const [upcomingPlans, setUpcomingPlans] = useState<Plan[]>([]);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
 
-  // Load user layovers
+  // Load user layovers and auto-checkout if expired
   useEffect(() => {
     if (!user?.uid) return;
 
-    const unsubscribe = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
+    const unsubscribe = onSnapshot(doc(db, 'users', user.uid), async (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         
-        // Current layover
-        setCurrentLayover(data.currentLayover || null);
+        // Current layover - check if expired
+        const layover = data.currentLayover || null;
+        
+        if (layover && layover.expiresAt && isLayoverExpired(layover.expiresAt)) {
+          console.log('🧹 Auto-checkout: Layover expired');
+          
+          // Clear expired layover
+          try {
+            await updateDoc(doc(db, 'users', user.uid), {
+              currentLayover: null
+            });
+            
+            Alert.alert(
+              'Layover Expired',
+              'Your 24-hour layover check-in has expired. Check in again when you\'re back in a city!',
+              [{ text: 'OK' }]
+            );
+          } catch (error) {
+            console.error('Error clearing expired layover:', error);
+          }
+          
+          setCurrentLayover(null);
+        } else {
+          setCurrentLayover(layover);
+        }
         
         // Upcoming layovers
         const upcoming = (data.upcomingLayovers || []).sort((a: UpcomingLayover, b: UpcomingLayover) => {
@@ -141,29 +190,34 @@ export default function MyLayoverScreen() {
     return () => unsubscribe();
   }, [user]);
 
-  // Load crew counts if checked in
+  // Load crew counts if checked in - FILTER EXPIRED
   useEffect(() => {
     if (!user?.uid || !currentLayover?.city) return;
 
-    // Crew in same area
+    // Only count crew with non-expired layovers
+    const now = Timestamp.now();
+
+    // Crew in same area (not expired)
     const areaQuery = query(
       collection(db, 'users'),
       where('currentLayover.city', '==', currentLayover.city),
       where('currentLayover.area', '==', currentLayover.area),
       where('currentLayover.discoverable', '==', true),
-      where('currentLayover.isLive', '==', true)
+      where('currentLayover.isLive', '==', true),
+      where('currentLayover.expiresAt', '>', now)
     );
 
     const unsubArea = onSnapshot(areaQuery, (snapshot) => {
       setCrewLiveCount(snapshot.docs.filter(doc => doc.id !== user.uid).length);
     });
 
-    // Crew in same city
+    // Crew in same city (not expired)
     const cityQuery = query(
       collection(db, 'users'),
       where('currentLayover.city', '==', currentLayover.city),
       where('currentLayover.discoverable', '==', true),
-      where('currentLayover.isLive', '==', true)
+      where('currentLayover.isLive', '==', true),
+      where('currentLayover.expiresAt', '>', now)
     );
 
     const unsubCity = onSnapshot(cityQuery, (snapshot) => {
@@ -334,6 +388,20 @@ export default function MyLayoverScreen() {
         },
       });
 
+      // ✨ ENGAGEMENT: Track check-in for CMS and badges
+      try {
+        // Check if this is a new city for the user
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        const cityCheckIns = userDoc.data()?.stats?.cityCheckIns || {};
+        const isNewCity = !cityCheckIns[layover.city] || cityCheckIns[layover.city] === 0;
+        
+        await updateStatsForLayoverCheckIn(user.uid, layover.city, isNewCity);
+        await updateCheckInStreak(user.uid);
+      } catch (error) {
+        console.error('Error tracking check-in stats:', error);
+        // Don't fail the whole check-in if tracking fails
+      }
+
       Alert.alert(
         '✅ You\'re Live!',
         `You're checked in and visible to crew in ${layover.city}!`,
@@ -400,6 +468,34 @@ export default function MyLayoverScreen() {
     } finally {
       setVerifying(false);
     }
+  };
+
+  // Manual checkout
+  const handleCheckout = async () => {
+    if (!user?.uid) return;
+
+    Alert.alert(
+      'Check Out?',
+      'This will end your layover session. You can check in again anytime.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Check Out',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await updateDoc(doc(db, 'users', user.uid), {
+                currentLayover: null
+              });
+              Alert.alert('✅ Checked Out', 'See you on your next layover!');
+            } catch (error) {
+              console.error('Error checking out:', error);
+              Alert.alert('Error', 'Failed to check out. Please try again.');
+            }
+          }
+        }
+      ]
+    );
   };
 
   // Go offline
@@ -626,6 +722,25 @@ export default function MyLayoverScreen() {
 
                   <View style={styles.statsRow}>
                     <View style={styles.statItem}>
+
+              {/* Time Remaining Indicator */}
+              {currentLayover.expiresAt && (
+                <View style={styles.timeRemaining}>
+                  <Ionicons 
+                    name="time-outline" 
+                    size={18} 
+                    color={getTimeRemaining(currentLayover.expiresAt) <= 2 ? Colors.error : Colors.text.secondary} 
+                  />
+                  <ThemedText 
+                    style={[
+                      styles.timeRemainingText,
+                      getTimeRemaining(currentLayover.expiresAt) <= 2 && styles.timeRemainingUrgent
+                    ]}
+                  >
+                    {formatTimeRemaining(currentLayover.expiresAt)}
+                  </ThemedText>
+                </View>
+              )}
                       <ThemedText style={styles.statNumber}>{crewLiveCount}</ThemedText>
                       <ThemedText style={styles.statLabel}>in {currentLayover.area}</ThemedText>
                     </View>
@@ -697,6 +812,15 @@ export default function MyLayoverScreen() {
                   <ThemedText style={styles.actionButtonText}>Browse Spots</ThemedText>
                 </TouchableOpacity>
               </View>
+
+              {/* Manual Checkout Button */}
+              <TouchableOpacity 
+                style={styles.checkoutButton}
+                onPress={handleCheckout}
+              >
+                <Ionicons name="exit-outline" size={18} color={Colors.error} />
+                <ThemedText style={styles.checkoutButtonText}>Check Out</ThemedText>
+              </TouchableOpacity>
 
               {/* Recent Plans */}
               {upcomingPlans.length > 0 && (
@@ -1410,5 +1534,43 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: Colors.white,
+  },
+  timeRemaining: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: Colors.background,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    marginBottom: 12,
+  },
+  timeRemainingText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: Colors.text.secondary,
+  },
+  timeRemainingUrgent: {
+    color: Colors.error,
+    fontWeight: '600',
+  },
+  checkoutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: Colors.background,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.error,
+    marginTop: 12,
+  },
+  checkoutButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.error,
   },
 });

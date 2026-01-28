@@ -1,15 +1,15 @@
 // app/create-plan.tsx - Enhanced with Multi-Stop Support
-import AppHeader from '@/components/AppHeader';
 import AppDrawer from '@/components/AppDrawer';
+import AppHeader from '@/components/AppHeader';
+import { CMSAnimationContainer } from '@/components/CMSAnimationContainer';
 import { DateTimePicker } from '@/components/DateTimePicker';
-import { SpotSelector } from '@/components/SpotSelector';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
+import { useCMSTracking } from '@/hooks/useCMSTracking';
 import { Ionicons } from '@expo/vector-icons';
-import { Picker } from '@react-native-picker/picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
   addDoc,
@@ -18,18 +18,16 @@ import {
   getDoc,
   getDocs,
   limit,
-  orderBy,
   query,
   serverTimestamp,
   where
 } from 'firebase/firestore';
-import { useEffect, useState, useRef } from 'react';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
   Keyboard,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   ScrollView,
@@ -39,6 +37,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 type Spot = {
   id: string;
@@ -60,6 +59,7 @@ type Stop = {
 
 export default function CreatePlanScreen() {
   const { user } = useAuth();
+  const cmsTracking = useCMSTracking();
   const { 
     spotId: prefilledSpotId, 
     spotName: prefilledSpotName,
@@ -475,6 +475,14 @@ export default function CreatePlanScreen() {
 
       const planRef = await addDoc(collection(db, 'plans'), basePlanData);
 
+      // ✨ ENGAGEMENT: Track plan creation with animations
+      try {
+        await cmsTracking.trackPlanHosted(user.uid, planRef.id);
+      } catch (error) {
+        console.error('Error tracking plan creation:', error);
+        // Don't fail if tracking fails
+      }
+
       // Add host as first attendee
       const attendeeData: any = {
         userId: user.uid,
@@ -492,18 +500,17 @@ export default function CreatePlanScreen() {
 
       await addDoc(collection(db, 'plans', planRef.id, 'attendees'), attendeeData);
 
-      Alert.alert('Success!', 'Your plan has been created!', [
-        {
-          text: 'OK',
-          onPress: () => {
-            router.back();
-            router.push({
-              pathname: '/plan/[id]',
-              params: { id: planRef.id }
-            });
-          }
-        }
-      ]);
+      // Plan created successfully - let animations play before navigating
+      setSubmitting(false);
+      
+      setTimeout(() => {
+        router.back();
+        router.push({
+          pathname: '/plan/[id]',
+          params: { id: planRef.id }
+        });
+      }, 5000); // 5 seconds for animations to play (allows level-up modal to be seen)
+      
     } catch (error) {
       console.error('Error creating plan:', error);
       Alert.alert('Error', 'Failed to create plan. Please try again.');
@@ -1075,6 +1082,9 @@ export default function CreatePlanScreen() {
           </ThemedView>
         </KeyboardAvoidingView>
       </SafeAreaView>
+      
+      {/* CMS Animations */}
+      <CMSAnimationContainer tracking={cmsTracking} />
     </>
   );
 }

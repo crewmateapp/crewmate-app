@@ -9,6 +9,7 @@ import {
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { createContext, useContext, useEffect, useState } from 'react';
 import { auth, db } from '../config/firebase';
+import { DEFAULT_ENGAGEMENT_FIELDS } from '../types/user'; // ✨ NEW: Import engagement defaults
 
 type AuthContextType = {
   user: User | null;
@@ -54,6 +55,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       onboardingComplete: false,
       currentLayover: null,
       upcomingLayovers: [],
+      
+      // ✨ ENGAGEMENT SYSTEM: Add CMS, badges, stats, etc.
+      ...DEFAULT_ENGAGEMENT_FIELDS,
     });
   };
 
