@@ -2,6 +2,7 @@
 import AppDrawer from '@/components/AppDrawer';
 import AppHeader from '@/components/AppHeader';
 import { PlanChat } from '@/components/PlanChat';
+import { PlanCheckInButton } from '@/components/PlanCheckInButton_Simple';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { db } from '@/config/firebase';
@@ -23,6 +24,7 @@ import {
   setDoc,
   updateDoc
 } from 'firebase/firestore';
+import { updateStatsForPlanJoined } from '@/utils/updateUserStats';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -115,6 +117,15 @@ export default function PlanDetailScreen() {
           rsvpStatus: 'going',
           joinedAt: serverTimestamp(),
         });
+
+        // ✨ ENGAGEMENT: Track plan join for CMS and badges
+        try {
+          const scheduledTime = plan.scheduledTime?.toDate ? plan.scheduledTime.toDate() : new Date(plan.scheduledTime);
+          await updateStatsForPlanJoined(user.uid, plan.id, scheduledTime);
+        } catch (error) {
+          console.error('Error tracking plan join:', error);
+          // Don't fail if tracking fails
+        }
       }
     } catch (error) {
       console.error('Error updating RSVP:', error);
@@ -136,6 +147,12 @@ export default function PlanDetailScreen() {
       pathname: '/plan-invite',
       params: { id }
     });
+  };
+
+  const handleCheckInComplete = async () => {
+    // Plan data will auto-refresh via onSnapshot listener
+    // This callback is just for any additional actions needed
+    console.log('✅ Check-in complete! Plan data will auto-refresh.');
   };
 
   const handleCancelPlan = () => {
@@ -490,6 +507,30 @@ export default function PlanDetailScreen() {
 
           <View style={{ height: 100 }} />
         </ScrollView>
+
+        {/* Check-In Button (Host Only) */}
+        {isHost && plan.spot && (
+          <PlanCheckInButton
+            plan={{
+              id: plan.id,
+              hostId: plan.hostUserId,
+              hostCompletedAt: plan.hostCompletedAt,
+              spot: {
+                name: plan.isMultiStop && plan.stops?.[0] 
+                  ? plan.stops[0].spotName 
+                  : plan.spotName,
+                latitude: plan.isMultiStop && plan.stops?.[0]
+                  ? plan.stops[0].latitude || 0
+                  : plan.latitude || 0,
+                longitude: plan.isMultiStop && plan.stops?.[0]
+                  ? plan.stops[0].longitude || 0
+                  : plan.longitude || 0,
+              },
+            }}
+            userId={user?.uid || ''}
+            onCheckInComplete={handleCheckInComplete}
+          />
+        )}
 
         {/* RSVP Button */}
         {!isHost && (

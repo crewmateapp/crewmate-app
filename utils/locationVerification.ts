@@ -1,143 +1,173 @@
-// utils/locationVerification.ts
-import { searchAirports, AirportData } from './airportData';
-
 /**
- * Verifies if given coordinates are within a reasonable distance of a city
- * Uses airport data as reference points for cities
+ * GPS Location Verification Utility
+ * Verifies user is physically at a location before allowing check-in
  */
-export async function verifyCityLocation(
-  userLat: number,
-  userLon: number,
-  cityName: string
-): Promise<{ verified: boolean; distance?: number; message: string }> {
-  try {
-    // Search for airports in/near the city
-    const airports = searchAirports(userLat, userLon, cityName);
-    
-    if (airports.length === 0) {
-      // No airports found for this city - try broader search
-      const allAirports = searchAirports(0, 0, cityName);
-      
-      if (allAirports.length === 0) {
-        return {
-          verified: false,
-          message: `Unable to verify location for ${cityName}. Please contact support.`
-        };
-      }
-      
-      // Check distance to the first matching airport
-      const airport = allAirports[0];
-      const distance = calculateDistance(
-        userLat,
-        userLon,
-        airport.lat,
-        airport.lon
-      );
-      
-      // Allow check-in within 50 miles (80km) of airport
-      const MAX_DISTANCE_KM = 80;
-      
-      if (distance <= MAX_DISTANCE_KM) {
-        return {
-          verified: true,
-          distance: distance,
-          message: `Verified! You're in ${cityName}.`
-        };
-      } else {
-        return {
-          verified: false,
-          distance: distance,
-          message: `You're ${Math.round(distance)}km from ${cityName}. You need to be within ${MAX_DISTANCE_KM}km to check in.`
-        };
-      }
-    }
-    
-    // Found airports in the search results - user is nearby
-    const closestAirport = airports[0];
-    const distance = closestAirport.distance;
-    
-    return {
-      verified: true,
-      distance: distance,
-      message: `Verified! You're in ${cityName}.`
-    };
-    
-  } catch (error) {
-    console.error('Error verifying location:', error);
-    return {
-      verified: false,
-      message: 'Unable to verify your location. Please check your GPS settings and try again.'
-    };
-  }
+
+export interface Coordinates {
+  latitude: number;
+  longitude: number;
 }
 
 /**
  * Calculate distance between two coordinates using Haversine formula
- * Returns distance in kilometers
+ * Returns distance in meters
  */
-function calculateDistance(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number
+export function calculateDistance(
+  coord1: Coordinates,
+  coord2: Coordinates
 ): number {
-  const R = 6371; // Earth's radius in km
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
+  const R = 6371000; // Earth's radius in meters
   
+  const lat1Rad = (coord1.latitude * Math.PI) / 180;
+  const lat2Rad = (coord2.latitude * Math.PI) / 180;
+  const deltaLat = ((coord2.latitude - coord1.latitude) * Math.PI) / 180;
+  const deltaLon = ((coord2.longitude - coord1.longitude) * Math.PI) / 180;
+
   const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  
+    Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+    Math.cos(lat1Rad) *
+      Math.cos(lat2Rad) *
+      Math.sin(deltaLon / 2) *
+      Math.sin(deltaLon / 2);
+
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   const distance = R * c;
-  
+
   return distance;
 }
 
-function toRad(degrees: number): number {
-  return degrees * (Math.PI / 180);
+/**
+ * Verify user is at a location within specified radius
+ * @param userCoords Current user GPS coordinates
+ * @param targetCoords Target location coordinates
+ * @param radiusMeters Allowed radius in meters (default: 100m)
+ * @returns true if user is within radius, false otherwise
+ */
+export function verifyUserAtLocation(
+  userCoords: Coordinates,
+  targetCoords: Coordinates,
+  radiusMeters: number = 100
+): boolean {
+  const distance = calculateDistance(userCoords, targetCoords);
+  return distance <= radiusMeters;
 }
 
 /**
- * Request location permission and get current position
+ * Get user's current GPS location
+ * Returns promise with coordinates or throws error
  */
-export async function getCurrentLocation(): Promise<{
-  success: boolean;
-  latitude?: number;
-  longitude?: number;
-  error?: string;
-}> {
+export async function getCurrentLocation(): Promise<Coordinates> {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error('Geolocation not supported by browser'));
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        resolve({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        });
+      },
+      (error) => {
+        reject(new Error(`Location error: ${error.message}`));
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
+      }
+    );
+  });
+}
+
+/**
+ * Check if user has location permissions enabled
+ */
+export async function checkLocationPermission(): Promise<boolean> {
+  if (!navigator.permissions) {
+    // Fallback: try to get location and see if it works
+    try {
+      await getCurrentLocation();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   try {
-    const Location = require('expo-location');
-    
-    // Request permission
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    
-    if (status !== 'granted') {
+    const result = await navigator.permissions.query({ name: 'geolocation' as PermissionName });
+    return result.state === 'granted';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Format distance for display
+ */
+export function formatDistance(meters: number): string {
+  if (meters < 1000) {
+    return `${Math.round(meters)}m`;
+  }
+  return `${(meters / 1000).toFixed(1)}km`;
+}
+
+/**
+ * Check-in verification with user-friendly error messages
+ */
+export interface VerificationResult {
+  allowed: boolean;
+  distance?: number;
+  message: string;
+}
+
+export async function verifyCheckInLocation(
+  targetCoords: Coordinates,
+  targetName: string,
+  radiusMeters: number = 100
+): Promise<VerificationResult> {
+  try {
+    // Check permission first
+    const hasPermission = await checkLocationPermission();
+    if (!hasPermission) {
       return {
-        success: false,
-        error: 'Location permission denied. Please enable location access in Settings to check in.'
+        allowed: false,
+        message: 'Location permission required. Please enable location services.',
       };
     }
-    
-    // Get current position
-    const location = await Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.Balanced,
-    });
-    
+
+    // Get current location
+    const userCoords = await getCurrentLocation();
+    const distance = calculateDistance(userCoords, targetCoords);
+
+    if (distance <= radiusMeters) {
+      return {
+        allowed: true,
+        distance,
+        message: `You're at ${targetName}!`,
+      };
+    }
+
     return {
-      success: true,
-      latitude: location.coords.latitude,
-      longitude: location.coords.longitude,
+      allowed: false,
+      distance,
+      message: `You're ${formatDistance(distance)} away from ${targetName}. Get within ${formatDistance(radiusMeters)} to check in.`,
     };
-    
   } catch (error) {
-    console.error('Error getting location:', error);
     return {
-      success: false,
-      error: 'Unable to get your location. Please check that GPS is enabled and try again.'
+      allowed: false,
+      message: error instanceof Error ? error.message : 'Location verification failed',
     };
   }
 }
+
+/**
+ * Constants for different check-in radius requirements
+ */
+export const CHECK_IN_RADIUS = {
+  LAYOVER: 100, // 100m for layover check-ins (stricter)
+  PLAN: 150, // 150m for plan check-ins (slightly more lenient)
+  SPOT: 100, // 100m for spot check-ins
+} as const;

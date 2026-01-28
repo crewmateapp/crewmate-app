@@ -1,11 +1,12 @@
 // components/CreatePlanWizard.tsx
 // 5-Step Create Plan Wizard with Combined Search/Filter in Step 1
 import { ThemedText } from '@/components/themed-text';
+import { CMSAnimationContainer } from '@/components/CMSAnimationContainer';
 import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { useColors } from '@/hooks/use-theme-color';
-import { updateStatsForPlanHosted } from '@/utils/updateUserStats';
+import { useCMSTracking } from '@/hooks/useCMSTracking';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import {
@@ -41,9 +42,6 @@ const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const BOTTOM_SHEET_HEIGHT = SCREEN_HEIGHT * 0.65;
 const STEP_1_HEIGHT = SCREEN_HEIGHT * 0.85; // Taller for search/browse
 const FULL_SCREEN_HEIGHT = SCREEN_HEIGHT * 0.95;
-
-console.log('✅ CreatePlanWizard.tsx loaded!');
-console.log('✅ updateStatsForPlanHosted imported:', typeof updateStatsForPlanHosted);
 
 // Category options matching your spot categories
 const CATEGORIES = [
@@ -91,6 +89,7 @@ type Step = 1 | 2 | 3 | 4 | 5;
 export default function CreatePlanWizard({ isOpen, onClose, layoverId, layoverCity, preSelectedSpot }: CreatePlanWizardProps) {
   const { user } = useAuth();
   const colors = useColors();
+  const cmsTracking = useCMSTracking();
   
   // Wizard state
   const [currentStep, setCurrentStep] = useState<Step>(1);
@@ -433,24 +432,27 @@ export default function CreatePlanWizard({ isOpen, onClose, layoverId, layoverCi
       
       const planRef = await addDoc(collection(db, 'plans'), planData);
       
-      // ✨ ENGAGEMENT: Track plan creation for CMS and badges
-      console.log('🎯 [WIZARD DEBUG] About to track plan creation');
-      console.log('🎯 [WIZARD DEBUG] User ID:', user.uid);
-      console.log('🎯 [WIZARD DEBUG] Plan ID:', planRef.id);
+      // ✨ TRACKING: Track plan creation (NO CMS yet - awaiting check-in)
       try {
-        await updateStatsForPlanHosted(user.uid, planRef.id);
-        console.log('✅ [WIZARD DEBUG] Plan tracking completed successfully!');
+        await cmsTracking.trackPlanCreated(user.uid, planRef.id);
       } catch (error) {
-        console.error('❌ [WIZARD DEBUG] Error tracking plan creation:', error);
+        console.error('Error tracking plan creation:', error);
         // Don't fail the plan creation if tracking fails
       }
       
-      Alert.alert('Success', 'Plan created successfully!');
-      handleClose();
+      // Plan created successfully - close quickly since no animations
+      setSubmitting(false); // Re-enable the button
+      
+      // Show success message
+      Alert.alert(
+        'Plan Created!',
+        'Check in at the location to earn CMS and count toward badges.',
+        [{ text: 'Got it!', onPress: () => handleClose() }]
+      );
+      
     } catch (error) {
       console.error('Error creating plan:', error);
       Alert.alert('Error', 'Failed to create plan. Please try again.');
-    } finally {
       setSubmitting(false);
     }
   };
@@ -1373,6 +1375,9 @@ export default function CreatePlanWizard({ isOpen, onClose, layoverId, layoverCi
           </View>
         </View>
       </Modal>
+      
+      {/* CMS Animations */}
+      <CMSAnimationContainer tracking={cmsTracking} />
     </Modal>
   );
 }

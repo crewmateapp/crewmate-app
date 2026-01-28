@@ -1,6 +1,7 @@
 /**
- * User Statistics & CMS Tracking Utilities
- * Functions to track user actions, award CMS, and update engagement stats
+ * User Statistics & CMS Tracking Utilities - UPDATED
+ * NOW TRACKS: Plans/Layovers CREATED vs COMPLETED
+ * Only COMPLETED actions count toward badges and CMS
  */
 
 import { doc, updateDoc, increment, getDoc, serverTimestamp } from 'firebase/firestore';
@@ -63,7 +64,29 @@ export async function awardCMS(
 }
 
 /**
- * Track stats and award CMS for layover check-in
+ * Track when layover is CREATED (no CMS/badges)
+ * This is for tracking purposes only
+ */
+export async function trackLayoverCreated(
+  userId: string,
+  layoverId: string
+): Promise<void> {
+  try {
+    const userRef = doc(db, 'users', userId);
+    await updateDoc(userRef, {
+      'stats.layoversCreated': increment(1),
+      'stats.lastLayoverCreatedDate': serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    console.log(`[Stats] Layover created tracked for user ${userId}`);
+  } catch (error) {
+    console.error('[Stats] Error tracking layover creation:', error);
+  }
+}
+
+/**
+ * Track stats and award CMS for layover check-in COMPLETION
+ * This is called when user actually checks in with GPS verification
  */
 export async function updateStatsForLayoverCheckIn(
   userId: string,
@@ -87,8 +110,8 @@ export async function updateStatsForLayoverCheckIn(
     const isNewUser = accountAge < 30 * 24 * 60 * 60 * 1000; // 30 days in ms
     
     // Check if first time in this continent
-    const continentCounts = userData.stats?.continentCounts || {};
-    const isFirstTimeContinent = !continentCounts[continent] || continentCounts[continent] === 0;
+    const continentCheckIns = userData.stats?.continentCheckIns || {};
+    const isFirstTimeContinent = !continentCheckIns[continent] || continentCheckIns[continent] === 0;
     
     // Calculate CMS to award
     const cmsAmount = calculateCheckInCMS(
@@ -99,44 +122,76 @@ export async function updateStatsForLayoverCheckIn(
       userData.isFoundingCrew || false
     );
     
-    // Update stats
+    // Build update data
     const updateData: any = {
       'stats.totalCheckIns': increment(1),
+      'stats.layoversCompleted': increment(1), // ← NEW: Track completed check-ins
       'stats.lastCheckInDate': serverTimestamp(),
-      [`stats.continentCounts.${continent}`]: increment(1),
-      [`stats.cityCheckIns.${cityName}`]: increment(1),
       updatedAt: serverTimestamp(),
     };
     
-    // If new city, increment cities visited
-    if (isNewCity) {
-      updateData['stats.citiesVisited'] = increment(1);
+    // Track continent-specific check-ins
+    if (continent) {
+      updateData[`stats.continentCheckIns.${continent}`] = increment(1);
     }
     
+    // Track unique cities visited
+    if (isNewCity) {
+      const citiesVisited = userData.stats?.citiesVisited || [];
+      if (!citiesVisited.includes(cityName)) {
+        updateData['stats.citiesVisited'] = [...citiesVisited, cityName];
+        updateData['stats.citiesVisitedCount'] = increment(1);
+      }
+    }
+    
+    // Track city-specific check-ins (for City Expert badge)
+    updateData[`stats.cityCheckIns.${cityName}`] = increment(1);
+    
+    // Update stats
     await updateDoc(userRef, updateData);
     
     // Award CMS
-    const result = await awardCMS(userId, cmsAmount, 'Layover check-in');
+    const result = await awardCMS(userId, cmsAmount, `Check-in: ${cityName}`);
     
     return {
       cmsAwarded: cmsAmount,
       leveledUp: result.leveledUp,
     };
   } catch (error) {
-    console.error('[Stats] Error tracking check-in:', error);
-    // Don't throw - we don't want to break the check-in flow
+    console.error('[Stats] Error tracking layover check-in:', error);
     return { cmsAwarded: 0, leveledUp: false };
   }
 }
 
 /**
- * Track stats and award CMS for hosting a plan
+ * Track when plan is CREATED (no CMS/badges)
+ * This is for tracking purposes only
  */
-export async function updateStatsForPlanHosted(
+export async function trackPlanCreated(
   userId: string,
-  planId: string,
-  attendeeCount: number = 1
-): Promise<{ cmsAwarded: number; leveledUp: boolean }> {
+  planId: string
+): Promise<void> {
+  try {
+    const userRef = doc(db, 'users', userId);
+    await updateDoc(userRef, {
+      'stats.plansCreated': increment(1),
+      'stats.lastPlanCreatedDate': serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    console.log(`[Stats] Plan creation tracked for user ${userId}`);
+  } catch (error) {
+    console.error('[Stats] Error tracking plan creation:', error);
+  }
+}
+
+/**
+ * Track stats and award CMS for plan COMPLETION
+ * This is called when host checks into the plan location with GPS verification
+ */
+export async function updateStatsForPlanCompleted(
+  userId: string,
+  planId: string
+): Promise<{ cmsAwarded: number; leveledUp: boolean; alreadyCompleted: boolean }> {
   try {
     const userRef = doc(db, 'users', userId);
     const userSnap = await getDoc(userRef);
@@ -145,6 +200,24 @@ export async function updateStatsForPlanHosted(
     if (!userData) {
       throw new Error('User not found');
     }
+    
+    // Get plan data to check if already completed
+    const planRef = doc(db, 'plans', planId);
+    const planSnap = await getDoc(planRef);
+    const planData = planSnap.data();
+    
+    if (!planData) {
+      throw new Error('Plan not found');
+    }
+    
+    // Check if plan already completed (prevent double-counting)
+    if (planData.hostCompletedAt) {
+      console.log('[Stats] Plan already completed, skipping');
+      return { cmsAwarded: 0, leveledUp: false, alreadyCompleted: true };
+    }
+    
+    const attendeeCount = planData?.attendeeCount || 1;
+    const spotType = planData?.spot?.type;
     
     // Check if user is new
     const accountAge = userData.createdAt?.toMillis ? Date.now() - userData.createdAt.toMillis() : Infinity;
@@ -157,33 +230,55 @@ export async function updateStatsForPlanHosted(
       userData.isFoundingCrew || false
     );
     
-    // Update stats
-    await updateDoc(userRef, {
-      'stats.plansHosted': increment(1),
-      'stats.lastPlanHostedDate': serverTimestamp(),
+    // Build update data
+    const updateData: any = {
+      'stats.plansCompleted': increment(1), // ← NEW: Only count completed plans
+      'stats.lastPlanCompletedDate': serverTimestamp(),
       updatedAt: serverTimestamp(),
+    };
+    
+    // Track plans with attendees (for Plan Master badge)
+    if (attendeeCount >= 2) {
+      updateData['stats.plansCompletedWithAttendees'] = increment(1);
+    }
+    
+    // Track spot type visits (for category badges like Foodie, Coffee Connoisseur)
+    if (spotType) {
+      updateData[`stats.spotTypeVisits.${spotType}`] = increment(1);
+    }
+    
+    // Update user stats
+    await updateDoc(userRef, updateData);
+    
+    // Mark plan as completed by host
+    await updateDoc(planRef, {
+      hostCompletedAt: serverTimestamp(),
+      hostCompletedBy: userId,
     });
     
     // Award CMS
-    const result = await awardCMS(userId, cmsAmount, 'Plan hosted');
+    const result = await awardCMS(userId, cmsAmount, 'Plan completed');
+    
+    console.log(`[Stats] Plan ${planId} completed by user ${userId}, awarded ${cmsAmount} CMS`);
     
     return {
       cmsAwarded: cmsAmount,
       leveledUp: result.leveledUp,
+      alreadyCompleted: false,
     };
   } catch (error) {
-    console.error('[Stats] Error tracking plan hosted:', error);
-    return { cmsAwarded: 0, leveledUp: false };
+    console.error('[Stats] Error tracking plan completion:', error);
+    return { cmsAwarded: 0, leveledUp: false, alreadyCompleted: false };
   }
 }
 
 /**
  * Track stats and award CMS for joining a plan
+ * Called when user RSVPs to a plan
  */
 export async function updateStatsForPlanJoined(
   userId: string,
-  planId: string,
-  planStartTime: Date
+  planId: string
 ): Promise<{ cmsAwarded: number; leveledUp: boolean }> {
   try {
     const userRef = doc(db, 'users', userId);
@@ -194,7 +289,19 @@ export async function updateStatsForPlanJoined(
       throw new Error('User not found');
     }
     
-    // Check time-based stats
+    // Get plan data to check start time and spot type
+    const planRef = doc(db, 'plans', planId);
+    const planSnap = await getDoc(planRef);
+    const planData = planSnap.data();
+    
+    if (!planData) {
+      throw new Error('Plan not found');
+    }
+    
+    const planStartTime = planData.scheduledTime?.toDate() || new Date();
+    const spotType = planData.spot?.type;
+    
+    // Check time-based categories
     const hour = planStartTime.getHours();
     const dayOfWeek = planStartTime.getDay(); // 0 = Sunday, 6 = Saturday
     
@@ -204,28 +311,37 @@ export async function updateStatsForPlanJoined(
       updatedAt: serverTimestamp(),
     };
     
-    // Night Owl (10pm - 5am)
-    if (hour >= 22 || hour < 5) {
-      updateData['stats.nightOwlPlans'] = increment(1);
+    // Track time-based attendance (for badges)
+    if (hour >= 22 || hour < 2) {
+      // Night Owl: 10pm - 2am
+      updateData['stats.nightPlansAttended'] = increment(1);
     }
     
-    // Early Bird (5am - 9am)
-    if (hour >= 5 && hour < 9) {
-      updateData['stats.earlyBirdPlans'] = increment(1);
+    if (hour < 9) {
+      // Early Bird: before 9am
+      updateData['stats.morningPlansAttended'] = increment(1);
     }
     
-    // Weekend Warrior (Saturday or Sunday)
     if (dayOfWeek === 0 || dayOfWeek === 6) {
-      updateData['stats.weekendPlans'] = increment(1);
+      // Weekend Warrior: Saturday or Sunday
+      updateData['stats.weekendPlansAttended'] = increment(1);
     }
     
+    // Track spot type visits (if attendee actually goes)
+    // Note: This might need to be moved to a separate "attendee checked in" function
+    if (spotType) {
+      updateData[`stats.spotTypeVisits.${spotType}`] = increment(1);
+    }
+    
+    // Update stats (small CMS for joining)
     await updateDoc(userRef, updateData);
     
-    // Award CMS (base points, no bonuses for joining)
-    const result = await awardCMS(userId, CMS_POINTS.PLAN_ATTENDED, 'Plan joined');
+    // Award small CMS for committing to attend
+    const cmsAmount = CMS_POINTS.ACTIONS.PLAN_JOIN;
+    const result = await awardCMS(userId, cmsAmount, 'Plan joined');
     
     return {
-      cmsAwarded: CMS_POINTS.PLAN_ATTENDED,
+      cmsAwarded: cmsAmount,
       leveledUp: result.leveledUp,
     };
   } catch (error) {
@@ -239,10 +355,10 @@ export async function updateStatsForPlanJoined(
  */
 export async function updateStatsForReviewWritten(
   userId: string,
-  reviewId: string,
-  wordCount: number,
-  hasPhoto: boolean,
-  isFirstInCity: boolean = false
+  spotId: string,
+  rating: number,
+  hasPhotos: boolean = false,
+  photoCount: number = 0
 ): Promise<{ cmsAwarded: number; leveledUp: boolean }> {
   try {
     const userRef = doc(db, 'users', userId);
@@ -259,19 +375,25 @@ export async function updateStatsForReviewWritten(
     
     // Calculate CMS to award
     const cmsAmount = calculateReviewCMS(
-      wordCount,
-      hasPhoto,
-      isFirstInCity,
+      hasPhotos,
       isNewUser,
       userData.isFoundingCrew || false
     );
     
-    // Update stats
-    await updateDoc(userRef, {
+    // Build update data
+    const updateData: any = {
       'stats.reviewsWritten': increment(1),
       'stats.lastReviewDate': serverTimestamp(),
       updatedAt: serverTimestamp(),
-    });
+    };
+    
+    // Track photos if included
+    if (hasPhotos && photoCount > 0) {
+      updateData['stats.photosUploaded'] = increment(photoCount);
+    }
+    
+    // Update stats
+    await updateDoc(userRef, updateData);
     
     // Award CMS
     const result = await awardCMS(userId, cmsAmount, 'Review written');
@@ -281,137 +403,67 @@ export async function updateStatsForReviewWritten(
       leveledUp: result.leveledUp,
     };
   } catch (error) {
-    console.error('[Stats] Error tracking review:', error);
+    console.error('[Stats] Error tracking review written:', error);
     return { cmsAwarded: 0, leveledUp: false };
   }
 }
 
 /**
- * Track when user's review gets an upvote
- */
-export async function updateStatsForReviewUpvote(
-  userId: string,
-  reviewId: string
-): Promise<void> {
-  try {
-    const userRef = doc(db, 'users', userId);
-    
-    await updateDoc(userRef, {
-      'stats.helpfulVotesReceived': increment(1),
-      updatedAt: serverTimestamp(),
-    });
-    
-    // Award small CMS bonus
-    await awardCMS(userId, CMS_POINTS.REVIEW_UPVOTE_RECEIVED, 'Review upvoted');
-  } catch (error) {
-    console.error('[Stats] Error tracking review upvote:', error);
-  }
-}
-
-/**
- * Track stats for adding a photo
- */
-export async function updateStatsForPhotoAdded(
-  userId: string,
-  photoId: string
-): Promise<{ cmsAwarded: number }> {
-  try {
-    const userRef = doc(db, 'users', userId);
-    
-    await updateDoc(userRef, {
-      'stats.photosUploaded': increment(1),
-      updatedAt: serverTimestamp(),
-    });
-    
-    // Award CMS
-    await awardCMS(userId, CMS_POINTS.PHOTO_ADDED, 'Photo uploaded');
-    
-    return { cmsAwarded: CMS_POINTS.PHOTO_ADDED };
-  } catch (error) {
-    console.error('[Stats] Error tracking photo:', error);
-    return { cmsAwarded: 0 };
-  }
-}
-
-/**
- * Track stats for accepting a connection
+ * Track stats and award CMS for accepting a connection
  */
 export async function updateStatsForConnectionAccepted(
   userId: string,
-  connectionUserId: string
-): Promise<{ cmsAwarded: number }> {
+  connectionId: string
+): Promise<{ cmsAwarded: number; leveledUp: boolean }> {
   try {
     const userRef = doc(db, 'users', userId);
     
+    // Update stats
     await updateDoc(userRef, {
-      'stats.connectionsCount': increment(1),
+      'stats.totalConnections': increment(1),
       'stats.lastConnectionDate': serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
     
     // Award CMS
-    await awardCMS(userId, CMS_POINTS.CONNECTION_ACCEPTED, 'Connection made');
+    const cmsAmount = CMS_POINTS.ACTIONS.CONNECTION_ACCEPTED;
+    const result = await awardCMS(userId, cmsAmount, 'Connection accepted');
     
-    return { cmsAwarded: CMS_POINTS.CONNECTION_ACCEPTED };
+    return {
+      cmsAwarded: cmsAmount,
+      leveledUp: result.leveledUp,
+    };
   } catch (error) {
-    console.error('[Stats] Error tracking connection:', error);
-    return { cmsAwarded: 0 };
+    console.error('[Stats] Error tracking connection accepted:', error);
+    return { cmsAwarded: 0, leveledUp: false };
   }
 }
 
 /**
- * Track when user welcomes a new crew member
- * (First to connect + message within 7 days)
+ * Track stats for adding photos to reviews
  */
-export async function updateStatsForWelcomingNewCrew(
+export async function updateStatsForPhotoAdded(
   userId: string,
-  newCrewUserId: string
-): Promise<{ cmsAwarded: number }> {
-  try {
-    const userRef = doc(db, 'users', userId);
-    
-    await updateDoc(userRef, {
-      'stats.newCrewWelcomed': increment(1),
-      updatedAt: serverTimestamp(),
-    });
-    
-    // Award bonus CMS for being welcoming
-    await awardCMS(userId, CMS_POINTS.WELCOME_NEW_CREW, 'Welcomed new crew');
-    
-    return { cmsAwarded: CMS_POINTS.WELCOME_NEW_CREW };
-  } catch (error) {
-    console.error('[Stats] Error tracking welcome:', error);
-    return { cmsAwarded: 0 };
-  }
-}
-
-/**
- * Track spot check-ins by type (restaurant, bar, coffee, etc.)
- */
-export async function updateStatsForSpotCheckIn(
-  userId: string,
-  spotType: string
+  photoCount: number = 1
 ): Promise<void> {
   try {
     const userRef = doc(db, 'users', userId);
-    const fieldName = `stats.spotTypeCheckIns.${spotType}`;
     
     await updateDoc(userRef, {
-      [fieldName]: increment(1),
+      'stats.photosUploaded': increment(photoCount),
       updatedAt: serverTimestamp(),
     });
     
-    // Award small CMS for spot check-in
-    await awardCMS(userId, CMS_POINTS.SPOT_CHECK_IN, `${spotType} check-in`);
+    console.log(`[Stats] ${photoCount} photo(s) tracked for user ${userId}`);
   } catch (error) {
-    console.error('[Stats] Error tracking spot check-in:', error);
+    console.error('[Stats] Error tracking photo added:', error);
   }
 }
 
 /**
  * Track messages sent in plan chats
  */
-export async function updateStatsForPlanMessage(
+export async function updateStatsForMessageSent(
   userId: string,
   planId: string
 ): Promise<void> {
@@ -422,83 +474,38 @@ export async function updateStatsForPlanMessage(
       'stats.messagesSent': increment(1),
       updatedAt: serverTimestamp(),
     });
-    
-    // Award small CMS for engagement
-    await awardCMS(userId, CMS_POINTS.PLAN_MESSAGE, 'Plan message');
   } catch (error) {
-    console.error('[Stats] Error tracking message:', error);
+    console.error('[Stats] Error tracking message sent:', error);
   }
 }
 
 /**
- * Update check-in streak
- * Called after each layover check-in
+ * Track spot added to the database
  */
-export async function updateCheckInStreak(userId: string): Promise<{
-  currentStreak: number;
-  longestStreak: number;
-  earnedWeeklyBonus: boolean;
-}> {
+export async function updateStatsForSpotAdded(
+  userId: string,
+  spotId: string
+): Promise<{ cmsAwarded: number; leveledUp: boolean }> {
   try {
     const userRef = doc(db, 'users', userId);
-    const userSnap = await getDoc(userRef);
-    const userData = userSnap.data();
     
-    if (!userData) {
-      throw new Error('User not found');
-    }
-    
-    const now = new Date();
-    const lastCheckIn = userData.stats?.lastCheckInDate?.toDate();
-    
-    let currentStreak = userData.stats?.currentStreak || 0;
-    let longestStreak = userData.stats?.longestStreak || 0;
-    let earnedWeeklyBonus = false;
-    
-    if (lastCheckIn) {
-      const hoursSinceLastCheckIn = (now.getTime() - lastCheckIn.getTime()) / (1000 * 60 * 60);
-      
-      // If checked in within 48 hours, increment streak
-      if (hoursSinceLastCheckIn <= 48) {
-        currentStreak++;
-      } else {
-        // Streak broken, reset to 1
-        currentStreak = 1;
-      }
-    } else {
-      // First check-in
-      currentStreak = 1;
-    }
-    
-    // Update longest streak if current is higher
-    if (currentStreak > longestStreak) {
-      longestStreak = currentStreak;
-    }
-    
-    // Award weekly bonus if hit 7-day streak
-    if (currentStreak === 7) {
-      await awardCMS(userId, CMS_POINTS.WEEKLY_BONUS, '7-day streak bonus');
-      earnedWeeklyBonus = true;
-    }
-    
-    // Update streak stats
+    // Update stats
     await updateDoc(userRef, {
-      'stats.currentStreak': currentStreak,
-      'stats.longestStreak': longestStreak,
+      'stats.spotsAdded': increment(1),
+      'stats.lastSpotAddedDate': serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
     
+    // Award CMS
+    const cmsAmount = CMS_POINTS.ACTIONS.SPOT_ADDED;
+    const result = await awardCMS(userId, cmsAmount, 'Spot added');
+    
     return {
-      currentStreak,
-      longestStreak,
-      earnedWeeklyBonus,
+      cmsAwarded: cmsAmount,
+      leveledUp: result.leveledUp,
     };
   } catch (error) {
-    console.error('[Stats] Error updating streak:', error);
-    return {
-      currentStreak: 0,
-      longestStreak: 0,
-      earnedWeeklyBonus: false,
-    };
+    console.error('[Stats] Error tracking spot added:', error);
+    return { cmsAwarded: 0, leveledUp: false };
   }
 }
