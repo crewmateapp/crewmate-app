@@ -164,6 +164,83 @@ export async function updateStatsForLayoverCheckIn(
 }
 
 /**
+ * Update and track check-in streak
+ * Awards bonus CMS for maintaining consecutive daily check-ins
+ */
+export async function updateCheckInStreak(
+  userId: string
+): Promise<{ streakDays: number; bonusCMS: number; leveledUp: boolean }> {
+  try {
+    const userRef = doc(db, 'users', userId);
+    const userSnap = await getDoc(userRef);
+    const userData = userSnap.data();
+    
+    if (!userData) {
+      throw new Error('User not found');
+    }
+    
+    const stats = userData.stats || {};
+    const lastCheckInDate = stats.lastCheckInDate?.toDate();
+    const currentStreak = stats.checkInStreak || 0;
+    const longestStreak = stats.longestCheckInStreak || 0;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Normalize to start of day
+
+    let newStreak = 1;
+
+    if (lastCheckInDate) {
+      const lastDate = new Date(lastCheckInDate);
+      lastDate.setHours(0, 0, 0, 0);
+
+      const diffTime = today.getTime() - lastDate.getTime();
+      const diffDays = diffTime / (1000 * 60 * 60 * 24);
+
+      if (diffDays === 0) {
+        // Same day check-in - maintain streak
+        newStreak = currentStreak;
+      } else if (diffDays === 1) {
+        // Consecutive day - increment streak
+        newStreak = currentStreak + 1;
+      } else {
+        // Streak broken - reset to 1
+        newStreak = 1;
+      }
+    }
+
+    // Update longest streak if current is higher
+    const newLongestStreak = Math.max(longestStreak, newStreak);
+
+    // Update streak stats
+    await updateDoc(userRef, {
+      'stats.checkInStreak': newStreak,
+      'stats.longestCheckInStreak': newLongestStreak,
+    });
+
+    // Award bonus CMS for streaks (5 points per day in streak, minimum 2 days)
+    let bonusCMS = 0;
+    let leveledUp = false;
+    
+    if (newStreak >= 2) {
+      bonusCMS = newStreak * 5;
+      const result = await awardCMS(userId, bonusCMS, `${newStreak}-day check-in streak`);
+      leveledUp = result.leveledUp;
+    }
+
+    console.log(`[Stats] Check-in streak updated: ${newStreak} days (longest: ${newLongestStreak})`);
+
+    return {
+      streakDays: newStreak,
+      bonusCMS,
+      leveledUp,
+    };
+  } catch (error) {
+    console.error('[Stats] Error updating check-in streak:', error);
+    return { streakDays: 0, bonusCMS: 0, leveledUp: false };
+  }
+}
+
+/**
  * Track when plan is CREATED (no CMS/badges)
  * This is for tracking purposes only
  */

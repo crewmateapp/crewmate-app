@@ -22,6 +22,7 @@ import {
   doc,
   addDoc,
   getDoc,
+  getDocs,
   onSnapshot,
   orderBy,
   query,
@@ -35,6 +36,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Image,
   Modal,
   Platform,
   ScrollView,
@@ -142,6 +144,23 @@ export default function MyLayoverScreen() {
   const [crewNearbyCount, setCrewNearbyCount] = useState(0);
   const [upcomingPlans, setUpcomingPlans] = useState<Plan[]>([]);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  
+  // Undo checkout state
+  const [previousLayover, setPreviousLayover] = useState<UserLayover | null>(null);
+  const [showUndoToast, setShowUndoToast] = useState(false);
+
+  // Connections on layover state
+  const [connectionsOnLayover, setConnectionsOnLayover] = useState<Array<{
+    userId: string;
+    displayName: string;
+    photoURL?: string;
+    city: string;
+    area: string;
+    startDate: Date;
+    endDate: Date;
+    overlapType: 'current' | 'upcoming';
+    daysUntil?: number;
+  }>>([]);
 
   // Load user layovers and auto-checkout if expired
   useEffect(() => {
@@ -237,10 +256,16 @@ export default function MyLayoverScreen() {
       return;
     }
 
+    // Only show plans that haven't passed yet (with 2-hour grace period)
+    const twoHoursAgo = new Date();
+    twoHoursAgo.setHours(twoHoursAgo.getHours() - 2);
+    const cutoffTime = Timestamp.fromDate(twoHoursAgo);
+
     const q = query(
       collection(db, 'plans'),
       where('city', '==', currentLayover.city),
       where('status', '==', 'active'),
+      where('scheduledTime', '>', cutoffTime), // Only show future plans (with grace period)
       orderBy('scheduledTime', 'asc')
     );
 
@@ -257,6 +282,153 @@ export default function MyLayoverScreen() {
 
     return () => unsubscribe();
   }, [user, currentLayover]);
+
+  // Find connections on layover (current or upcoming)
+  useEffect(() => {
+    const findConnectionsOnLayover = async () => {
+      if (!user?.uid) {
+        setConnectionsOnLayover([]);
+        return;
+      }
+
+      try {
+        // Get my connections
+        const connectionsQuery = query(
+          collection(db, 'connections'),
+          where('userIds', 'array-contains', user.uid)
+        );
+        const connectionsSnapshot = await getDocs(connectionsQuery);
+        
+        const connectionUserIds: string[] = [];
+        connectionsSnapshot.forEach(doc => {
+          const data = doc.data();
+          const otherUserId = data.userIds.find((id: string) => id !== user.uid);
+          if (otherUserId) connectionUserIds.push(otherUserId);
+        });
+
+        if (connectionUserIds.length === 0) {
+          setConnectionsOnLayover([]);
+          return;
+        }
+
+        // Collect my current and upcoming cities
+        const myCities: Array<{ city: string; startDate: Date; endDate: Date }> = [];
+        
+        // Add current layover
+        if (currentLayover?.city) {
+          const now = new Date();
+          const tomorrow = new Date();
+          tomorrow.setDate(tomorrow.getDate() + 1);
+          myCities.push({
+            city: currentLayover.city,
+            startDate: now,
+            endDate: currentLayover.expiresAt?.toDate() || tomorrow,
+          });
+        }
+
+        // Add upcoming layovers
+        upcomingLayovers.forEach(layover => {
+          myCities.push({
+            city: layover.city,
+            startDate: layover.startDate.toDate(),
+            endDate: layover.endDate.toDate(),
+          });
+        });
+
+        if (myCities.length === 0) {
+          setConnectionsOnLayover([]);
+          return;
+        }
+
+        // Fetch each connection's layovers and find overlaps
+        const overlaps: typeof connectionsOnLayover = [];
+        
+        for (const connectionId of connectionUserIds) {
+          // Get connection's profile
+          const userDoc = await getDoc(doc(db, 'users', connectionId));
+          if (!userDoc.exists()) continue;
+          
+          const userData = userDoc.data();
+          
+          // Check their current layover
+          if (userData.currentLayover?.city && userData.currentLayover?.isLive) {
+            const theirCity = userData.currentLayover.city;
+            
+            // See if it overlaps with any of my cities
+            for (const myCity of myCities) {
+              if (myCity.city === theirCity) {
+                const now = new Date();
+                const isCurrentOverlap = myCity.startDate <= now && myCity.endDate >= now;
+                
+                overlaps.push({
+                  userId: connectionId,
+                  displayName: userData.displayName || userData.firstName,
+                  photoURL: userData.photoURL,
+                  city: theirCity,
+                  area: userData.currentLayover.area || '',
+                  startDate: now,
+                  endDate: userData.currentLayover.expiresAt?.toDate() || now,
+                  overlapType: isCurrentOverlap ? 'current' : 'upcoming',
+                  daysUntil: isCurrentOverlap ? 0 : Math.ceil((myCity.startDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)),
+                });
+                break; // Only add once per connection
+              }
+            }
+          }
+
+          // Check their upcoming layovers
+          const theirUpcomingLayovers = userData.upcomingLayovers || [];
+          for (const theirLayover of theirUpcomingLayovers) {
+            const theirStart = theirLayover.startDate?.toDate();
+            const theirEnd = theirLayover.endDate?.toDate();
+            if (!theirStart || !theirEnd) continue;
+
+            // See if it overlaps with any of my cities
+            for (const myCity of myCities) {
+              if (myCity.city === theirLayover.city) {
+                // Check if dates overlap
+                const overlap = (
+                  myCity.startDate <= theirEnd &&
+                  myCity.endDate >= theirStart
+                );
+
+                if (overlap) {
+                  const now = new Date();
+                  const daysUntil = Math.ceil((Math.max(myCity.startDate.getTime(), theirStart.getTime()) - now.getTime()) / (1000 * 60 * 60 * 24));
+                  
+                  overlaps.push({
+                    userId: connectionId,
+                    displayName: userData.displayName || userData.firstName,
+                    photoURL: userData.photoURL,
+                    city: theirLayover.city,
+                    area: theirLayover.area || '',
+                    startDate: theirStart,
+                    endDate: theirEnd,
+                    overlapType: daysUntil <= 0 ? 'current' : 'upcoming',
+                    daysUntil: Math.max(0, daysUntil),
+                  });
+                  break; // Only add once per connection
+                }
+              }
+            }
+          }
+        }
+
+        // Sort: current first, then by days until
+        overlaps.sort((a, b) => {
+          if (a.overlapType === 'current' && b.overlapType !== 'current') return -1;
+          if (a.overlapType !== 'current' && b.overlapType === 'current') return 1;
+          return (a.daysUntil || 0) - (b.daysUntil || 0);
+        });
+
+        setConnectionsOnLayover(overlaps);
+      } catch (error) {
+        console.error('Error finding connections on layover:', error);
+      }
+    };
+
+    findConnectionsOnLayover();
+  }, [user, currentLayover, upcomingLayovers]);
 
   // Get user location for recommendations
   useEffect(() => {
@@ -371,10 +543,47 @@ export default function MyLayoverScreen() {
         return;
       }
 
-      // Step 3: Check in AND go live immediately (GPS verified!)
+      // Step 3: Check for duplicate check-in today (prevent gaming)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); // Start of day
+      const todayTimestamp = Timestamp.fromDate(today);
+
+      const existingCheckInQuery = query(
+        collection(db, 'layovers'),
+        where('userId', '==', user.uid),
+        where('city', '==', layover.city),
+        where('checkedInAt', '>=', todayTimestamp)
+      );
+
+      const existingCheckIns = await getDocs(existingCheckInQuery);
+      const isFirstCheckInToday = existingCheckIns.empty;
+
+      // Step 4: Create permanent layover record ONLY if first check-in today
+      if (isFirstCheckInToday) {
+        const layoverData = {
+          userId: user.uid,
+          city: layover.city,
+          area: layover.area,
+          startDate: layover.startDate,
+          endDate: layover.endDate,
+          coordinates: {
+            latitude: locationResult.latitude!,
+            longitude: locationResult.longitude!,
+          },
+          checkedInAt: serverTimestamp(),
+          isActive: true,
+        };
+
+        await addDoc(collection(db, 'layovers'), layoverData);
+      }
+
+      // Step 5: Update current layover (always, even if duplicate check-in)
       const expiresAt = Timestamp.fromDate(
         new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
       );
+
+      // Remove from upcoming layovers list (you've checked in!)
+      const updatedUpcomingLayovers = upcomingLayovers.filter(l => l.id !== layover.id);
 
       await updateDoc(doc(db, 'users', user.uid), {
         currentLayover: {
@@ -386,25 +595,28 @@ export default function MyLayoverScreen() {
           updatedAt: serverTimestamp(),
           expiresAt: expiresAt,
         },
+        upcomingLayovers: updatedUpcomingLayovers, // Remove this layover from upcoming
       });
 
-      // ✨ ENGAGEMENT: Track check-in for CMS and badges
-      try {
-        // Check if this is a new city for the user
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        const cityCheckIns = userDoc.data()?.stats?.cityCheckIns || {};
-        const isNewCity = !cityCheckIns[layover.city] || cityCheckIns[layover.city] === 0;
-        
-        await updateStatsForLayoverCheckIn(user.uid, layover.city, isNewCity);
-        await updateCheckInStreak(user.uid);
-      } catch (error) {
-        console.error('Error tracking check-in stats:', error);
-        // Don't fail the whole check-in if tracking fails
+      // ✨ ENGAGEMENT: Track check-in stats ONLY if first check-in today
+      if (isFirstCheckInToday) {
+        try {
+          // Check if this is a new city for the user
+          const userDoc = await getDoc(doc(db, 'users', user.uid));
+          const cityCheckIns = userDoc.data()?.stats?.cityCheckIns || {};
+          const isNewCity = !cityCheckIns[layover.city] || cityCheckIns[layover.city] === 0;
+          
+          await updateStatsForLayoverCheckIn(user.uid, layover.city, isNewCity);
+          await updateCheckInStreak(user.uid);
+        } catch (error) {
+          console.error('Error tracking check-in stats:', error);
+          // Don't fail the whole check-in if tracking fails
+        }
       }
 
       Alert.alert(
         '✅ You\'re Live!',
-        `You're checked in and visible to crew in ${layover.city}!`,
+        `You're checked in and visible to crew in ${layover.city}!${isFirstCheckInToday ? '' : '\n\n(Already checked in earlier today)'}`,
         [{ text: 'Great!' }]
       );
     } catch (error) {
@@ -472,11 +684,11 @@ export default function MyLayoverScreen() {
 
   // Manual checkout
   const handleCheckout = async () => {
-    if (!user?.uid) return;
+    if (!user?.uid || !currentLayover) return;
 
     Alert.alert(
-      'Check Out?',
-      'This will end your layover session. You can check in again anytime.',
+      '✈️ Check Out?',
+      `This will end your layover and make you invisible to crew in ${currentLayover.city}.\n\nYou can check back in anytime!`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -484,10 +696,23 @@ export default function MyLayoverScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
+              // Save current layover for undo
+              setPreviousLayover(currentLayover);
+              
+              // Clear current layover
               await updateDoc(doc(db, 'users', user.uid), {
                 currentLayover: null
               });
-              Alert.alert('✅ Checked Out', 'See you on your next layover!');
+              
+              // Show undo toast
+              setShowUndoToast(true);
+              
+              // Auto-dismiss toast after 5 seconds
+              setTimeout(() => {
+                setShowUndoToast(false);
+                setPreviousLayover(null);
+              }, 5000);
+              
             } catch (error) {
               console.error('Error checking out:', error);
               Alert.alert('Error', 'Failed to check out. Please try again.');
@@ -496,6 +721,26 @@ export default function MyLayoverScreen() {
         }
       ]
     );
+  };
+
+  // Undo checkout - restore previous layover
+  const handleUndoCheckout = async () => {
+    if (!user?.uid || !previousLayover) return;
+
+    try {
+      await updateDoc(doc(db, 'users', user.uid), {
+        currentLayover: previousLayover
+      });
+      
+      // Clear undo state
+      setShowUndoToast(false);
+      setPreviousLayover(null);
+      
+      Alert.alert('✅ Restored', 'Your layover has been restored!');
+    } catch (error) {
+      console.error('Error undoing checkout:', error);
+      Alert.alert('Error', 'Failed to undo checkout. Please check in again.');
+    }
   };
 
   // Go offline
@@ -835,15 +1080,110 @@ export default function MyLayoverScreen() {
           </View>
         )}
 
+        {/* Connections On Layover - NEW SECTION! */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="people" size={20} color={Colors.primary} style={{ marginRight: 8 }} />
+            <ThemedText style={styles.sectionTitle}>
+              Connections On Layover ({connectionsOnLayover.length})
+            </ThemedText>
+          </View>
+
+          {connectionsOnLayover.length > 0 ? (
+            <View style={styles.connectionsList}>
+              {connectionsOnLayover.map((connection) => (
+                <TouchableOpacity
+                  key={connection.userId}
+                  style={styles.connectionCard}
+                  onPress={() => router.push(`/profile/${connection.userId}`)}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.connectionLeft}>
+                    {connection.photoURL ? (
+                      <Image 
+                        source={{ uri: connection.photoURL }} 
+                        style={styles.connectionAvatar}
+                      />
+                    ) : (
+                      <View style={styles.connectionAvatarFallback}>
+                        <ThemedText style={styles.connectionAvatarText}>
+                          {connection.displayName?.[0] || '?'}
+                        </ThemedText>
+                      </View>
+                    )}
+                    <View style={styles.connectionInfo}>
+                      <ThemedText style={styles.connectionName}>
+                        {connection.displayName}
+                      </ThemedText>
+                      <View style={styles.connectionLocation}>
+                        <Ionicons name="location" size={14} color={Colors.primary} />
+                        <ThemedText style={styles.connectionCity}>
+                          {connection.city}
+                          {connection.area ? ` • ${connection.area}` : ''}
+                        </ThemedText>
+                      </View>
+                      {connection.overlapType === 'current' ? (
+                        <View style={styles.overlapBadgeCurrent}>
+                          <Ionicons name="flame" size={12} color={Colors.white} />
+                          <ThemedText style={styles.overlapBadgeText}>Same city, same time!</ThemedText>
+                        </View>
+                      ) : (
+                        <View style={styles.overlapBadgeUpcoming}>
+                          <Ionicons name="time-outline" size={12} color={Colors.primary} />
+                          <ThemedText style={styles.overlapBadgeTextUpcoming}>
+                            {connection.daysUntil === 0 
+                              ? 'Today!' 
+                              : connection.daysUntil === 1 
+                                ? 'Tomorrow'
+                                : `In ${connection.daysUntil} days`}
+                          </ThemedText>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.messageButton}
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      // Navigate to messages with this connection
+                      // You'll need to get the connectionId first
+                      router.push(`/connections`); // For now, go to connections
+                    }}
+                  >
+                    <Ionicons name="chatbubble" size={18} color={Colors.white} />
+                  </TouchableOpacity>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : (
+            <View style={styles.emptyConnectionsState}>
+              <Ionicons name="people-outline" size={64} color={Colors.text.secondary} />
+              <ThemedText style={styles.emptyConnectionsTitle}>
+                No connections nearby
+              </ThemedText>
+              <ThemedText style={styles.emptyConnectionsText}>
+                Make more connections to discover crew in the same cities as you!
+              </ThemedText>
+              <TouchableOpacity
+                style={styles.findCrewButton}
+                onPress={() => router.push('/explore')}
+              >
+                <Ionicons name="search" size={18} color={Colors.white} />
+                <ThemedText style={styles.findCrewButtonText}>Find Crew</ThemedText>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+
         {/* Upcoming Layovers */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <ThemedText style={styles.sectionTitle}>
-              {currentLayover ? 'Upcoming Layovers' : 'My Layovers'} ({upcomingLayovers.length})
+              {currentLayover ? 'Upcoming Layovers' : 'My Layovers'} ({upcomingLayovers.filter(l => l.startDate.toDate() > new Date()).length})
             </ThemedText>
           </View>
 
-          {upcomingLayovers.length === 0 && !currentLayover ? (
+          {upcomingLayovers.filter(l => l.startDate.toDate() > new Date()).length === 0 && !currentLayover ? (
             <View style={styles.emptyState}>
               <Ionicons name="airplane-outline" size={64} color={Colors.text.secondary} />
               <ThemedText style={styles.emptyTitle}>No Layovers Yet</ThemedText>
@@ -852,7 +1192,9 @@ export default function MyLayoverScreen() {
               </ThemedText>
             </View>
           ) : (
-            upcomingLayovers.map(layover => (
+            upcomingLayovers
+              .filter(layover => layover.startDate.toDate() > new Date()) // Only show future layovers
+              .map(layover => (
               <TouchableOpacity 
                 key={layover.id} 
                 style={styles.layoverCard}
@@ -931,7 +1273,7 @@ export default function MyLayoverScreen() {
           <TouchableOpacity style={styles.addButton} onPress={openLayoverPicker}>
             <Ionicons name="add-circle" size={24} color={Colors.primary} />
             <ThemedText style={styles.addButtonText}>
-              {upcomingLayovers.length === 0 && !currentLayover ? 'Add Your First Layover' : 'Add Another Layover'}
+              {upcomingLayovers.filter(l => l.startDate.toDate() > new Date()).length === 0 && !currentLayover ? 'Add Your First Layover' : 'Add Another Layover'}
             </ThemedText>
           </TouchableOpacity>
         </View>
@@ -1106,6 +1448,33 @@ export default function MyLayoverScreen() {
           )}
         </ThemedView>
       </Modal>
+
+      {/* Undo Checkout Toast */}
+      {showUndoToast && previousLayover && (
+        <View style={styles.undoToast}>
+          <View style={styles.undoToastContent}>
+            <Ionicons name="checkmark-circle" size={20} color={Colors.success} />
+            <ThemedText style={styles.undoToastText}>
+              Checked out from {previousLayover.city}
+            </ThemedText>
+          </View>
+          <TouchableOpacity 
+            style={styles.undoButton}
+            onPress={handleUndoCheckout}
+          >
+            <ThemedText style={styles.undoButtonText}>Undo</ThemedText>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.dismissButton}
+            onPress={() => {
+              setShowUndoToast(false);
+              setPreviousLayover(null);
+            }}
+          >
+            <Ionicons name="close" size={20} color={Colors.text.secondary} />
+          </TouchableOpacity>
+        </View>
+      )}
     </ThemedView>
   );
 }
@@ -1572,5 +1941,200 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: Colors.error,
+  },
+  undoToast: {
+    position: 'absolute',
+    bottom: 100,
+    left: 20,
+    right: 20,
+    backgroundColor: Colors.card,
+    borderRadius: 12,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  undoToastContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  undoToastText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: Colors.text.primary,
+  },
+  undoButton: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginLeft: 12,
+  },
+  undoButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Colors.white,
+  },
+  dismissButton: {
+    padding: 4,
+    marginLeft: 8,
+  },
+  // Connections On Layover styles
+  connectionsList: {
+    gap: 12,
+  },
+  connectionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.card,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  connectionLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 12,
+  },
+  connectionAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 2,
+    borderColor: Colors.primary + '20',
+  },
+  connectionAvatarFallback: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: Colors.primary + '20',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: Colors.primary + '30',
+  },
+  connectionAvatarText: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: Colors.primary,
+  },
+  connectionInfo: {
+    flex: 1,
+    gap: 4,
+  },
+  connectionName: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Colors.text.primary,
+  },
+  connectionLocation: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  connectionCity: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: Colors.text.secondary,
+  },
+  overlapBadgeCurrent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: Colors.error,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+  },
+  overlapBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: Colors.white,
+  },
+  overlapBadgeUpcoming: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: Colors.primary + '15',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+  },
+  overlapBadgeTextUpcoming: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: Colors.primary,
+  },
+  messageButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  emptyConnectionsState: {
+    alignItems: 'center',
+    paddingVertical: 40,
+    paddingHorizontal: 20,
+  },
+  emptyConnectionsTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: Colors.text.primary,
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  emptyConnectionsText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: Colors.text.secondary,
+    marginTop: 8,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  findCrewButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 12,
+    marginTop: 20,
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  findCrewButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Colors.white,
   },
 });

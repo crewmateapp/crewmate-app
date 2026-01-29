@@ -79,6 +79,12 @@ export default function FriendProfileScreen() {
   // Mutual stats
   const [mutualBadges, setMutualBadges] = useState(0);
   const [mutualCities, setMutualCities] = useState(0);
+  const [overlappingLayovers, setOverlappingLayovers] = useState<Array<{
+    city: string;
+    yourDates: string;
+    theirDates: string;
+    overlapping: boolean;
+  }>>([]);
 
   const fetchProfile = async () => {
     if (!userId) return;
@@ -225,6 +231,108 @@ export default function FriendProfileScreen() {
     };
 
     checkConnectionStatus();
+  }, [user, userId]);
+
+  // Find overlapping layovers
+  useEffect(() => {
+    const findOverlappingLayovers = async () => {
+      if (!user?.uid || !userId) return;
+
+      try {
+        // Fetch my layovers
+        const myLayoversQuery = query(
+          collection(db, 'layovers'),
+          where('userId', '==', user.uid),
+          orderBy('startDate', 'desc')
+        );
+        const myLayoversSnapshot = await getDocs(myLayoversQuery);
+        
+        // Fetch their layovers
+        const theirLayoversQuery = query(
+          collection(db, 'layovers'),
+          where('userId', '==', userId),
+          orderBy('startDate', 'desc')
+        );
+        const theirLayoversSnapshot = await getDocs(theirLayoversQuery);
+        
+        // Build maps by city
+        const myLayoversByCity: { [city: string]: any[] } = {};
+        myLayoversSnapshot.docs.forEach(doc => {
+          const data = doc.data();
+          if (!myLayoversByCity[data.city]) {
+            myLayoversByCity[data.city] = [];
+          }
+          myLayoversByCity[data.city].push({
+            startDate: data.startDate?.toDate(),
+            endDate: data.endDate?.toDate(),
+          });
+        });
+        
+        const theirLayoversByCity: { [city: string]: any[] } = {};
+        theirLayoversSnapshot.docs.forEach(doc => {
+          const data = doc.data();
+          if (!theirLayoversByCity[data.city]) {
+            theirLayoversByCity[data.city] = [];
+          }
+          theirLayoversByCity[data.city].push({
+            startDate: data.startDate?.toDate(),
+            endDate: data.endDate?.toDate(),
+          });
+        });
+        
+        // Find overlapping cities and dates
+        const overlaps: typeof overlappingLayovers = [];
+        
+        Object.keys(myLayoversByCity).forEach(city => {
+          if (theirLayoversByCity[city]) {
+            // Both have been to this city - check for date overlaps
+            let hasOverlap = false;
+            
+            myLayoversByCity[city].forEach(myLayover => {
+              theirLayoversByCity[city].forEach(theirLayover => {
+                // Check if dates overlap
+                if (myLayover.startDate && myLayover.endDate && 
+                    theirLayover.startDate && theirLayover.endDate) {
+                  const overlap = (
+                    myLayover.startDate <= theirLayover.endDate &&
+                    myLayover.endDate >= theirLayover.startDate
+                  );
+                  if (overlap) hasOverlap = true;
+                }
+              });
+            });
+            
+            // Get most recent dates for display
+            const myMostRecent = myLayoversByCity[city][0];
+            const theirMostRecent = theirLayoversByCity[city][0];
+            
+            overlaps.push({
+              city,
+              yourDates: myMostRecent.startDate ? 
+                myMostRecent.startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 
+                'Unknown',
+              theirDates: theirMostRecent.startDate ?
+                theirMostRecent.startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) :
+                'Unknown',
+              overlapping: hasOverlap,
+            });
+          }
+        });
+        
+        // Sort: overlapping first, then alphabetically
+        overlaps.sort((a, b) => {
+          if (a.overlapping && !b.overlapping) return -1;
+          if (!a.overlapping && b.overlapping) return 1;
+          return a.city.localeCompare(b.city);
+        });
+        
+        setOverlappingLayovers(overlaps);
+      } catch (error) {
+        console.error('Error finding overlapping layovers:', error);
+      }
+    };
+
+    findOverlappingLayovers();
   }, [user, userId]);
 
   const handleSpotPress = (spotId: string) => {
@@ -453,6 +561,55 @@ export default function FriendProfileScreen() {
         </View>
       )}
 
+      {/* Overlapping Layovers Section */}
+      {overlappingLayovers.length > 0 && (
+        <View style={styles.overlappingSection}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="map" size={20} color={Colors.primary} />
+            <Text style={styles.sectionTitle}>Layover History</Text>
+          </View>
+          <Text style={styles.overlappingSectionSubtitle}>
+            Cities you've both visited
+          </Text>
+          {overlappingLayovers.slice(0, 5).map((overlap, index) => (
+            <View key={index} style={styles.overlapCard}>
+              <View style={styles.overlapHeader}>
+                <View style={styles.overlapCityInfo}>
+                  <Ionicons name="location" size={18} color={Colors.primary} />
+                  <Text style={styles.overlapCity}>{overlap.city}</Text>
+                  {overlap.overlapping && (
+                    <View style={styles.overlapBadge}>
+                      <Text style={styles.overlapBadgeText}>Same time!</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+              <View style={styles.overlapDates}>
+                <View style={styles.overlapDateRow}>
+                  <Text style={styles.overlapDateLabel}>You:</Text>
+                  <Text style={styles.overlapDateValue}>{overlap.yourDates}</Text>
+                </View>
+                <View style={styles.overlapDateRow}>
+                  <Text style={styles.overlapDateLabel}>Them:</Text>
+                  <Text style={styles.overlapDateValue}>{overlap.theirDates}</Text>
+                </View>
+              </View>
+            </View>
+          ))}
+          {overlappingLayovers.length > 5 && (
+            <TouchableOpacity 
+              style={styles.viewMoreButton}
+              onPress={() => router.push(`/check-ins?userId=${userId}`)}
+            >
+              <Text style={styles.viewMoreText}>
+                View all {overlappingLayovers.length} shared cities
+              </Text>
+              <Ionicons name="arrow-forward" size={16} color={Colors.primary} />
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
       {/* Badges Section */}
       {profile?.badges && profile.badges.length > 0 && (
         <View style={styles.statsSection}>
@@ -463,21 +620,38 @@ export default function FriendProfileScreen() {
         </View>
       )}
 
-      {/* Stats Grid */}
+      {/* Stats Grid - Now Clickable! */}
       <View style={styles.statsSection}>
         <View style={styles.statsGrid}>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{profile?.stats?.citiesVisitedCount || 0}</Text>
-            <Text style={styles.statLabel}>Cities</Text>
-          </View>
-          <View style={styles.statCard}>
+          <TouchableOpacity 
+            style={styles.statCard}
+            onPress={() => router.push(`/check-ins?userId=${userId}`)}
+            activeOpacity={0.7}
+          >
             <Text style={styles.statValue}>{profile?.stats?.totalCheckIns || 0}</Text>
             <Text style={styles.statLabel}>Check-ins</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>{profile?.stats?.plansHosted || 0}</Text>
+            <Ionicons name="chevron-forward" size={14} color={Colors.text.secondary} style={{ marginTop: 4 }} />
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.statCard}
+            onPress={() => router.push(`/plans-history?userId=${userId}`)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.statValue}>{(profile?.stats?.plansHosted || 0) + (profile?.stats?.plansAttended || 0)}</Text>
             <Text style={styles.statLabel}>Plans</Text>
-          </View>
+            <Ionicons name="chevron-forward" size={14} color={Colors.text.secondary} style={{ marginTop: 4 }} />
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.statCard}
+            onPress={() => router.push(`/cities-visited?userId=${userId}`)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.statValue}>{profile?.stats?.citiesVisitedCount || 0}</Text>
+            <Text style={styles.statLabel}>Cities</Text>
+            <Ionicons name="chevron-forward" size={14} color={Colors.text.secondary} style={{ marginTop: 4 }} />
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -824,5 +998,78 @@ const styles = StyleSheet.create({
   bottomAction: {
     paddingHorizontal: 20,
     marginTop: 24,
+  },
+  overlappingSection: {
+    marginTop: 24,
+    paddingHorizontal: 20,
+  },
+  overlappingSectionSubtitle: {
+    fontSize: 14,
+    color: Colors.text.secondary,
+    marginBottom: 12,
+    marginTop: -4,
+  },
+  overlapCard: {
+    backgroundColor: Colors.card,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  overlapHeader: {
+    marginBottom: 8,
+  },
+  overlapCityInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  overlapCity: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Colors.text.primary,
+  },
+  overlapBadge: {
+    backgroundColor: Colors.success + '20',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    marginLeft: 4,
+  },
+  overlapBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: Colors.success,
+  },
+  overlapDates: {
+    gap: 4,
+  },
+  overlapDateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  overlapDateLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.text.secondary,
+    width: 50,
+  },
+  overlapDateValue: {
+    fontSize: 13,
+    color: Colors.text.primary,
+  },
+  viewMoreButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    gap: 6,
+  },
+  viewMoreText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.primary,
   },
 });

@@ -179,8 +179,7 @@ export default function ProfileScreen() {
       value: profile?.stats?.citiesVisitedCount || 0,
       color: Colors.primary,
       onPress: () => {
-        // TODO: Navigate to cities visited screen
-        console.log('Navigate to cities');
+        router.push('/cities-visited');
       },
     },
     {
@@ -198,8 +197,7 @@ export default function ProfileScreen() {
       value: (profile?.stats?.plansHosted || 0) + (profile?.stats?.plansAttended || 0),
       color: '#FF9500',
       onPress: () => {
-        // TODO: Navigate to plans screen
-        console.log('Navigate to plans');
+        router.push('/plans-history');
       },
     },
     {
@@ -208,8 +206,7 @@ export default function ProfileScreen() {
       value: profile?.stats?.reviewsWritten || 0,
       color: Colors.accent,
       onPress: () => {
-        // TODO: Navigate to reviews screen
-        console.log('Navigate to reviews');
+        router.push('/my-reviews');
       },
     },
     {
@@ -218,8 +215,7 @@ export default function ProfileScreen() {
       value: profile?.stats?.photosUploaded || 0,
       color: '#5856D6',
       onPress: () => {
-        // TODO: Navigate to photos screen
-        console.log('Navigate to photos');
+        router.push('/photo-gallery');
       },
     },
     {
@@ -228,8 +224,7 @@ export default function ProfileScreen() {
       value: profile?.stats?.totalCheckIns || 0,
       color: '#007AFF',
       onPress: () => {
-        // TODO: Navigate to check-in history
-        console.log('Navigate to check-ins');
+        router.push('/check-ins');
       },
     },
   ];
