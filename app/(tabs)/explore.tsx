@@ -9,7 +9,7 @@ import { useCities } from '@/hooks/useCities';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { collection, getDocs, limit, query, where } from 'firebase/firestore';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -19,8 +19,28 @@ import {
   TextInput,
   TouchableOpacity,
   TouchableWithoutFeedback,
-  View
+  View,
+  Platform,
 } from 'react-native';
+
+// Conditionally import maps - gracefully handles if not available
+let MapView: any = null;
+let Marker: any = null;
+let Callout: any = null;
+let PROVIDER_DEFAULT: any = null;
+let MAPS_AVAILABLE = false;
+
+try {
+  const maps = require('react-native-maps');
+  MapView = maps.default;
+  Marker = maps.Marker;
+  Callout = maps.Callout;
+  PROVIDER_DEFAULT = maps.PROVIDER_DEFAULT;
+  MAPS_AVAILABLE = true;
+} catch (e) {
+  console.log('📍 Maps not available in this environment (Expo Go). Will work in production builds.');
+  MAPS_AVAILABLE = false;
+}
 
 const COLORS = {
   primary: '#114878',
@@ -30,6 +50,12 @@ const COLORS = {
   mediumGray: '#999999',
   darkGray: '#333333',
   border: '#E0E0E0',
+  // Category colors for map pins
+  food: '#FF6B6B',      // Red
+  bar: '#FFA500',       // Orange
+  coffee: '#FFD700',    // Gold
+  activity: '#4169E1',  // Blue
+  shopping: '#32CD32',  // Green
 };
 
 const CATEGORIES = ['All', 'Food', 'Bar', 'Coffee', 'Activity', 'Shopping'];
@@ -37,8 +63,8 @@ const CATEGORIES = ['All', 'Food', 'Bar', 'Coffee', 'Activity', 'Shopping'];
 type Spot = {
   id: string;
   name: string;
-  category: string; // This is the actual field name in Firebase
-  type?: string; // Keep for backwards compatibility
+  category: string;
+  type?: string;
   address: string;
   city: string;
   description: string;
@@ -63,6 +89,8 @@ type FilterSettings = {
   maxDistance: number;
   openNow: boolean;
 };
+
+type ViewMode = 'list' | 'map';
 
 export default function ExploreScreen() {
   const { 
@@ -102,15 +130,15 @@ export default function ExploreScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
+  
+  const mapRef = useRef<any>(null);
 
-  // Load user's current layover city on mount, or use URL parameter
   useEffect(() => {
-    // Store the layoverId from URL if provided
     if (layoverId) {
       setCurrentLayoverId(layoverId);
     }
     
-    // If city is provided in URL, use that instead of fetching user's layover
     if (urlCity) {
       setSelectedCity(urlCity);
     } else {
@@ -120,13 +148,19 @@ export default function ExploreScreen() {
     loadRecentCities();
   }, [urlCity, layoverId]);
 
-  // Fetch spots when city or filters change
   useEffect(() => {
     if (selectedCity) {
       fetchSpots();
       saveRecentCity(selectedCity);
     }
   }, [selectedCity, category, sortBy, filters, searchQuery]);
+
+  // Auto-fit map to show all markers when spots change (only if maps available)
+  useEffect(() => {
+    if (MAPS_AVAILABLE && viewMode === 'map' && spots.length > 0 && mapRef.current) {
+      fitMapToMarkers();
+    }
+  }, [spots, viewMode]);
 
   const loadUserLayoverCity = async () => {
     try {
@@ -153,27 +187,20 @@ export default function ExploreScreen() {
   };
 
   const loadRecentCities = () => {
-    // In a real app, load from AsyncStorage
-    // For now, just empty array
     setRecentCities([]);
   };
 
   const saveRecentCity = (cityName: string) => {
-    // In a real app, save to AsyncStorage
-    // For now, just update state
     if (!recentCities.includes(cityName)) {
       setRecentCities([cityName, ...recentCities.slice(0, 4)]);
     }
   };
 
-  // Handle city selection - navigate to city page unless in selection mode
   const handleCitySelect = (cityName: string) => {
     if (selectionMode) {
-      // If in selection mode (choosing spot for plan), just filter
       setSelectedCity(cityName);
       saveRecentCity(cityName);
     } else {
-      // Normal mode - navigate to dedicated city page with stars
       router.push(`/city/${encodeURIComponent(cityName)}`);
     }
   };
@@ -183,7 +210,6 @@ export default function ExploreScreen() {
 
     setLoading(true);
     try {
-      // Query spots for selected city with 'approved' status
       const spotsQuery = query(
         collection(db, 'spots'),
         where('city', '==', selectedCity),
@@ -196,7 +222,6 @@ export default function ExploreScreen() {
         ...doc.data()
       } as Spot));
 
-      // Apply filters and sorting
       const filtered = applyFilters(spotsList);
       const sorted = applySorting(filtered);
 
@@ -211,7 +236,6 @@ export default function ExploreScreen() {
   const applyFilters = (spotsList: Spot[]): Spot[] => {
     let filtered = spotsList;
 
-    // Filter by search query
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase().trim();
       filtered = filtered.filter(spot => {
@@ -222,22 +246,18 @@ export default function ExploreScreen() {
       });
     }
 
-    // Filter by category
     if (category !== 'All') {
       filtered = filtered.filter(spot => {
-        // Use 'category' field from Firebase (lowercase: "bar", "food", etc.)
         const spotCategory = (spot.category || '').toLowerCase().trim();
         const selectedCategory = category.toLowerCase().trim();
         return spotCategory === selectedCategory;
       });
     }
 
-    // Filter by minimum rating
     if (filters.minRating > 0) {
       filtered = filtered.filter(spot => (spot.rating || 0) >= filters.minRating);
     }
 
-    // Filter by distance if user location available
     if (userLocation && filters.maxDistance < 50) {
       filtered = filtered.filter(spot => {
         if (!spot.latitude || !spot.longitude) return true;
@@ -267,28 +287,18 @@ export default function ExploreScreen() {
       case 'distance':
         if (userLocation) {
           return sorted.sort((a, b) => {
-            if (!a.latitude || !a.longitude) return 1;
-            if (!b.latitude || !b.longitude) return -1;
-            
-            const distA = calculateDistance(
-              userLocation.latitude,
-              userLocation.longitude,
-              a.latitude,
-              a.longitude
-            );
-            const distB = calculateDistance(
-              userLocation.latitude,
-              userLocation.longitude,
-              b.latitude,
-              b.longitude
-            );
+            const distA = (a.latitude && a.longitude) 
+              ? calculateDistance(userLocation.latitude, userLocation.longitude, a.latitude, a.longitude)
+              : 999;
+            const distB = (b.latitude && b.longitude)
+              ? calculateDistance(userLocation.latitude, userLocation.longitude, b.latitude, b.longitude)
+              : 999;
             return distA - distB;
           });
         }
         return sorted;
       
       case 'newest':
-        // Would need createdAt field - for now, return as-is
         return sorted;
       
       default:
@@ -297,15 +307,18 @@ export default function ExploreScreen() {
   };
 
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-    const R = 3959; // Earth radius in miles
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const R = 3959;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
     const a =
       Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
+  };
+
+  const toRad = (degrees: number): number => {
+    return degrees * (Math.PI / 180);
   };
 
   const handleRefresh = async () => {
@@ -315,52 +328,199 @@ export default function ExploreScreen() {
   };
 
   const handleCreatePlan = (spotId: string, spotName: string) => {
-    router.push({
-      pathname: '/create-plan',
-      params: { 
-        spotId,
-        spotName,
-        ...(currentLayoverId && { layoverId: currentLayoverId }), // Include layoverId if available
-      },
+    const params = currentLayoverId
+      ? `?layoverId=${currentLayoverId}&selectedSpotId=${spotId}&selectedSpotName=${encodeURIComponent(spotName)}`
+      : `?selectedSpotId=${spotId}&selectedSpotName=${encodeURIComponent(spotName)}`;
+    router.push(`/create-plan${params}`);
+  };
+
+  const getMarkerColor = (category: string): string => {
+    const cat = category.toLowerCase();
+    switch (cat) {
+      case 'food':
+        return COLORS.food;
+      case 'bar':
+        return COLORS.bar;
+      case 'coffee':
+        return COLORS.coffee;
+      case 'activity':
+        return COLORS.activity;
+      case 'shopping':
+        return COLORS.shopping;
+      default:
+        return COLORS.primary;
+    }
+  };
+
+  const fitMapToMarkers = () => {
+    if (!mapRef.current || spots.length === 0) return;
+
+    const spotsWithCoords = spots.filter(spot => spot.latitude && spot.longitude);
+    if (spotsWithCoords.length === 0) return;
+
+    const coordinates = spotsWithCoords.map(spot => ({
+      latitude: spot.latitude!,
+      longitude: spot.longitude!,
+    }));
+
+    mapRef.current.fitToCoordinates(coordinates, {
+      edgePadding: { top: 100, right: 50, bottom: 100, left: 50 },
+      animated: true,
     });
   };
 
-  const renderEmptyState = () => {
-    if (!selectedCity) {
-      return (
-        <View style={styles.emptyContainer}>
-          <Ionicons name="search" size={64} color={COLORS.mediumGray} />
-          <ThemedText style={styles.emptyTitle}>Discover Crew Spots</ThemedText>
-          <ThemedText style={styles.emptySubtitle}>
-            Search for a city to find crew-recommended spots
-          </ThemedText>
-        </View>
-      );
+  const handleMarkerPress = (spot: Spot) => {
+    if (selectionMode) {
+      const params = new URLSearchParams({
+        selectedSpotId: spot.id,
+        selectedSpotName: spot.name,
+      });
+      
+      if (layoverId) {
+        params.append('layoverId', layoverId);
+      }
+      
+      if (isMultiStop) {
+        params.append('isMultiStop', isMultiStop);
+      }
+      if (stopsParam) {
+        params.append('stops', stopsParam);
+      }
+      
+      if (returnTo === 'edit-plan' && planId) {
+        params.append('id', planId);
+        router.push(`/edit-plan?${params.toString()}`);
+      } else {
+        router.push(`/create-plan?${params.toString()}`);
+      }
+    } else {
+      const params = currentLayoverId ? `?layoverId=${currentLayoverId}` : '';
+      router.push(`/spot/${spot.id}${params}`);
     }
+  };
 
+  const renderEmptyState = () => {
     if (loading) {
       return (
         <View style={styles.emptyContainer}>
           <ActivityIndicator size="large" color={COLORS.primary} />
-          <ThemedText style={styles.emptySubtitle}>Loading spots...</ThemedText>
         </View>
       );
     }
 
     return (
       <View style={styles.emptyContainer}>
-        <Ionicons name="location-outline" size={64} color={COLORS.mediumGray} />
-        <ThemedText style={styles.emptyTitle}>No Spots Found</ThemedText>
-        <ThemedText style={styles.emptySubtitle}>
-          Try adjusting your filters or be the first to add a spot in {selectedCity}!
+        <Ionicons name="location-outline" size={80} color={COLORS.mediumGray} />
+        <ThemedText style={styles.emptyTitle}>
+          {selectedCity ? 'No spots found' : 'Select a City'}
         </ThemedText>
-        <TouchableOpacity
-          style={styles.addSpotButton}
-          onPress={() => router.push('/add-spot')}
+        <ThemedText style={styles.emptySubtitle}>
+          {selectedCity 
+            ? 'Try adjusting your filters or be the first to add a spot!'
+            : 'Choose a city from the dropdown to explore crew-recommended spots'}
+        </ThemedText>
+        {selectedCity && (
+          <TouchableOpacity
+            style={styles.addSpotButton}
+            onPress={() => router.push('/add-spot')}
+          >
+            <Ionicons name="add" size={20} color={COLORS.white} />
+            <ThemedText style={styles.addSpotButtonText}>Add a Spot</ThemedText>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  };
+
+  // Render map view - with fallback for Expo Go
+  const renderMapView = () => {
+    // If maps not available, show helpful message
+    if (!MAPS_AVAILABLE) {
+      return (
+        <View style={styles.mapUnavailableContainer}>
+          <Ionicons name="map" size={80} color={COLORS.primary} />
+          <ThemedText style={styles.mapUnavailableTitle}>Map View Coming Soon!</ThemedText>
+          <ThemedText style={styles.mapUnavailableText}>
+            Map view is available in production builds (TestFlight & Google Play).
+          </ThemedText>
+          <ThemedText style={styles.mapUnavailableSubtext}>
+            Switch to List view to explore spots, or test maps in your next build! 🗺️
+          </ThemedText>
+          <TouchableOpacity
+            style={styles.switchToListButton}
+            onPress={() => setViewMode('list')}
+          >
+            <Ionicons name="list" size={20} color={COLORS.white} />
+            <ThemedText style={styles.switchToListButtonText}>Switch to List View</ThemedText>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    const spotsWithCoords = spots.filter(spot => spot.latitude && spot.longitude);
+
+    if (spotsWithCoords.length === 0) {
+      return (
+        <View style={styles.mapEmptyContainer}>
+          <Ionicons name="map-outline" size={60} color={COLORS.mediumGray} />
+          <ThemedText style={styles.mapEmptyText}>
+            No spots with locations to show on map
+          </ThemedText>
+        </View>
+      );
+    }
+
+    const firstSpot = spotsWithCoords[0];
+    const initialRegion = {
+      latitude: firstSpot.latitude!,
+      longitude: firstSpot.longitude!,
+      latitudeDelta: 0.0922,
+      longitudeDelta: 0.0421,
+    };
+
+    return (
+      <View style={styles.mapContainer}>
+        <MapView
+          ref={mapRef}
+          style={styles.map}
+          initialRegion={initialRegion}
+          provider={PROVIDER_DEFAULT}
+          showsUserLocation={true}
+          showsMyLocationButton={true}
         >
-          <Ionicons name="add-circle" size={20} color={COLORS.white} />
-          <ThemedText style={styles.addSpotButtonText}>Add a Spot</ThemedText>
-        </TouchableOpacity>
+          {spotsWithCoords.map(spot => (
+            <Marker
+              key={spot.id}
+              coordinate={{
+                latitude: spot.latitude!,
+                longitude: spot.longitude!,
+              }}
+              pinColor={getMarkerColor(spot.category)}
+              onPress={() => handleMarkerPress(spot)}
+            >
+              <Callout>
+                <View style={styles.calloutContainer}>
+                  <ThemedText style={styles.calloutTitle}>{spot.name}</ThemedText>
+                  <View style={styles.calloutRating}>
+                    <Ionicons name="star" size={14} color={COLORS.accent} />
+                    <ThemedText style={styles.calloutRatingText}>
+                      {spot.rating?.toFixed(1) || 'New'}
+                    </ThemedText>
+                    {spot.reviewCount ? (
+                      <ThemedText style={styles.calloutReviews}>
+                        ({spot.reviewCount})
+                      </ThemedText>
+                    ) : null}
+                  </View>
+                  <ThemedText style={styles.calloutCategory}>
+                    {spot.category.charAt(0).toUpperCase() + spot.category.slice(1)}
+                  </ThemedText>
+                  <ThemedText style={styles.calloutTap}>Tap for details →</ThemedText>
+                </View>
+              </Callout>
+            </Marker>
+          ))}
+        </MapView>
       </View>
     );
   };
@@ -369,15 +529,15 @@ export default function ExploreScreen() {
     <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
       <ThemedView style={styles.container}>
         <View style={styles.content}>
-          {/* City Selector */}
           <CitySelector
+            cities={cities}
+            loading={citiesLoading}
             selectedCity={selectedCity}
             userLayoverCity={userLayoverCity}
             recentCities={recentCities}
             onSelectCity={handleCitySelect}
           />
 
-          {/* Selection Mode Banner */}
           {selectionMode && (
             <View style={styles.selectionModeBanner}>
               <Ionicons name="checkmark-circle" size={24} color={COLORS.primary} />
@@ -395,7 +555,6 @@ export default function ExploreScreen() {
 
           {selectedCity && (
             <>
-              {/* Search Bar */}
               <View style={styles.searchContainer}>
                 <Ionicons name="search" size={20} color={COLORS.mediumGray} style={styles.searchIcon} />
                 <TextInput
@@ -421,90 +580,130 @@ export default function ExploreScreen() {
                 )}
               </View>
 
-              {/* Category Tabs */}
               <CategoryTabs
                 categories={CATEGORIES}
                 selectedCategory={category}
                 onSelectCategory={setCategory}
               />
 
-              {/* Sort and Filter */}
-              <SortAndFilter
-                sortBy={sortBy}
-                onSortChange={setSortBy}
-                filters={filters}
-                onFiltersChange={setFilters}
-              />
+              {/* View Toggle - Only show if maps are available OR user tries to access */}
+              <View style={styles.viewToggleContainer}>
+                <TouchableOpacity
+                  style={[
+                    styles.viewToggleButton,
+                    viewMode === 'list' && styles.viewToggleButtonActive,
+                  ]}
+                  onPress={() => setViewMode('list')}
+                >
+                  <Ionicons 
+                    name="list" 
+                    size={20} 
+                    color={viewMode === 'list' ? COLORS.white : COLORS.primary} 
+                  />
+                  <ThemedText style={[
+                    styles.viewToggleText,
+                    viewMode === 'list' && styles.viewToggleTextActive,
+                  ]}>
+                    List
+                  </ThemedText>
+                </TouchableOpacity>
 
-              {/* Spots List */}
-              {spots.length > 0 ? (
-                <FlatList
-                  data={spots}
-                  keyExtractor={item => item.id}
-                  renderItem={({ item }) => (
-                    <SpotCard
-                      spot={item}
-                      userLocation={userLocation}
-                      selectionMode={selectionMode}
-                      onCreatePlan={() => handleCreatePlan(item.id, item.name)}
-                      onPress={() => {
-                        if (selectionMode) {
-                          // Navigate directly to create-plan or edit-plan with selected spot
-                          const params = new URLSearchParams({
-                            selectedSpotId: item.id,
-                            selectedSpotName: item.name,
-                          });
-                          
-                          // Preserve layoverId if present
-                          if (layoverId) {
-                            params.append('layoverId', layoverId);
-                          }
-                          
-                          // Preserve multi-stop state and stops array
-                          if (isMultiStop) {
-                            params.append('isMultiStop', isMultiStop);
-                          }
-                          if (stopsParam) {
-                            params.append('stops', stopsParam);
-                          }
-                          
-                          // Navigate to appropriate screen
-                          if (returnTo === 'edit-plan' && planId) {
-                            // Going back to edit-plan
-                            params.append('id', planId);
-                            router.push(`/edit-plan?${params.toString()}`);
-                          } else {
-                            // Going back to create-plan (default)
-                            router.push(`/create-plan?${params.toString()}`);
-                          }
-                        } else {
-                          // Normal behavior - view spot detail
-                          const params = currentLayoverId ? `?layoverId=${currentLayoverId}` : '';
-                          router.push(`/spot/${item.id}${params}`);
-                        }
-                      }}
-                    />
-                  )}
-                  contentContainerStyle={styles.spotsList}
-                  keyboardShouldPersistTaps="handled"
-                  keyboardDismissMode="on-drag"
-                  refreshControl={
-                    <RefreshControl
-                      refreshing={refreshing}
-                      onRefresh={handleRefresh}
-                      tintColor={COLORS.primary}
-                    />
-                  }
+                <TouchableOpacity
+                  style={[
+                    styles.viewToggleButton,
+                    viewMode === 'map' && styles.viewToggleButtonActive,
+                  ]}
+                  onPress={() => setViewMode('map')}
+                >
+                  <Ionicons 
+                    name="map" 
+                    size={20} 
+                    color={viewMode === 'map' ? COLORS.white : COLORS.primary} 
+                  />
+                  <ThemedText style={[
+                    styles.viewToggleText,
+                    viewMode === 'map' && styles.viewToggleTextActive,
+                  ]}>
+                    Map {!MAPS_AVAILABLE && '(Build)'}
+                  </ThemedText>
+                </TouchableOpacity>
+              </View>
+
+              {viewMode === 'list' && (
+                <SortAndFilter
+                  sortBy={sortBy}
+                  onSortChange={setSortBy}
+                  filters={filters}
+                  onFiltersChange={setFilters}
                 />
+              )}
+
+              {viewMode === 'list' ? (
+                <>
+                  {spots.length > 0 ? (
+                    <FlatList
+                      data={spots}
+                      keyExtractor={item => item.id}
+                      renderItem={({ item }) => (
+                        <SpotCard
+                          spot={item}
+                          userLocation={userLocation}
+                          selectionMode={selectionMode}
+                          onCreatePlan={() => handleCreatePlan(item.id, item.name)}
+                          onPress={() => {
+                            if (selectionMode) {
+                              const params = new URLSearchParams({
+                                selectedSpotId: item.id,
+                                selectedSpotName: item.name,
+                              });
+                              
+                              if (layoverId) {
+                                params.append('layoverId', layoverId);
+                              }
+                              
+                              if (isMultiStop) {
+                                params.append('isMultiStop', isMultiStop);
+                              }
+                              if (stopsParam) {
+                                params.append('stops', stopsParam);
+                              }
+                              
+                              if (returnTo === 'edit-plan' && planId) {
+                                params.append('id', planId);
+                                router.push(`/edit-plan?${params.toString()}`);
+                              } else {
+                                router.push(`/create-plan?${params.toString()}`);
+                              }
+                            } else {
+                              const params = currentLayoverId ? `?layoverId=${currentLayoverId}` : '';
+                              router.push(`/spot/${item.id}${params}`);
+                            }
+                          }}
+                        />
+                      )}
+                      contentContainerStyle={styles.spotsList}
+                      keyboardShouldPersistTaps="handled"
+                      keyboardDismissMode="on-drag"
+                      refreshControl={
+                        <RefreshControl
+                          refreshing={refreshing}
+                          onRefresh={handleRefresh}
+                          tintColor={COLORS.primary}
+                        />
+                      }
+                    />
+                  ) : (
+                    renderEmptyState()
+                  )}
+                </>
               ) : (
-                renderEmptyState()
+                renderMapView()
               )}
             </>
           )}
 
           {!selectedCity && renderEmptyState()}
 
-          {/* Floating Add Spot Button - always visible when city is selected */}
           {selectedCity && spots.length > 0 && (
             <TouchableOpacity
               style={styles.floatingAddButton}
@@ -550,9 +749,138 @@ const styles = StyleSheet.create({
   clearButton: {
     padding: 4,
   },
+  viewToggleContainer: {
+    flexDirection: 'row',
+    marginHorizontal: 16,
+    marginBottom: 12,
+    backgroundColor: COLORS.lightGray,
+    borderRadius: 10,
+    padding: 4,
+  },
+  viewToggleButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  viewToggleButtonActive: {
+    backgroundColor: COLORS.primary,
+  },
+  viewToggleText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: COLORS.primary,
+  },
+  viewToggleTextActive: {
+    color: COLORS.white,
+  },
   spotsList: {
     padding: 16,
     paddingBottom: 100,
+  },
+  mapContainer: {
+    flex: 1,
+    marginHorizontal: 16,
+    marginBottom: 16,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  map: {
+    width: '100%',
+    height: '100%',
+  },
+  mapEmptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+  },
+  mapEmptyText: {
+    fontSize: 16,
+    color: COLORS.mediumGray,
+    textAlign: 'center',
+    marginTop: 16,
+  },
+  mapUnavailableContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+    paddingVertical: 60,
+  },
+  mapUnavailableTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: COLORS.primary,
+    marginTop: 20,
+    marginBottom: 12,
+  },
+  mapUnavailableText: {
+    fontSize: 16,
+    color: COLORS.darkGray,
+    textAlign: 'center',
+    lineHeight: 24,
+    marginBottom: 8,
+  },
+  mapUnavailableSubtext: {
+    fontSize: 14,
+    color: COLORS.mediumGray,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  switchToListButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 24,
+    marginTop: 12,
+  },
+  switchToListButtonText: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  calloutContainer: {
+    width: 200,
+    padding: 8,
+  },
+  calloutTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: COLORS.darkGray,
+    marginBottom: 4,
+  },
+  calloutRating: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 4,
+  },
+  calloutRatingText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.darkGray,
+  },
+  calloutReviews: {
+    fontSize: 13,
+    color: COLORS.mediumGray,
+  },
+  calloutCategory: {
+    fontSize: 12,
+    color: COLORS.mediumGray,
+    marginBottom: 4,
+  },
+  calloutTap: {
+    fontSize: 11,
+    color: COLORS.primary,
+    fontWeight: '500',
   },
   emptyContainer: {
     flex: 1,
