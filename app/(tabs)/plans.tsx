@@ -131,6 +131,7 @@ export default function PlansScreen() {
         collection(db, 'plans'),
         where('city', '==', city),
         where('status', '==', 'active'),
+        where('scheduledTime', '>=', Timestamp.now()),
         orderBy('scheduledTime', 'asc')
       );
 
@@ -187,6 +188,7 @@ export default function PlansScreen() {
         collection(db, 'plans'),
         where('city', '==', city),
         where('status', '==', 'active'),
+        where('scheduledTime', '>=', Timestamp.now()),
         orderBy('scheduledTime', 'asc')
       );
 

@@ -1,5 +1,6 @@
 // app/(tabs)/index.tsx - REDESIGNED: No Gates, Layover List First
 import { PlanCard } from '@/components/PlanCard';
+import CreatePlanWizard from '@/components/CreatePlanWizard';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { db } from '@/config/firebase';
@@ -148,6 +149,7 @@ export default function MyLayoverScreen() {
   // Undo checkout state
   const [previousLayover, setPreviousLayover] = useState<UserLayover | null>(null);
   const [showUndoToast, setShowUndoToast] = useState(false);
+  const [showCreateWizard, setShowCreateWizard] = useState(false);
 
   // Connections on layover state
   const [connectionsOnLayover, setConnectionsOnLayover] = useState<Array<{
@@ -1037,6 +1039,13 @@ export default function MyLayoverScreen() {
               <View style={styles.quickActions}>
                 <TouchableOpacity
                   style={styles.actionButton}
+                  onPress={() => setShowCreateWizard(true)}
+                >
+                  <Ionicons name="add-circle-outline" size={20} color={Colors.primary} />
+                  <ThemedText style={styles.actionButtonText}>Create Plan</ThemedText>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.actionButton}
                   onPress={() => router.push('/(tabs)/plans')}
                 >
                   <Ionicons name="calendar-outline" size={20} color={Colors.primary} />
@@ -1278,6 +1287,16 @@ export default function MyLayoverScreen() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* Create Plan Wizard */}
+      {currentLayover && (
+        <CreatePlanWizard
+          isOpen={showCreateWizard}
+          onClose={() => setShowCreateWizard(false)}
+          layoverId="current"
+          layoverCity={currentLayover.city}
+        />
+      )}
 
       {/* Layover Picker Modal */}
       <Modal
