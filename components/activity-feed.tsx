@@ -39,13 +39,18 @@ type Activity = {
   createdAt: any;
 };
 
-export default function ActivityFeed() {
+type ActivityFeedProps = {
+  initialLimit?: number; // If provided, shows limited view with "View More" button
+};
+
+export default function ActivityFeed({ initialLimit }: ActivityFeedProps) {
   const { user } = useAuth();
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [connectionIds, setConnectionIds] = useState<string[]>([]);
   const [hasConnections, setHasConnections] = useState(false);
+  const [showingAll, setShowingAll] = useState(!initialLimit);
 
   // Fetch user's connections first
   useEffect(() => {
@@ -199,7 +204,7 @@ export default function ActivityFeed() {
     return '⭐'.repeat(rating);
   };
 
-  const renderActivity = ({ item }: { item: Activity }) => {
+  const renderActivity = (item: Activity) => {
     let activityText;
     
     switch (item.type) {
@@ -288,7 +293,7 @@ export default function ActivityFeed() {
     }
 
     return (
-      <View style={styles.activityCard}>
+      <View key={item.id} style={styles.activityCard}>
         <TouchableOpacity onPress={() => handleUserPress(item.userId)}>
           {item.userPhoto ? (
             <Image source={{ uri: item.userPhoto }} style={styles.activityAvatar} />
@@ -335,10 +340,50 @@ export default function ActivityFeed() {
     );
   }
 
+  // Get activities to display
+  const displayActivities = showingAll || !initialLimit 
+    ? activities 
+    : activities.slice(0, initialLimit);
+
+  // If initialLimit is set, use View with map() to avoid FlatList nesting
+  if (initialLimit && !showingAll) {
+    return (
+      <View>
+        <View style={styles.listContent}>
+          {displayActivities.length > 0 ? (
+            displayActivities.map((item) => renderActivity(item))
+          ) : (
+            <View style={styles.emptyState}>
+              <Ionicons name="pulse-outline" size={80} color={Colors.text.secondary} />
+              <ThemedText style={styles.emptyTitle}>No Activity Yet</ThemedText>
+              <ThemedText style={styles.emptyText}>
+                Your connections haven't posted any activity yet. Check back later!
+              </ThemedText>
+            </View>
+          )}
+        </View>
+        
+        {/* View More Button */}
+        {activities.length > initialLimit && (
+          <TouchableOpacity 
+            style={styles.viewMoreButton}
+            onPress={() => setShowingAll(true)}
+          >
+            <Text style={styles.viewMoreText}>
+              View More ({activities.length - initialLimit} more)
+            </Text>
+            <Ionicons name="chevron-down" size={18} color={Colors.primary} />
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  }
+
+  // Full view with FlatList (for standalone use or when showing all)
   return (
     <FlatList
       data={activities}
-      renderItem={renderActivity}
+      renderItem={({ item }) => renderActivity(item)}
       keyExtractor={(item) => item.id}
       contentContainerStyle={styles.listContent}
       refreshControl={
@@ -449,5 +494,25 @@ const styles = StyleSheet.create({
     color: Colors.white,
     fontSize: 16,
     fontWeight: '600',
+  },
+  viewMoreButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    marginHorizontal: 20,
+    marginTop: 8,
+    marginBottom: 20,
+    backgroundColor: Colors.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  viewMoreText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.primary,
   },
 });

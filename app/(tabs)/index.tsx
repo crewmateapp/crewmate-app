@@ -63,6 +63,7 @@ type UpcomingLayover = {
   endDate: Timestamp;
   status: 'upcoming' | 'active' | 'past';
   preDiscoverable?: boolean;
+  autoCheckIn?: boolean;
   createdAt: any;
 };
 
@@ -134,6 +135,7 @@ export default function MyLayoverScreen() {
   const [editingLayoverId, setEditingLayoverId] = useState<string | null>(null);
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
   const [showEndDatePicker, setShowEndDatePicker] = useState(false);
+  const [autoCheckIn, setAutoCheckIn] = useState(false);
   const [selectedAirportData, setSelectedAirportData] = useState<AirportData | null>(null);
 
   // UI state
@@ -209,6 +211,99 @@ export default function MyLayoverScreen() {
 
     return () => unsubscribe();
   }, [user]);
+
+  // Auto check-in logic - check when app opens
+  useEffect(() => {
+    const handleAutoCheckIn = async () => {
+      if (!user?.uid || currentLayover || upcomingLayovers.length === 0) return;
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      // Find layovers that should auto check-in
+      const layoverToCheckIn = upcomingLayovers.find(layover => {
+        if (!layover.autoCheckIn) return false;
+        
+        const startDate = layover.startDate.toDate();
+        startDate.setHours(0, 0, 0, 0);
+        const endDate = layover.endDate.toDate();
+        endDate.setHours(23, 59, 59, 999);
+
+        // Check if today is within the layover dates
+        return today >= startDate && today <= endDate;
+      });
+
+      if (!layoverToCheckIn) return;
+
+      console.log('🤖 Auto check-in triggered for:', layoverToCheckIn.city);
+
+      try {
+        // Get GPS location
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          console.log('❌ Auto check-in failed: Location permission denied');
+          return;
+        }
+
+        const location = await getCurrentLocation();
+        if (!location) {
+          console.log('❌ Auto check-in failed: Could not get location');
+          return;
+        }
+
+        // Verify city location (50km radius check)
+        const cityVerified = await verifyCityLocation(
+          layoverToCheckIn.city,
+          location.latitude,
+          location.longitude
+        );
+
+        if (!cityVerified.isValid) {
+          console.log(`❌ Auto check-in failed: Not within 50km of ${layoverToCheckIn.city}`);
+          Alert.alert(
+            'Auto Check-In Failed',
+            `You're not close enough to ${layoverToCheckIn.city} to check in automatically. You can check in manually when you arrive.`,
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+
+        console.log(`✅ Location verified for ${layoverToCheckIn.city}`);
+
+        // Calculate expiration: end date + 2 hours
+        const expirationDate = layoverToCheckIn.endDate.toDate();
+        expirationDate.setHours(expirationDate.getHours() + 2);
+
+        // Auto check-in!
+        await updateDoc(doc(db, 'users', user.uid), {
+          currentLayover: {
+            city: layoverToCheckIn.city,
+            area: layoverToCheckIn.area,
+            discoverable: true,
+            isLive: true,
+            lastVerified: Timestamp.now(),
+            expiresAt: Timestamp.fromDate(expirationDate),
+            updatedAt: Timestamp.now(),
+          },
+        });
+
+        // Update stats
+        await updateStatsForLayoverCheckIn(user.uid, layoverToCheckIn.city);
+        await updateCheckInStreak(user.uid);
+
+        Alert.alert(
+          '✅ Auto Check-In Success!',
+          `You're now live in ${layoverToCheckIn.city}!`,
+          [{ text: 'Great!' }]
+        );
+
+      } catch (error) {
+        console.error('Error during auto check-in:', error);
+      }
+    };
+
+    handleAutoCheckIn();
+  }, [user, upcomingLayovers, currentLayover]);
 
   // Load crew counts if checked in - FILTER EXPIRED
   useEffect(() => {
@@ -355,16 +450,23 @@ export default function MyLayoverScreen() {
           
           const userData = userDoc.data();
           
-          // Check their current layover
-          if (userData.currentLayover?.city && userData.currentLayover?.isLive) {
+          // Check their current layover - ONLY mark as LIVE if they're actually checked in
+          const now = new Date();
+          const nowTimestamp = Timestamp.now();
+          
+          if (userData.currentLayover?.city && 
+              userData.currentLayover?.isLive &&
+              userData.currentLayover?.discoverable &&
+              userData.currentLayover?.expiresAt &&
+              userData.currentLayover.expiresAt > nowTimestamp) {
             const theirCity = userData.currentLayover.city;
             
             // See if it overlaps with any of my cities
             for (const myCity of myCities) {
               if (myCity.city === theirCity) {
-                const now = new Date();
                 const isCurrentOverlap = myCity.startDate <= now && myCity.endDate >= now;
                 
+                // They're actually LIVE (checked in) - always mark as current if cities match
                 overlaps.push({
                   userId: connectionId,
                   connectionId: userIdToConnectionId[connectionId],
@@ -374,15 +476,15 @@ export default function MyLayoverScreen() {
                   area: userData.currentLayover.area || '',
                   startDate: now,
                   endDate: userData.currentLayover.expiresAt?.toDate() || now,
-                  overlapType: isCurrentOverlap ? 'current' : 'upcoming',
-                  daysUntil: isCurrentOverlap ? 0 : Math.ceil((myCity.startDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)),
+                  overlapType: 'current', // They're checked in = LIVE NOW
+                  daysUntil: 0,
                 });
                 break; // Only add once per connection
               }
             }
           }
 
-          // Check their upcoming layovers
+          // Check their upcoming layovers (NOT checked in yet)
           const theirUpcomingLayovers = userData.upcomingLayovers || [];
           for (const theirLayover of theirUpcomingLayovers) {
             const theirStart = theirLayover.startDate?.toDate();
@@ -411,7 +513,7 @@ export default function MyLayoverScreen() {
                     area: theirLayover.area || '',
                     startDate: theirStart,
                     endDate: theirEnd,
-                    overlapType: daysUntil <= 0 ? 'current' : 'upcoming',
+                    overlapType: 'upcoming', // Always upcoming since they haven't checked in
                     daysUntil: Math.max(0, daysUntil),
                   });
                   break; // Only add once per connection
@@ -826,6 +928,7 @@ export default function MyLayoverScreen() {
     setSelectedArea('');
     setSelectedAirportData(null);
     setEditingLayoverId(null);
+    setAutoCheckIn(false); // Reset checkbox
     // Set default dates: tomorrow and day after
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -843,6 +946,7 @@ export default function MyLayoverScreen() {
     setSelectedAirportData(null); // Clear airport data when editing
     setStartDate(layover.startDate.toDate());
     setEndDate(layover.endDate.toDate());
+    setAutoCheckIn(layover.autoCheckIn || false);
     setPickerStep('dates'); // Skip city/area selection, go straight to dates
   };
 
@@ -875,6 +979,7 @@ export default function MyLayoverScreen() {
               area: selectedArea,
               startDate: Timestamp.fromDate(startDate),
               endDate: Timestamp.fromDate(endDate),
+              autoCheckIn,
             };
           }
           return l;
@@ -894,6 +999,7 @@ export default function MyLayoverScreen() {
           endDate: Timestamp.fromDate(endDate),
           status: 'upcoming',
           preDiscoverable: false,
+          autoCheckIn,
           createdAt: Timestamp.now(),
         };
 
@@ -904,11 +1010,15 @@ export default function MyLayoverScreen() {
           upcomingLayovers: [...upcomingLayovers, layoverWithId],
         });
 
-        Alert.alert('Success', 'Layover added! You can check in when you arrive.');
+        const message = autoCheckIn 
+          ? 'Layover added! We\'ll auto check you in when it starts.' 
+          : 'Layover added! You can check in when you arrive.';
+        Alert.alert('Success', message);
       }
 
       setPickerStep('closed');
       setEditingLayoverId(null);
+      setAutoCheckIn(false); // Reset checkbox
     } catch (error) {
       console.error('Error saving layover:', error);
       Alert.alert('Error', 'Failed to save layover. Please try again.');
@@ -1188,9 +1298,12 @@ export default function MyLayoverScreen() {
           <View style={styles.sectionHeader}>
             <Ionicons name="people" size={20} color={Colors.primary} style={{ marginRight: 8 }} />
             <ThemedText style={styles.sectionTitle}>
-              Connections On Layover ({connectionsOnLayover.length})
+              Crew You'll See ({connectionsOnLayover.length})
             </ThemedText>
           </View>
+          <ThemedText style={styles.sectionSubtitle}>
+            Connections with overlapping layovers • Live now or scheduled
+          </ThemedText>
 
           {connectionsOnLayover.length > 0 ? (
             <View style={styles.connectionsList}>
@@ -1202,18 +1315,30 @@ export default function MyLayoverScreen() {
                   activeOpacity={0.8}
                 >
                   <View style={styles.connectionLeft}>
-                    {connection.photoURL ? (
-                      <Image 
-                        source={{ uri: connection.photoURL }} 
-                        style={styles.connectionAvatar}
-                      />
-                    ) : (
-                      <View style={styles.connectionAvatarFallback}>
-                        <ThemedText style={styles.connectionAvatarText}>
-                          {connection.displayName?.[0] || '?'}
-                        </ThemedText>
-                      </View>
-                    )}
+                    <View style={styles.connectionAvatarWrapper}>
+                      {connection.photoURL ? (
+                        <Image 
+                          source={{ uri: connection.photoURL }} 
+                          style={styles.connectionAvatar}
+                        />
+                      ) : (
+                        <View style={styles.connectionAvatarFallback}>
+                          <ThemedText style={styles.connectionAvatarText}>
+                            {connection.displayName?.[0] || '?'}
+                          </ThemedText>
+                        </View>
+                      )}
+                      {/* Status indicator - green dot for LIVE, clock for SCHEDULED */}
+                      {connection.overlapType === 'current' ? (
+                        <View style={styles.statusLiveIndicator}>
+                          <View style={styles.statusLiveIndicatorDot} />
+                        </View>
+                      ) : (
+                        <View style={styles.statusScheduledIndicator}>
+                          <Ionicons name="time" size={14} color={Colors.white} />
+                        </View>
+                      )}
+                    </View>
                     <View style={styles.connectionInfo}>
                       <ThemedText style={styles.connectionName}>
                         {connection.displayName}
@@ -1227,18 +1352,18 @@ export default function MyLayoverScreen() {
                       </View>
                       {connection.overlapType === 'current' ? (
                         <View style={styles.overlapBadgeCurrent}>
-                          <Ionicons name="flame" size={12} color={Colors.white} />
-                          <ThemedText style={styles.overlapBadgeText}>Same city, same time!</ThemedText>
+                          <View style={styles.livePulseDot} />
+                          <ThemedText style={styles.overlapBadgeText}>LIVE NOW</ThemedText>
                         </View>
                       ) : (
                         <View style={styles.overlapBadgeUpcoming}>
-                          <Ionicons name="time-outline" size={12} color={Colors.primary} />
+                          <Ionicons name="calendar-outline" size={12} color={Colors.text.secondary} />
                           <ThemedText style={styles.overlapBadgeTextUpcoming}>
                             {connection.daysUntil === 0 
-                              ? 'Today!' 
+                              ? 'Starts today' 
                               : connection.daysUntil === 1 
-                                ? 'Tomorrow'
-                                : `In ${connection.daysUntil} days`}
+                                ? 'Starts tomorrow'
+                                : `Starts in ${connection.daysUntil} days`}
                           </ThemedText>
                         </View>
                       )}
@@ -1573,6 +1698,32 @@ export default function MyLayoverScreen() {
                   />
                 )}
 
+                {/* Auto Check-In Toggle */}
+                <TouchableOpacity 
+                  style={styles.autoCheckInToggle}
+                  onPress={() => setAutoCheckIn(!autoCheckIn)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.autoCheckInLeft}>
+                    <View style={[
+                      styles.checkbox,
+                      autoCheckIn && styles.checkboxChecked
+                    ]}>
+                      {autoCheckIn && (
+                        <Ionicons name="checkmark" size={16} color={Colors.white} />
+                      )}
+                    </View>
+                    <View style={styles.autoCheckInText}>
+                      <ThemedText style={styles.autoCheckInLabel}>
+                        Auto check-in on start date
+                      </ThemedText>
+                      <ThemedText style={styles.autoCheckInDescription}>
+                        Requires GPS verification when you open the app
+                      </ThemedText>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+
                 <TouchableOpacity style={styles.saveButton} onPress={saveLayover}>
                   <ThemedText style={styles.saveButtonText}>
                     {editingLayoverId ? 'Update Layover' : 'Add Layover'}
@@ -1638,6 +1789,14 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     color: Colors.text.primary,
+  },
+  sectionSubtitle: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: Colors.text.secondary,
+    marginTop: -8,
+    marginBottom: 12,
+    paddingHorizontal: 0,
   },
   layoverCard: {
     backgroundColor: Colors.card,
@@ -2027,6 +2186,53 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.text.primary,
   },
+  autoCheckInToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.card,
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 20,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  autoCheckInLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.background,
+  },
+  checkboxChecked: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  autoCheckInText: {
+    flex: 1,
+  },
+  autoCheckInLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.text.primary,
+    marginBottom: 2,
+  },
+  autoCheckInDescription: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: Colors.text.secondary,
+    lineHeight: 16,
+  },
   saveButton: {
     backgroundColor: Colors.primary,
     padding: 16,
@@ -2148,6 +2354,9 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 12,
   },
+  connectionAvatarWrapper: {
+    position: 'relative',
+  },
   connectionAvatar: {
     width: 48,
     height: 48,
@@ -2164,6 +2373,38 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 2,
     borderColor: Colors.primary + '30',
+  },
+  statusLiveIndicator: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: Colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: Colors.white,
+  },
+  statusLiveIndicatorDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#10b981', // Green
+  },
+  statusScheduledIndicator: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: Colors.white,
   },
   connectionAvatarText: {
     fontSize: 20,
@@ -2192,32 +2433,41 @@ const styles = StyleSheet.create({
   overlapBadgeCurrent: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: Colors.error,
+    gap: 6,
+    backgroundColor: '#10b981', // Green for LIVE
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 5,
     borderRadius: 8,
     alignSelf: 'flex-start',
   },
+  livePulseDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: Colors.white,
+  },
   overlapBadgeText: {
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '800',
     color: Colors.white,
+    letterSpacing: 0.5,
   },
   overlapBadgeUpcoming: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: Colors.primary + '15',
+    backgroundColor: Colors.background,
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 5,
     borderRadius: 8,
     alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
   overlapBadgeTextUpcoming: {
     fontSize: 11,
-    fontWeight: '700',
-    color: Colors.primary,
+    fontWeight: '600',
+    color: Colors.text.secondary,
   },
   messageButton: {
     width: 40,

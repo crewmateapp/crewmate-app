@@ -7,7 +7,7 @@ import { getSkylineForBase } from '@/constants/BaseSkylines';
 import { useAuth } from '@/contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, where } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
 import { 
   ActivityIndicator, 
@@ -349,12 +349,38 @@ export default function FriendProfileScreen() {
     });
   };
 
-  const handleMessage = () => {
-    if (connectionId) {
+  const handleMessage = async () => {
+    if (!connectionId || !user?.uid || !profile) return;
+    
+    try {
+      // Initialize lastMessage fields if they don't exist
+      const connectionRef = doc(db, 'connections', connectionId);
+      const connectionSnap = await getDoc(connectionRef);
+      
+      if (connectionSnap.exists()) {
+        const data = connectionSnap.data();
+        if (!data.lastMessage && data.lastMessage !== '') {
+          await updateDoc(connectionRef, {
+            lastMessage: '',
+            lastMessageTime: serverTimestamp(),
+            unreadCount: {
+              [user.uid]: 0,
+              [userId]: 0,
+            },
+          });
+        }
+      }
+      
+      // Navigate to chat using connection ID
       router.push({
-        pathname: '/messages/[connectionId]',
-        params: { connectionId }
+        pathname: '/chat/[id]',
+        params: { 
+          id: connectionId, 
+          name: profile.displayName,
+        }
       });
+    } catch (error) {
+      console.error('Error opening chat:', error);
     }
   };
 

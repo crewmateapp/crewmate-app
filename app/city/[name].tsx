@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -21,23 +22,25 @@ import {
   Dimensions,
 } from 'react-native';
 
-// Conditionally import maps
+// Conditionally import maps - only on native platforms
 let MapView: any = null;
 let Marker: any = null;
 let Callout: any = null;
 let PROVIDER_DEFAULT: any = null;
 let MAPS_AVAILABLE = false;
 
-try {
-  const maps = require('react-native-maps');
-  MapView = maps.default;
-  Marker = maps.Marker;
-  Callout = maps.Callout;
-  PROVIDER_DEFAULT = maps.PROVIDER_DEFAULT;
-  MAPS_AVAILABLE = true;
-} catch (e) {
-  console.log('📍 Maps not available in Expo Go');
-  MAPS_AVAILABLE = false;
+if (Platform.OS !== 'web') {
+  try {
+    const maps = require('react-native-maps');
+    MapView = maps.default;
+    Marker = maps.Marker;
+    Callout = maps.Callout;
+    PROVIDER_DEFAULT = maps.PROVIDER_DEFAULT;
+    MAPS_AVAILABLE = true;
+  } catch (e) {
+    console.log('📍 Maps not available in Expo Go');
+    MAPS_AVAILABLE = false;
+  }
 }
 
 type Spot = {

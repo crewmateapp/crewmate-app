@@ -57,6 +57,10 @@ type Comment = {
   createdAt: any;
 };
 
+type CrewfiesFeedProps = {
+  initialLimit?: number; // If provided, shows limited view with "View More" button
+};
+
 // Helper function to format timestamp
 const formatTimestamp = (timestamp: any): string => {
   if (!timestamp) return '';
@@ -77,7 +81,7 @@ const formatTimestamp = (timestamp: any): string => {
   return postDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
 
-export default function CrewfiesFeed() {
+export default function CrewfiesFeed({ initialLimit }: CrewfiesFeedProps) {
   const { user } = useAuth();
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
@@ -86,6 +90,7 @@ export default function CrewfiesFeed() {
   const [comments, setComments] = useState<{ [postId: string]: Comment[] }>({});
   const [commentText, setCommentText] = useState('');
   const [loadingComments, setLoadingComments] = useState<{ [postId: string]: boolean }>({});
+  const [showingAll, setShowingAll] = useState(!initialLimit);
 
   useEffect(() => {
     const postsQuery = query(
@@ -237,13 +242,13 @@ export default function CrewfiesFeed() {
     }
   };
 
-  const renderPost = ({ item }: { item: Post }) => {
+  const renderPost = (item: Post) => {
     const isLiked = item.likes.includes(user?.uid || '');
     const showComments = expandedPostId === item.id;
     const postComments = comments[item.id] || [];
 
     return (
-      <View style={styles.postCard}>
+      <View key={item.id} style={styles.postCard}>
         {/* Header */}
         <TouchableOpacity 
           style={styles.postHeader}
@@ -295,12 +300,10 @@ export default function CrewfiesFeed() {
             <Ionicons 
               name={isLiked ? "heart" : "heart-outline"} 
               size={24} 
-              color={isLiked ? Colors.error : Colors.text.primary} 
+              color={isLiked ? Colors.error : Colors.text.secondary} 
             />
             {item.likes.length > 0 && (
-              <ThemedText style={styles.actionText}>
-                {item.likes.length}
-              </ThemedText>
+              <ThemedText style={styles.actionText}>{item.likes.length}</ThemedText>
             )}
           </TouchableOpacity>
 
@@ -308,15 +311,9 @@ export default function CrewfiesFeed() {
             style={styles.actionButton}
             onPress={() => toggleComments(item.id)}
           >
-            <Ionicons 
-              name={showComments ? "chatbubble" : "chatbubble-outline"} 
-              size={22} 
-              color={Colors.text.primary} 
-            />
+            <Ionicons name="chatbubble-outline" size={22} color={Colors.text.secondary} />
             {item.commentCount > 0 && (
-              <ThemedText style={styles.actionText}>
-                {item.commentCount}
-              </ThemedText>
+              <ThemedText style={styles.actionText}>{item.commentCount}</ThemedText>
             )}
           </TouchableOpacity>
         </View>
@@ -325,7 +322,7 @@ export default function CrewfiesFeed() {
         {showComments && (
           <View style={styles.commentsSection}>
             {loadingComments[item.id] ? (
-              <ActivityIndicator size="small" color={Colors.primary} style={{ marginVertical: 20 }} />
+              <ActivityIndicator size="small" color={Colors.primary} style={{ paddingVertical: 20 }} />
             ) : (
               <>
                 {postComments.map((comment) => (
@@ -394,10 +391,56 @@ export default function CrewfiesFeed() {
     );
   }
 
+  // Get posts to display
+  const displayPosts = showingAll || !initialLimit 
+    ? posts 
+    : posts.slice(0, initialLimit);
+
+  // If initialLimit is set, use View with map() to avoid FlatList nesting
+  if (initialLimit && !showingAll) {
+    return (
+      <View>
+        <View style={styles.feedContent}>
+          {displayPosts.length > 0 ? (
+            displayPosts.map((item) => renderPost(item))
+          ) : (
+            <View style={styles.emptyState}>
+              <Ionicons name="images-outline" size={80} color={Colors.text.secondary} />
+              <ThemedText style={styles.emptyTitle}>No crewfies yet</ThemedText>
+              <ThemedText style={styles.emptyText}>
+                Be the first to share a crewfie!
+              </ThemedText>
+              <TouchableOpacity 
+                style={styles.emptyButton}
+                onPress={() => router.push('/create-post')}
+              >
+                <ThemedText style={styles.emptyButtonText}>Create Post</ThemedText>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+        
+        {/* View More Button */}
+        {posts.length > initialLimit && (
+          <TouchableOpacity 
+            style={styles.viewMoreButton}
+            onPress={() => setShowingAll(true)}
+          >
+            <ThemedText style={styles.viewMoreText}>
+              View More ({posts.length - initialLimit} more)
+            </ThemedText>
+            <Ionicons name="chevron-down" size={18} color={Colors.primary} />
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  }
+
+  // Full view with FlatList (for standalone use or when showing all)
   return (
     <FlatList
       data={posts}
-      renderItem={renderPost}
+      renderItem={({ item }) => renderPost(item)}
       keyExtractor={(item) => item.id}
       contentContainerStyle={styles.feedContent}
       refreshControl={
@@ -623,5 +666,25 @@ const styles = StyleSheet.create({
     color: Colors.white,
     fontSize: 16,
     fontWeight: '600',
+  },
+  viewMoreButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    marginHorizontal: 20,
+    marginTop: 8,
+    marginBottom: 20,
+    backgroundColor: Colors.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  viewMoreText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.primary,
   },
 });
