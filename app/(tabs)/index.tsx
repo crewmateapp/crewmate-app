@@ -1,27 +1,26 @@
 // app/(tabs)/index.tsx - REDESIGNED: No Gates, Layover List First
-import { PlanCard } from '@/components/PlanCard';
 import CreatePlanWizard from '@/components/CreatePlanWizard';
+import { PlanCard } from '@/components/PlanCard';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
-import { useColors } from '@/hooks/use-theme-color';
 import { useAuth } from '@/contexts/AuthContext';
+import { useColors } from '@/hooks/use-theme-color';
 import { useCities } from '@/hooks/useCities';
 import { Plan } from '@/types/plan';
-import { searchAirports, AirportData } from '@/utils/airportData';
+import { AirportData, searchAirports } from '@/utils/airportData';
 import { getCurrentLocation, verifyCityLocation } from '@/utils/locationVerification';
 import { notifyAdminsNewCityRequest } from '@/utils/notifications';
-import { updateStatsForLayoverCheckIn, updateCheckInStreak } from '@/utils/updateUserStats';
-import { getContinentForCity } from '@/utils/continentMapping';
+import { updateCheckInStreak, updateStatsForLayoverCheckIn } from '@/utils/updateUserStats';
 import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Location from 'expo-location';
 import { router } from 'expo-router';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import {
+  addDoc,
   collection,
   doc,
-  addDoc,
   getDoc,
   getDocs,
   onSnapshot,
@@ -36,7 +35,6 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  FlatList,
   Image,
   Modal,
   Platform,
@@ -154,6 +152,7 @@ export default function MyLayoverScreen() {
   // Connections on layover state
   const [connectionsOnLayover, setConnectionsOnLayover] = useState<Array<{
     userId: string;
+    connectionId: string;
     displayName: string;
     photoURL?: string;
     city: string;
@@ -302,10 +301,14 @@ export default function MyLayoverScreen() {
         const connectionsSnapshot = await getDocs(connectionsQuery);
         
         const connectionUserIds: string[] = [];
+        const userIdToConnectionId: { [userId: string]: string } = {};
         connectionsSnapshot.forEach(doc => {
           const data = doc.data();
           const otherUserId = data.userIds.find((id: string) => id !== user.uid);
-          if (otherUserId) connectionUserIds.push(otherUserId);
+          if (otherUserId) {
+            connectionUserIds.push(otherUserId);
+            userIdToConnectionId[otherUserId] = doc.id; // Map userId to connectionId
+          }
         });
 
         if (connectionUserIds.length === 0) {
@@ -364,6 +367,7 @@ export default function MyLayoverScreen() {
                 
                 overlaps.push({
                   userId: connectionId,
+                  connectionId: userIdToConnectionId[connectionId],
                   displayName: userData.displayName || userData.firstName,
                   photoURL: userData.photoURL,
                   city: theirCity,
@@ -400,6 +404,7 @@ export default function MyLayoverScreen() {
                   
                   overlaps.push({
                     userId: connectionId,
+                    connectionId: userIdToConnectionId[connectionId],
                     displayName: userData.displayName || userData.firstName,
                     photoURL: userData.photoURL,
                     city: theirLayover.city,
@@ -948,29 +953,67 @@ export default function MyLayoverScreen() {
           <View style={styles.section}>
             <ThemedText style={styles.sectionTitle}>Current Layover</ThemedText>
             
-            <View style={[styles.layoverCard, styles.currentCard]}>
+            {/* Make entire card clickable - navigate to layover detail */}
+            <TouchableOpacity 
+              style={[styles.layoverCard, styles.currentCard]}
+              onPress={async () => {
+                // Try to find existing layover
+                let targetLayover = upcomingLayovers.find(l => 
+                  l.city === currentLayover.city && 
+                  l.area === currentLayover.area
+                );
+                
+                // If no layover exists, create one automatically
+                if (!targetLayover && user?.uid) {
+                  try {
+                    const now = new Date();
+                    const endOfDay = new Date();
+                    endOfDay.setHours(23, 59, 59);
+                    
+                    const newLayover = {
+                      id: `layover_${Date.now()}`,
+                      city: currentLayover.city,
+                      area: currentLayover.area,
+                      startDate: Timestamp.fromDate(now),
+                      endDate: Timestamp.fromDate(endOfDay),
+                      status: 'active' as const,
+                      preDiscoverable: false,
+                      createdAt: Timestamp.now(),
+                    };
+                    
+                    await updateDoc(doc(db, 'users', user.uid), {
+                      upcomingLayovers: [...upcomingLayovers, newLayover],
+                    });
+                    
+                    // Navigate to the new layover
+                    router.push(`/layover/${newLayover.id}`);
+                  } catch (error) {
+                    console.error('Error creating layover:', error);
+                    Alert.alert('Error', 'Could not load layover details');
+                  }
+                } else if (targetLayover) {
+                  // Navigate to existing layover
+                  router.push(`/layover/${targetLayover.id}`);
+                }
+              }}
+              activeOpacity={0.9}
+            >
               <View style={styles.layoverHeader}>
                 <View style={styles.layoverInfo}>
                   <ThemedText style={styles.layoverCity}>{currentLayover.city}</ThemedText>
                   <ThemedText style={styles.layoverArea}>{currentLayover.area}</ThemedText>
                 </View>
-                <TouchableOpacity onPress={endCheckIn}>
+                <TouchableOpacity 
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    endCheckIn();
+                  }}
+                >
                   <Ionicons name="close-circle" size={24} color={Colors.text.secondary} />
                 </TouchableOpacity>
               </View>
 
-              {/* Live Status */}
-              {currentLayover.isLive ? (
-                <View style={styles.liveSection}>
-                  <View style={styles.liveIndicator}>
-                    <View style={styles.liveDot} />
-                    <ThemedText style={styles.liveText}>You're Live!</ThemedText>
-                  </View>
-
-                  <View style={styles.statsRow}>
-                    <View style={styles.statItem}>
-
-              {/* Time Remaining Indicator */}
+              {/* Time Remaining Indicator - Move BEFORE live status */}
               {currentLayover.expiresAt && (
                 <View style={styles.timeRemaining}>
                   <Ionicons 
@@ -988,16 +1031,49 @@ export default function MyLayoverScreen() {
                   </ThemedText>
                 </View>
               )}
-                      <ThemedText style={styles.statNumber}>{crewLiveCount}</ThemedText>
-                      <ThemedText style={styles.statLabel}>in {currentLayover.area}</ThemedText>
-                    </View>
-                    <View style={styles.statItem}>
-                      <ThemedText style={styles.statNumber}>{crewNearbyCount}</ThemedText>
-                      <ThemedText style={styles.statLabel}>in {currentLayover.city}</ThemedText>
-                    </View>
+
+              {/* Live Status */}
+              {currentLayover.isLive ? (
+                <View style={styles.liveSection}>
+                  <View style={styles.liveIndicator}>
+                    <View style={styles.liveDot} />
+                    <ThemedText style={styles.liveText}>You're Live!</ThemedText>
                   </View>
 
-                  <TouchableOpacity style={styles.secondaryButton} onPress={handleGoOffline}>
+                  {/* Improved Stats - Only show when crew > 0 */}
+                  <View style={styles.statsRow}>
+                    {crewLiveCount > 0 && (
+                      <View style={styles.statItem}>
+                        <ThemedText style={styles.statNumber}>{crewLiveCount}</ThemedText>
+                        <ThemedText style={styles.statLabel}>
+                          crew in {currentLayover.area}
+                        </ThemedText>
+                      </View>
+                    )}
+                    {crewNearbyCount > 0 && (
+                      <View style={styles.statItem}>
+                        <ThemedText style={styles.statNumber}>{crewNearbyCount}</ThemedText>
+                        <ThemedText style={styles.statLabel}>
+                          crew in {currentLayover.city}
+                        </ThemedText>
+                      </View>
+                    )}
+                    {crewLiveCount === 0 && crewNearbyCount === 0 && (
+                      <View style={styles.statItem}>
+                        <ThemedText style={styles.statLabel}>
+                          No crew currently live in {currentLayover.city}
+                        </ThemedText>
+                      </View>
+                    )}
+                  </View>
+
+                  <TouchableOpacity 
+                    style={styles.secondaryButton} 
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      handleGoOffline();
+                    }}
+                  >
                     <Ionicons name="eye-off-outline" size={18} color={Colors.text.primary} />
                     <ThemedText style={styles.secondaryButtonText}>Go Offline</ThemedText>
                   </TouchableOpacity>
@@ -1013,7 +1089,10 @@ export default function MyLayoverScreen() {
 
                   <TouchableOpacity
                     style={styles.goLiveButton}
-                    onPress={handleGoLive}
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      handleGoLive();
+                    }}
                     disabled={verifying}
                   >
                     {verifying ? (
@@ -1035,32 +1114,44 @@ export default function MyLayoverScreen() {
                 </View>
               )}
 
-              {/* Quick Actions */}
+              {/* Quick Actions - Add stopPropagation to all buttons */}
               <View style={styles.quickActions}>
                 <TouchableOpacity
                   style={styles.actionButton}
-                  onPress={() => setShowCreateWizard(true)}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    setShowCreateWizard(true);
+                  }}
                 >
                   <Ionicons name="add-circle-outline" size={20} color={Colors.primary} />
                   <ThemedText style={styles.actionButtonText}>Create Plan</ThemedText>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.actionButton}
-                  onPress={() => router.push('/(tabs)/plans')}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    router.push('/(tabs)/plans');
+                  }}
                 >
                   <Ionicons name="calendar-outline" size={20} color={Colors.primary} />
                   <ThemedText style={styles.actionButtonText}>My Plans</ThemedText>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.actionButton}
-                  onPress={() => router.push(`/connections?filterCity=${currentLayover.city}`)}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    router.push(`/connections?filterCity=${currentLayover.city}`);
+                  }}
                 >
                   <Ionicons name="people-outline" size={20} color={Colors.primary} />
                   <ThemedText style={styles.actionButtonText}>Find Crew</ThemedText>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.actionButton}
-                  onPress={() => router.push('/(tabs)/explore')}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    router.push('/(tabs)/explore');
+                  }}
                 >
                   <Ionicons name="compass-outline" size={20} color={Colors.primary} />
                   <ThemedText style={styles.actionButtonText}>Browse Spots</ThemedText>
@@ -1070,7 +1161,10 @@ export default function MyLayoverScreen() {
               {/* Manual Checkout Button */}
               <TouchableOpacity 
                 style={styles.checkoutButton}
-                onPress={handleCheckout}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  handleCheckout();
+                }}
               >
                 <Ionicons name="exit-outline" size={18} color={Colors.error} />
                 <ThemedText style={styles.checkoutButtonText}>Check Out</ThemedText>
@@ -1085,7 +1179,7 @@ export default function MyLayoverScreen() {
                   ))}
                 </View>
               )}
-            </View>
+            </TouchableOpacity>
           </View>
         )}
 
@@ -1152,11 +1246,38 @@ export default function MyLayoverScreen() {
                   </View>
                   <TouchableOpacity
                     style={styles.messageButton}
-                    onPress={(e) => {
+                    onPress={async (e) => {
                       e.stopPropagation();
-                      // Navigate to messages with this connection
-                      // You'll need to get the connectionId first
-                      router.push(`/connections`); // For now, go to connections
+                      try {
+                        // Initialize lastMessage fields if they don't exist
+                        const connectionRef = doc(db, 'connections', connection.connectionId);
+                        const connectionSnap = await getDoc(connectionRef);
+                        
+                        if (connectionSnap.exists()) {
+                          const data = connectionSnap.data();
+                          if (!data.lastMessage && data.lastMessage !== '') {
+                            await updateDoc(connectionRef, {
+                              lastMessage: '',
+                              lastMessageTime: serverTimestamp(),
+                              unreadCount: {
+                                [user.uid]: 0,
+                                [connection.userId]: 0,
+                              },
+                            });
+                          }
+                        }
+                        
+                        // Navigate to chat
+                        router.push({
+                          pathname: '/chat/[id]',
+                          params: { 
+                            id: connection.connectionId, 
+                            name: connection.displayName,
+                          }
+                        });
+                      } catch (error) {
+                        console.error('Error opening chat:', error);
+                      }
                     }}
                   >
                     <Ionicons name="chatbubble" size={18} color={Colors.white} />
@@ -1337,38 +1458,36 @@ export default function MyLayoverScreen() {
                 autoFocus
               />
 
-              <FlatList
-                data={filteredCities}
-                keyExtractor={(item, index) => `${item.code}-${index}`}
-                renderItem={({ item }) => (
+              {filteredCities.length === 0 ? (
+                <View style={styles.emptyPicker}>
+                  <ThemedText style={styles.emptyPickerText}>No cities found</ThemedText>
+                  <TouchableOpacity style={styles.requestButton} onPress={requestNewCity}>
+                    <ThemedText style={styles.requestButtonText}>Request This City</ThemedText>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                filteredCities.map((item, index) => (
                   <TouchableOpacity
+                    key={`${item.code}-${index}`}
                     style={styles.cityItem}
                     onPress={() => selectCity(item)}
                   >
                     <View>
                       <ThemedText style={styles.cityName}>{item.displayName}</ThemedText>
-                      {item.type === 'recommended' && item.distance && (
+                      {item.type === 'recommended' && item.distance != null ? (
                         <ThemedText style={styles.cityDistance}>
                           {(item.distance / 1609).toFixed(1)} mi away
                         </ThemedText>
-                      )}
+                      ) : null}
                     </View>
-                    {item.type === 'recommended' && (
+                    {item.type === 'recommended' ? (
                       <View style={styles.recommendedBadge}>
                         <ThemedText style={styles.recommendedText}>Near You</ThemedText>
                       </View>
-                    )}
+                    ) : null}
                   </TouchableOpacity>
-                )}
-                ListEmptyComponent={
-                  <View style={styles.emptyPicker}>
-                    <ThemedText style={styles.emptyPickerText}>No cities found</ThemedText>
-                    <TouchableOpacity style={styles.requestButton} onPress={requestNewCity}>
-                      <ThemedText style={styles.requestButtonText}>Request This City</ThemedText>
-                    </TouchableOpacity>
-                  </View>
-                }
-              />
+                ))
+              )}
             </ScrollView>
           )}
 
@@ -1379,19 +1498,16 @@ export default function MyLayoverScreen() {
               showsVerticalScrollIndicator={false}
             >
               <ThemedText style={styles.pickerSubtitle}>{selectedCity}</ThemedText>
-              <FlatList
-                data={selectedAirportData?.areas || selectedCityData?.areas || []}
-                keyExtractor={(item) => item}
-                renderItem={({ item }) => (
-                  <TouchableOpacity
-                    style={styles.areaItem}
-                    onPress={() => selectArea(item)}
-                  >
-                    <ThemedText style={styles.areaName}>{item}</ThemedText>
-                    <Ionicons name="chevron-forward" size={20} color={Colors.text.secondary} />
-                  </TouchableOpacity>
-                )}
-              />
+              {(selectedAirportData?.areas || selectedCityData?.areas || []).map((item) => (
+                <TouchableOpacity
+                  key={item}
+                  style={styles.areaItem}
+                  onPress={() => selectArea(item)}
+                >
+                  <ThemedText style={styles.areaName}>{item}</ThemedText>
+                  <Ionicons name="chevron-forward" size={20} color={Colors.text.secondary} />
+                </TouchableOpacity>
+              ))}
             </ScrollView>
           )}
 
