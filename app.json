@@ -13,6 +13,9 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.crewmateapp.CrewMateApp",
       "buildNumber": "19",
+      "config": {
+        "googleMapsApiKey": "AIzaSyD9SoERup6vjlVnlVvG89Bz2-YrZXGnMkI"
+      },
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSLocationWhenInUseUsageDescription": "CrewMate needs your location to verify you're in your layover city and connect you with nearby crew.",
@@ -29,6 +32,11 @@
     },
     "android": {
       "versionCode": 15,
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyD9SoERup6vjlVnlVvG89Bz2-YrZXGnMkI"
+        }
+      },
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
