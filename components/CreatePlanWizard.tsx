@@ -909,104 +909,111 @@ export default function CreatePlanWizard({ isOpen, onClose, layoverId, layoverCi
             style={styles.stepContainer}
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           >
-            <ThemedText style={styles.stepTitle}>Details</ThemedText>
-            <ThemedText style={[styles.stepSubtitle, { color: colors.text.secondary }]}>
-              Add a description and set visibility
-            </ThemedText>
-            
-            <View style={styles.inputGroup}>
-              <ThemedText style={styles.inputLabel}>Description (Optional)</ThemedText>
-              <TextInput
-                style={[styles.textArea, { 
-                  backgroundColor: colors.card, 
-                  borderColor: colors.border,
-                  color: colors.text.primary
-                }]}
-                placeholder="What's the plan? Add any details..."
-                placeholderTextColor={colors.text.secondary}
-                value={description}
-                onChangeText={setDescription}
-                multiline
-                numberOfLines={4}
-                textAlignVertical="top"
-              />
-            </View>
-            
-            <View style={styles.inputGroup}>
-              <ThemedText style={styles.inputLabel}>Who can see this plan?</ThemedText>
+            <ScrollView 
+              style={{ flex: 1 }}
+              showsVerticalScrollIndicator={true}
+              contentContainerStyle={{ paddingBottom: 100 }}
+              bounces={true}
+            >
+              <ThemedText style={styles.stepTitle}>Details</ThemedText>
+              <ThemedText style={[styles.stepSubtitle, { color: colors.text.secondary }]}>
+                Add a description and set visibility
+              </ThemedText>
               
-              <TouchableOpacity
-                style={[
-                  styles.visibilityOption,
-                  { 
-                    backgroundColor: colors.card,
-                    borderColor: visibility === 'public' ? colors.primary : colors.border
-                  }
-                ]}
-                onPress={() => setVisibility('public')}
-              >
-                <View style={styles.visibilityInfo}>
-                  <Ionicons name="globe-outline" size={24} color={colors.primary} />
-                  <View style={styles.visibilityText}>
-                    <ThemedText style={styles.visibilityTitle}>Public</ThemedText>
-                    <ThemedText style={[styles.visibilitySubtext, { color: colors.text.secondary }]}>
-                      All crew in {cityName} can see and join
-                    </ThemedText>
-                  </View>
-                </View>
-                {visibility === 'public' && (
-                  <Ionicons name="checkmark-circle" size={24} color={colors.primary} />
-                )}
-              </TouchableOpacity>
+              <View style={styles.inputGroup}>
+                <ThemedText style={styles.inputLabel}>Description (Optional)</ThemedText>
+                <TextInput
+                  style={[styles.textArea, { 
+                    backgroundColor: colors.card, 
+                    borderColor: colors.border,
+                    color: colors.text.primary
+                  }]}
+                  placeholder="What's the plan? Add any details..."
+                  placeholderTextColor={colors.text.secondary}
+                  value={description}
+                  onChangeText={setDescription}
+                  multiline
+                  numberOfLines={4}
+                  textAlignVertical="top"
+                />
+              </View>
               
-              <TouchableOpacity
-                style={[
-                  styles.visibilityOption,
-                  { 
-                    backgroundColor: colors.card,
-                    borderColor: visibility === 'connections' ? colors.primary : colors.border
-                  }
-                ]}
-                onPress={() => setVisibility('connections')}
-              >
-                <View style={styles.visibilityInfo}>
-                  <Ionicons name="people-outline" size={24} color={colors.primary} />
-                  <View style={styles.visibilityText}>
-                    <ThemedText style={styles.visibilityTitle}>Connections Only</ThemedText>
-                    <ThemedText style={[styles.visibilitySubtext, { color: colors.text.secondary }]}>
-                      Only your connections can see and join
-                    </ThemedText>
+              <View style={styles.inputGroup}>
+                <ThemedText style={styles.inputLabel}>Who can see this plan?</ThemedText>
+                
+                <TouchableOpacity
+                  style={[
+                    styles.visibilityOption,
+                    { 
+                      backgroundColor: colors.card,
+                      borderColor: visibility === 'public' ? colors.primary : colors.border
+                    }
+                  ]}
+                  onPress={() => setVisibility('public')}
+                >
+                  <View style={styles.visibilityInfo}>
+                    <Ionicons name="globe-outline" size={24} color={colors.primary} />
+                    <View style={styles.visibilityText}>
+                      <ThemedText style={styles.visibilityTitle}>Public</ThemedText>
+                      <ThemedText style={[styles.visibilitySubtext, { color: colors.text.secondary }]}>
+                        All crew in {cityName} can see and join
+                      </ThemedText>
+                    </View>
                   </View>
-                </View>
-                {visibility === 'connections' && (
-                  <Ionicons name="checkmark-circle" size={24} color={colors.primary} />
-                )}
-              </TouchableOpacity>
-              
-              <TouchableOpacity
-                style={[
-                  styles.visibilityOption,
-                  { 
-                    backgroundColor: colors.card,
-                    borderColor: visibility === 'invite_only' ? colors.primary : colors.border
-                  }
-                ]}
-                onPress={() => setVisibility('invite_only')}
-              >
-                <View style={styles.visibilityInfo}>
-                  <Ionicons name="lock-closed-outline" size={24} color={colors.primary} />
-                  <View style={styles.visibilityText}>
-                    <ThemedText style={styles.visibilityTitle}>Invite Only</ThemedText>
-                    <ThemedText style={[styles.visibilitySubtext, { color: colors.text.secondary }]}>
-                      Only people you invite can see this plan
-                    </ThemedText>
+                  {visibility === 'public' && (
+                    <Ionicons name="checkmark-circle" size={24} color={colors.primary} />
+                  )}
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={[
+                    styles.visibilityOption,
+                    { 
+                      backgroundColor: colors.card,
+                      borderColor: visibility === 'connections' ? colors.primary : colors.border
+                    }
+                  ]}
+                  onPress={() => setVisibility('connections')}
+                >
+                  <View style={styles.visibilityInfo}>
+                    <Ionicons name="people-outline" size={24} color={colors.primary} />
+                    <View style={styles.visibilityText}>
+                      <ThemedText style={styles.visibilityTitle}>Connections Only</ThemedText>
+                      <ThemedText style={[styles.visibilitySubtext, { color: colors.text.secondary }]}>
+                        Only your connections can see and join
+                      </ThemedText>
+                    </View>
                   </View>
-                </View>
-                {visibility === 'invite_only' && (
-                  <Ionicons name="checkmark-circle" size={24} color={colors.primary} />
-                )}
-              </TouchableOpacity>
-            </View>
+                  {visibility === 'connections' && (
+                    <Ionicons name="checkmark-circle" size={24} color={colors.primary} />
+                  )}
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={[
+                    styles.visibilityOption,
+                    { 
+                      backgroundColor: colors.card,
+                      borderColor: visibility === 'invite_only' ? colors.primary : colors.border
+                    }
+                  ]}
+                  onPress={() => setVisibility('invite_only')}
+                >
+                  <View style={styles.visibilityInfo}>
+                    <Ionicons name="lock-closed-outline" size={24} color={colors.primary} />
+                    <View style={styles.visibilityText}>
+                      <ThemedText style={styles.visibilityTitle}>Invite Only</ThemedText>
+                      <ThemedText style={[styles.visibilitySubtext, { color: colors.text.secondary }]}>
+                        Only people you invite can see this plan
+                      </ThemedText>
+                    </View>
+                  </View>
+                  {visibility === 'invite_only' && (
+                    <Ionicons name="checkmark-circle" size={24} color={colors.primary} />
+                  )}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
           </KeyboardAvoidingView>
         );
         

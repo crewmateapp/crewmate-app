@@ -224,7 +224,7 @@ export default function FeedScreen() {
   // Get level emoji
   // Navigate to user profile
   const openProfile = (userId: string) => {
-    router.push(`/profile/friend/${userId}`);
+    router.push(`/profile/${userId}`);
   };
 
   return (

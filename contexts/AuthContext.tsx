@@ -39,10 +39,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Create Firebase Auth user
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     
-    // Send verification email
+    // Send verification email with improved settings
     const actionCodeSettings = {
-      url: 'https://crewmate-4399c.firebaseapp.com',
+      url: 'https://crewmate-4399c.firebaseapp.com/?emailVerified=true',
       handleCodeInApp: false,
+      iOS: {
+        bundleId: 'com.crewmate.app'
+      },
+      android: {
+        packageName: 'com.crewmate.app',
+        installApp: true,
+      },
     };
     
     await sendEmailVerification(userCredential.user, actionCodeSettings);
@@ -72,8 +79,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const sendVerificationEmail = async () => {
     if (auth.currentUser) {
       const actionCodeSettings = {
-        url: 'https://crewmate-4399c.firebaseapp.com',
+        url: 'https://crewmate-4399c.firebaseapp.com/?emailVerified=true',
         handleCodeInApp: false,
+        iOS: {
+          bundleId: 'com.crewmate.app'
+        },
+        android: {
+          packageName: 'com.crewmate.app',
+          installApp: true,
+        },
       };
       
       await sendEmailVerification(auth.currentUser, actionCodeSettings);

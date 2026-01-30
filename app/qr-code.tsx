@@ -398,8 +398,14 @@ export default function QRCodeModal() {
       if (data.startsWith('PLAN:')) {
         const planId = data.replace('PLAN:', '');
         await handlePlanQRCode(planId);
-      } else {
-        // It's a user QR code (just the userId)
+      } 
+      // Check if it's a deep link (format: "crewmateapp://connect/{userId}")
+      else if (data.startsWith('crewmateapp://connect/')) {
+        const userId = data.replace('crewmateapp://connect/', '');
+        await handleUserQRCode(userId);
+      }
+      // Fallback: treat as plain user ID (for backward compatibility with old QR codes)
+      else {
         await handleUserQRCode(data);
       }
     } catch (error) {
@@ -468,7 +474,7 @@ export default function QRCodeModal() {
         <View style={styles.qrContainer}>
           <View style={styles.qrWrapper}>
             <QRCode
-              value={user?.uid || ''}
+              value={`crewmateapp://connect/${user?.uid}`}
               size={250}
               backgroundColor="white"
               color={Colors.primary}

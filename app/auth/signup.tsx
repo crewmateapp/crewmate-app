@@ -52,9 +52,12 @@ export default function SignUpScreen() {
       await signUp(email, password);
       await signOut(); // Sign out so user must verify email first
       Alert.alert(
-        'Check Your Email!',
-        `We sent a verification link to ${email}. Please click the link to verify your account before signing in.`,
-        [{ text: 'OK', onPress: () => router.replace('/auth/signin') }]
+        'Check Your Email! ✈️',
+        `We sent a verification link to:\n${email}\n\n` +
+        `📧 Click the link in the email to verify your account.\n\n` +
+        `⏰ The link expires in 1 hour. If it expires, you can request a new one on the sign-in screen.\n\n` +
+        `💡 Check your spam folder if you don't see it!`,
+        [{ text: 'Got it!', onPress: () => router.replace('/auth/signin') }]
       );
     } catch (error: any) {
       let message = 'Failed to create account';

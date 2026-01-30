@@ -45,6 +45,60 @@ import {
   View
 } from 'react-native';
 
+// Random welcome sayings when not checked in
+const WELCOME_SAYINGS = [
+  "Ready to turn that solo layover into a crew hangout? 👥",
+  "Time to find crew who actually want to explore 🗺️",
+  "Let's discover who's down for dinner tonight 🍽️",
+  "Your next crew adventure is waiting ✈️",
+  "Ready to meet crew who get the lifestyle? 🤝",
+  "Time to turn strangers into layover buddies 🌟",
+  "Let's find crew with the same vibe 😎",
+  "Ready to make plans with people who understand? 💫",
+  "Time to connect with crew in your city 📍",
+  "Let's turn that 24-hour hold into a crew meetup ⏰",
+  "Ready to find your layover crew? 🎉",
+  "Time to discover who's here and ready to hang 🙌",
+  "Let's make crew connections that actually stick 🤜🤛",
+  "Ready to meet the crew everyone's talking about? 💬",
+  "Time to find crew who are down for anything 🎊",
+  "Let's turn layover time into friend time 👯",
+  "Ready to build your crew network? 🌐",
+  "Time to meet crew with the best recommendations 💡",
+  "Let's find crew who know this city inside out 🏙️",
+  "Ready to turn awkward solo dining into a crew dinner? 🍜",
+  "Time to connect with crew on the same schedule 📅",
+  "Let's discover who's checking in tonight 🌙",
+  "Ready to meet crew who share your vibe? ✨",
+  "Time to find your go-to crew in every city 🌍",
+  "Let's make this layover less lonely 💙",
+  "Ready to find spots other crew actually recommend? ⭐",
+  "Time to discover where crew hang, not tourists 🎯",
+  "Let's check out the places crew won't stop talking about 🗣️",
+  "Ready to find the crew-approved gems? 💎",
+  "Time to see what crew in this city are up to 👀",
+  "Let's discover the spots with the best crew reviews 📱",
+  "Ready to find where experienced crew go? 🧭",
+  "Time to explore crew-tested, crew-approved spots ✅",
+  "Let's find the places crew come back to 🔄",
+  "Ready to discover what crew love about this city? ❤️",
+  "Time to check out spots recommended by people who get it 🎓",
+  "Let's find where crew make memories 📸",
+  "Ready to see what the crew consensus is? 🏆",
+  "Time to discover crew favorites in your city 🌟",
+  "Let's find spots that crew actually vouch for 🤝",
+  "Ready to join a crew plan tonight? 🎪",
+  "Time to create plans other crew want to join 📝",
+  "Let's see who's organizing something fun 🎡",
+  "Ready to RSVP to the adventure? 🎢",
+  "Time to turn 'what should I do?' into plans 🗓️",
+  "Let's find crew hosting something tonight 🎭",
+  "Ready to be the crew who makes it happen? 🚀",
+  "Time to discover what plans are brewing 🍺",
+  "Let's turn boring layovers into crew hangouts 🎉",
+  "Ready to see what crew adventures await? 🧳",
+];
+
 type UserLayover = {
   city: string;
   area: string;
@@ -145,6 +199,8 @@ export default function MyLayoverScreen() {
   const [crewNearbyCount, setCrewNearbyCount] = useState(0);
   const [upcomingPlans, setUpcomingPlans] = useState<Plan[]>([]);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [userFirstName, setUserFirstName] = useState<string>('');
+  const [welcomeSaying, setWelcomeSaying] = useState<string>('');
   
   // Undo checkout state
   const [previousLayover, setPreviousLayover] = useState<UserLayover | null>(null);
@@ -165,6 +221,34 @@ export default function MyLayoverScreen() {
     daysUntil?: number;
   }>>([]);
 
+  // Split into two lists for privacy
+  const [crewLiveNow, setCrewLiveNow] = useState<Array<{
+    userId: string;
+    connectionId: string;
+    displayName: string;
+    photoURL?: string;
+    city: string;
+    area: string;
+  }>>([]);
+
+  const [upcomingOverlaps, setUpcomingOverlaps] = useState<Array<{
+    userId: string;
+    connectionId: string;
+    displayName: string;
+    photoURL?: string;
+    city: string;
+    area: string;
+    startDate: Date;
+    endDate: Date;
+    daysUntil: number;
+  }>>([]);
+
+  // Pick a random welcome saying on mount
+  useEffect(() => {
+    const randomIndex = Math.floor(Math.random() * WELCOME_SAYINGS.length);
+    setWelcomeSaying(WELCOME_SAYINGS[randomIndex]);
+  }, []);
+
   // Load user layovers and auto-checkout if expired
   useEffect(() => {
     if (!user?.uid) return;
@@ -173,16 +257,28 @@ export default function MyLayoverScreen() {
       if (docSnap.exists()) {
         const data = docSnap.data();
         
+        // Load user's first name for welcome message
+        if (data.firstName) {
+          setUserFirstName(data.firstName);
+        }
+        
         // Current layover - check if expired
         const layover = data.currentLayover || null;
         
         if (layover && layover.expiresAt && isLayoverExpired(layover.expiresAt)) {
           console.log('🧹 Auto-checkout: Layover expired');
           
-          // Clear expired layover
+          // Clear expired layover and clean up any expired upcomingLayovers
           try {
+            const now = new Date();
+            const cleanedUpcomingLayovers = (data.upcomingLayovers || []).filter((l: UpcomingLayover) => {
+              const endDate = l.endDate.toDate();
+              return endDate >= now; // Keep only non-expired
+            });
+            
             await updateDoc(doc(db, 'users', user.uid), {
-              currentLayover: null
+              currentLayover: null,
+              upcomingLayovers: cleanedUpcomingLayovers
             });
             
             Alert.alert(
@@ -274,6 +370,11 @@ export default function MyLayoverScreen() {
         const expirationDate = layoverToCheckIn.endDate.toDate();
         expirationDate.setHours(expirationDate.getHours() + 2);
 
+        // Remove this layover from upcomingLayovers since we're checking in
+        const updatedUpcomingLayovers = upcomingLayovers.filter(
+          l => l.id !== layoverToCheckIn.id
+        );
+
         // Auto check-in!
         await updateDoc(doc(db, 'users', user.uid), {
           currentLayover: {
@@ -285,6 +386,7 @@ export default function MyLayoverScreen() {
             expiresAt: Timestamp.fromDate(expirationDate),
             updatedAt: Timestamp.now(),
           },
+          upcomingLayovers: updatedUpcomingLayovers, // Remove from upcoming
         });
 
         // Update stats
@@ -379,11 +481,13 @@ export default function MyLayoverScreen() {
     return () => unsubscribe();
   }, [user, currentLayover]);
 
-  // Find connections on layover (current or upcoming)
+  // Find connections on layover - SPLIT FOR PRIVACY
   useEffect(() => {
     const findConnectionsOnLayover = async () => {
       if (!user?.uid) {
         setConnectionsOnLayover([]);
+        setCrewLiveNow([]);
+        setUpcomingOverlaps([]);
         return;
       }
 
@@ -402,109 +506,92 @@ export default function MyLayoverScreen() {
           const otherUserId = data.userIds.find((id: string) => id !== user.uid);
           if (otherUserId) {
             connectionUserIds.push(otherUserId);
-            userIdToConnectionId[otherUserId] = doc.id; // Map userId to connectionId
+            userIdToConnectionId[otherUserId] = doc.id;
           }
         });
 
         if (connectionUserIds.length === 0) {
           setConnectionsOnLayover([]);
+          setCrewLiveNow([]);
+          setUpcomingOverlaps([]);
           return;
         }
 
-        // Collect my current and upcoming cities
-        const myCities: Array<{ city: string; startDate: Date; endDate: Date }> = [];
-        
-        // Add current layover
-        if (currentLayover?.city) {
-          const now = new Date();
-          const tomorrow = new Date();
-          tomorrow.setDate(tomorrow.getDate() + 1);
-          myCities.push({
-            city: currentLayover.city,
-            startDate: now,
-            endDate: currentLayover.expiresAt?.toDate() || tomorrow,
-          });
-        }
+        // Prepare for two separate lists
+        const liveNow: typeof crewLiveNow = [];
+        const upcoming: typeof upcomingOverlaps = [];
+        const addedToLive = new Set<string>();
+        const addedToUpcoming = new Set<string>();
 
-        // Add upcoming layovers
-        upcomingLayovers.forEach(layover => {
-          myCities.push({
-            city: layover.city,
-            startDate: layover.startDate.toDate(),
-            endDate: layover.endDate.toDate(),
-          });
+        const now = new Date();
+        const nowTimestamp = Timestamp.now();
+
+        // Collect my valid upcoming layovers (not expired)
+        const myUpcomingLayovers = upcomingLayovers.filter(layover => {
+          const endDate = layover.endDate.toDate();
+          return endDate >= now;
         });
 
-        if (myCities.length === 0) {
-          setConnectionsOnLayover([]);
-          return;
-        }
-
-        // Fetch each connection's layovers and find overlaps
-        const overlaps: typeof connectionsOnLayover = [];
-        
+        // Check each connection
         for (const connectionId of connectionUserIds) {
-          // Get connection's profile
           const userDoc = await getDoc(doc(db, 'users', connectionId));
           if (!userDoc.exists()) continue;
           
           const userData = userDoc.data();
-          
-          // Check their current layover - ONLY mark as LIVE if they're actually checked in
-          const now = new Date();
-          const nowTimestamp = Timestamp.now();
-          
-          if (userData.currentLayover?.city && 
-              userData.currentLayover?.isLive &&
-              userData.currentLayover?.discoverable &&
-              userData.currentLayover?.expiresAt &&
-              userData.currentLayover.expiresAt > nowTimestamp) {
-            const theirCity = userData.currentLayover.city;
-            
-            // See if it overlaps with any of my cities
-            for (const myCity of myCities) {
-              if (myCity.city === theirCity) {
-                const isCurrentOverlap = myCity.startDate <= now && myCity.endDate >= now;
-                
-                // They're actually LIVE (checked in) - always mark as current if cities match
-                overlaps.push({
+
+          // PRIVACY CHECK 1: Crew Live Now - ONLY if BOTH have currentLayover in same city
+          if (currentLayover?.city && currentLayover?.isLive && currentLayover?.discoverable) {
+            if (userData.currentLayover?.city && 
+                userData.currentLayover?.isLive &&
+                userData.currentLayover?.discoverable &&
+                userData.currentLayover?.expiresAt &&
+                userData.currentLayover.expiresAt > nowTimestamp &&
+                userData.currentLayover.city === currentLayover.city) {
+              
+              // Both are LIVE in same city - add to liveNow
+              if (!addedToLive.has(connectionId)) {
+                liveNow.push({
                   userId: connectionId,
                   connectionId: userIdToConnectionId[connectionId],
                   displayName: userData.displayName || userData.firstName,
                   photoURL: userData.photoURL,
-                  city: theirCity,
+                  city: userData.currentLayover.city,
                   area: userData.currentLayover.area || '',
-                  startDate: now,
-                  endDate: userData.currentLayover.expiresAt?.toDate() || now,
-                  overlapType: 'current', // They're checked in = LIVE NOW
-                  daysUntil: 0,
                 });
-                break; // Only add once per connection
+                addedToLive.add(connectionId);
               }
             }
           }
 
-          // Check their upcoming layovers (NOT checked in yet)
-          const theirUpcomingLayovers = userData.upcomingLayovers || [];
-          for (const theirLayover of theirUpcomingLayovers) {
-            const theirStart = theirLayover.startDate?.toDate();
-            const theirEnd = theirLayover.endDate?.toDate();
-            if (!theirStart || !theirEnd) continue;
+          // PRIVACY CHECK 2: Upcoming Overlaps - ONLY upcomingLayover vs upcomingLayover
+          // Do NOT match my upcoming against their currentLayover (privacy!)
+          if (!addedToUpcoming.has(connectionId) && myUpcomingLayovers.length > 0) {
+            const theirUpcomingLayovers = (userData.upcomingLayovers || []).filter((l: any) => {
+              const endDate = l.endDate?.toDate();
+              return endDate && endDate >= now; // Not expired
+            });
 
-            // See if it overlaps with any of my cities
-            for (const myCity of myCities) {
-              if (myCity.city === theirLayover.city) {
-                // Check if dates overlap
-                const overlap = (
-                  myCity.startDate <= theirEnd &&
-                  myCity.endDate >= theirStart
-                );
+            // Check for overlaps between MY upcoming and THEIR upcoming
+            for (const myLayover of myUpcomingLayovers) {
+              if (addedToUpcoming.has(connectionId)) break;
 
-                if (overlap) {
-                  const now = new Date();
-                  const daysUntil = Math.ceil((Math.max(myCity.startDate.getTime(), theirStart.getTime()) - now.getTime()) / (1000 * 60 * 60 * 24));
+              for (const theirLayover of theirUpcomingLayovers) {
+                const theirStart = theirLayover.startDate?.toDate();
+                const theirEnd = theirLayover.endDate?.toDate();
+                if (!theirStart || !theirEnd) continue;
+
+                const myStart = myLayover.startDate.toDate();
+                const myEnd = myLayover.endDate.toDate();
+
+                // Same city AND dates overlap
+                if (myLayover.city === theirLayover.city &&
+                    myStart <= theirEnd &&
+                    myEnd >= theirStart) {
                   
-                  overlaps.push({
+                  const overlapStart = Math.max(myStart.getTime(), theirStart.getTime());
+                  const daysUntil = Math.ceil((overlapStart - now.getTime()) / (1000 * 60 * 60 * 24));
+                  
+                  upcoming.push({
                     userId: connectionId,
                     connectionId: userIdToConnectionId[connectionId],
                     displayName: userData.displayName || userData.firstName,
@@ -513,9 +600,9 @@ export default function MyLayoverScreen() {
                     area: theirLayover.area || '',
                     startDate: theirStart,
                     endDate: theirEnd,
-                    overlapType: 'upcoming', // Always upcoming since they haven't checked in
                     daysUntil: Math.max(0, daysUntil),
                   });
+                  addedToUpcoming.add(connectionId);
                   break; // Only add once per connection
                 }
               }
@@ -523,14 +610,29 @@ export default function MyLayoverScreen() {
           }
         }
 
-        // Sort: current first, then by days until
-        overlaps.sort((a, b) => {
-          if (a.overlapType === 'current' && b.overlapType !== 'current') return -1;
-          if (a.overlapType !== 'current' && b.overlapType === 'current') return 1;
-          return (a.daysUntil || 0) - (b.daysUntil || 0);
-        });
+        // Sort upcoming by days until
+        upcoming.sort((a, b) => a.daysUntil - b.daysUntil);
 
-        setConnectionsOnLayover(overlaps);
+        // Update states
+        setCrewLiveNow(liveNow);
+        setUpcomingOverlaps(upcoming);
+
+        // Also update legacy connectionsOnLayover for backward compatibility
+        const combined = [
+          ...liveNow.map(c => ({
+            ...c,
+            startDate: now,
+            endDate: now,
+            overlapType: 'current' as const,
+            daysUntil: 0,
+          })),
+          ...upcoming.map(c => ({
+            ...c,
+            overlapType: 'upcoming' as const,
+          })),
+        ];
+        setConnectionsOnLayover(combined);
+
       } catch (error) {
         console.error('Error finding connections on layover:', error);
       }
@@ -628,6 +730,35 @@ export default function MyLayoverScreen() {
     try {
       setVerifying(true);
 
+      // Step 0: Validate layover dates - must be active today
+      const today = new Date();
+      today.setHours(0, 0, 0, 0); // Start of today
+      const startDate = layover.startDate.toDate();
+      startDate.setHours(0, 0, 0, 0);
+      const endDate = layover.endDate.toDate();
+      endDate.setHours(23, 59, 59, 999); // End of day
+
+      if (today < startDate) {
+        // Layover hasn't started yet
+        const daysUntil = Math.ceil((startDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+        Alert.alert(
+          'Layover Not Started',
+          `This layover starts in ${daysUntil} day${daysUntil === 1 ? '' : 's'}. You can check in on ${startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}.`,
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
+      if (today > endDate) {
+        // Layover has already ended
+        Alert.alert(
+          'Layover Ended',
+          'This layover has already ended. Please create a new layover to check in.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
       // Step 1: Get current location
       const locationResult = await getCurrentLocation();
       
@@ -653,8 +784,7 @@ export default function MyLayoverScreen() {
       }
 
       // Step 3: Check for duplicate check-in today (prevent gaming)
-      const today = new Date();
-      today.setHours(0, 0, 0, 0); // Start of day
+      today.setHours(0, 0, 0, 0); // Reset to start of day
       const todayTimestamp = Timestamp.fromDate(today);
 
       const existingCheckInQuery = query(
@@ -687,9 +817,10 @@ export default function MyLayoverScreen() {
       }
 
       // Step 5: Update current layover (always, even if duplicate check-in)
-      const expiresAt = Timestamp.fromDate(
-        new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
-      );
+      // Use end date + 2 hours as expiration (matching auto check-in logic)
+      const expirationDate = layover.endDate.toDate();
+      expirationDate.setHours(expirationDate.getHours() + 2);
+      const expiresAt = Timestamp.fromDate(expirationDate);
 
       // Remove from upcoming layovers list (you've checked in!)
       const updatedUpcomingLayovers = upcomingLayovers.filter(l => l.id !== layover.id);
@@ -808,9 +939,21 @@ export default function MyLayoverScreen() {
               // Save current layover for undo
               setPreviousLayover(currentLayover);
               
-              // Clear current layover
+              // Clean up upcomingLayovers - remove any that have already ended or match current city
+              const now = new Date();
+              const cleanedUpcomingLayovers = upcomingLayovers.filter(layover => {
+                const endDate = layover.endDate.toDate();
+                const hasEnded = endDate < now;
+                const matchesCurrentCity = layover.city === currentLayover.city && 
+                                          layover.endDate.toDate().getTime() === currentLayover.expiresAt?.toDate().getTime();
+                // Keep layover if it hasn't ended AND doesn't match the current one we're checking out of
+                return !hasEnded && !matchesCurrentCity;
+              });
+              
+              // Clear current layover and clean up upcoming
               await updateDoc(doc(db, 'users', user.uid), {
-                currentLayover: null
+                currentLayover: null,
+                upcomingLayovers: cleanedUpcomingLayovers
               });
               
               // Show undo toast
@@ -1058,6 +1201,20 @@ export default function MyLayoverScreen() {
     <ThemedView style={styles.container}>
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
         
+        {/* Welcome Message */}
+        {userFirstName && (
+          <View style={styles.welcomeSection}>
+            <ThemedText style={styles.welcomeText}>
+              Welcome back, {userFirstName} ✈️
+            </ThemedText>
+            <ThemedText style={styles.welcomeSubtext}>
+              {currentLayover 
+                ? `You're checked in to ${currentLayover.city}`
+                : welcomeSaying}
+            </ThemedText>
+          </View>
+        )}
+        
         {/* Current Layover (if checked in) */}
         {currentLayover && (
           <View style={styles.section}>
@@ -1293,21 +1450,22 @@ export default function MyLayoverScreen() {
           </View>
         )}
 
-        {/* Connections On Layover - NEW SECTION! */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Ionicons name="people" size={20} color={Colors.primary} style={{ marginRight: 8 }} />
-            <ThemedText style={styles.sectionTitle}>
-              Crew You'll See ({connectionsOnLayover.length})
+        {/* Crew Live Here Now - PRIVACY: Only shows if you're BOTH checked in */}
+        {currentLayover && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Ionicons name="radio-button-on" size={20} color={Colors.success} style={{ marginRight: 8 }} />
+              <ThemedText style={styles.sectionTitle}>
+                Crew Live Here Now {crewLiveNow.length > 0 && `(${crewLiveNow.length})`}
+              </ThemedText>
+            </View>
+            <ThemedText style={styles.sectionSubtitle}>
+              Connections checked in to {currentLayover?.city} right now
             </ThemedText>
-          </View>
-          <ThemedText style={styles.sectionSubtitle}>
-            Connections with overlapping layovers • Live now or scheduled
-          </ThemedText>
 
-          {connectionsOnLayover.length > 0 ? (
-            <View style={styles.connectionsList}>
-              {connectionsOnLayover.map((connection) => (
+            {crewLiveNow.length > 0 ? (
+              <View style={styles.connectionsList}>
+                {crewLiveNow.map((connection) => (
                 <TouchableOpacity
                   key={connection.userId}
                   style={styles.connectionCard}
@@ -1328,16 +1486,10 @@ export default function MyLayoverScreen() {
                           </ThemedText>
                         </View>
                       )}
-                      {/* Status indicator - green dot for LIVE, clock for SCHEDULED */}
-                      {connection.overlapType === 'current' ? (
-                        <View style={styles.statusLiveIndicator}>
-                          <View style={styles.statusLiveIndicatorDot} />
-                        </View>
-                      ) : (
-                        <View style={styles.statusScheduledIndicator}>
-                          <Ionicons name="time" size={14} color={Colors.white} />
-                        </View>
-                      )}
+                      {/* LIVE indicator */}
+                      <View style={styles.statusLiveIndicator}>
+                        <View style={styles.statusLiveIndicatorDot} />
+                      </View>
                     </View>
                     <View style={styles.connectionInfo}>
                       <ThemedText style={styles.connectionName}>
@@ -1350,23 +1502,10 @@ export default function MyLayoverScreen() {
                           {connection.area ? ` • ${connection.area}` : ''}
                         </ThemedText>
                       </View>
-                      {connection.overlapType === 'current' ? (
-                        <View style={styles.overlapBadgeCurrent}>
-                          <View style={styles.livePulseDot} />
-                          <ThemedText style={styles.overlapBadgeText}>LIVE NOW</ThemedText>
-                        </View>
-                      ) : (
-                        <View style={styles.overlapBadgeUpcoming}>
-                          <Ionicons name="calendar-outline" size={12} color={Colors.text.secondary} />
-                          <ThemedText style={styles.overlapBadgeTextUpcoming}>
-                            {connection.daysUntil === 0 
-                              ? 'Starts today' 
-                              : connection.daysUntil === 1 
-                                ? 'Starts tomorrow'
-                                : `Starts in ${connection.daysUntil} days`}
-                          </ThemedText>
-                        </View>
-                      )}
+                      <View style={styles.overlapBadgeCurrent}>
+                        <View style={styles.livePulseDot} />
+                        <ThemedText style={styles.overlapBadgeText}>LIVE NOW</ThemedText>
+                      </View>
                     </View>
                   </View>
                   <TouchableOpacity
@@ -1410,25 +1549,138 @@ export default function MyLayoverScreen() {
                 </TouchableOpacity>
               ))}
             </View>
-          ) : (
-            <View style={styles.emptyConnectionsState}>
-              <Ionicons name="people-outline" size={64} color={Colors.text.secondary} />
-              <ThemedText style={styles.emptyConnectionsTitle}>
-                No connections nearby
+            ) : (
+              <View style={styles.emptyConnectionsState}>
+                <Ionicons name="people-outline" size={48} color={Colors.text.secondary} />
+                <ThemedText style={styles.emptyConnectionsTitle}>
+                  No crew live here right now
+                </ThemedText>
+                <ThemedText style={styles.emptyConnectionsText}>
+                  None of your connections are checked in to {currentLayover.city} at the moment
+                </ThemedText>
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* Upcoming Overlaps - PRIVACY: Only shows future layover overlaps, not live locations */}
+        {upcomingLayovers.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Ionicons name="calendar" size={20} color={Colors.primary} style={{ marginRight: 8 }} />
+              <ThemedText style={styles.sectionTitle}>
+                Upcoming Overlaps {upcomingOverlaps.length > 0 && `(${upcomingOverlaps.length})`}
               </ThemedText>
-              <ThemedText style={styles.emptyConnectionsText}>
-                Make more connections to discover crew in the same cities as you!
-              </ThemedText>
-              <TouchableOpacity
-                style={styles.findCrewButton}
-                onPress={() => router.push('/explore')}
-              >
-                <Ionicons name="search" size={18} color={Colors.white} />
-                <ThemedText style={styles.findCrewButtonText}>Find Crew</ThemedText>
-              </TouchableOpacity>
             </View>
-          )}
-        </View>
+            <ThemedText style={styles.sectionSubtitle}>
+              Connections you'll overlap with on future layovers
+            </ThemedText>
+
+            {upcomingOverlaps.length > 0 ? (
+              <View style={styles.connectionsList}>
+                {upcomingOverlaps.map((connection) => (
+                <TouchableOpacity
+                  key={connection.userId}
+                  style={styles.connectionCard}
+                  onPress={() => router.push(`/profile/${connection.userId}`)}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.connectionLeft}>
+                    <View style={styles.connectionAvatarWrapper}>
+                      {connection.photoURL ? (
+                        <Image 
+                          source={{ uri: connection.photoURL }} 
+                          style={styles.connectionAvatar}
+                        />
+                      ) : (
+                        <View style={styles.connectionAvatarFallback}>
+                          <ThemedText style={styles.connectionAvatarText}>
+                            {connection.displayName?.[0] || '?'}
+                          </ThemedText>
+                        </View>
+                      )}
+                      {/* Scheduled indicator */}
+                      <View style={styles.statusScheduledIndicator}>
+                        <Ionicons name="time" size={14} color={Colors.white} />
+                      </View>
+                    </View>
+                    <View style={styles.connectionInfo}>
+                      <ThemedText style={styles.connectionName}>
+                        {connection.displayName}
+                      </ThemedText>
+                      <View style={styles.connectionLocation}>
+                        <Ionicons name="location" size={14} color={Colors.primary} />
+                        <ThemedText style={styles.connectionCity}>
+                          {connection.city}
+                          {connection.area ? ` • ${connection.area}` : ''}
+                        </ThemedText>
+                      </View>
+                      <View style={styles.overlapBadgeUpcoming}>
+                        <Ionicons name="calendar-outline" size={12} color={Colors.text.secondary} />
+                        <ThemedText style={styles.overlapBadgeTextUpcoming}>
+                          {connection.daysUntil === 0 
+                            ? 'Starts today' 
+                            : connection.daysUntil === 1 
+                              ? 'Starts tomorrow'
+                              : `Starts in ${connection.daysUntil} days`}
+                        </ThemedText>
+                      </View>
+                    </View>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.messageButton}
+                    onPress={async (e) => {
+                      e.stopPropagation();
+                      try {
+                        // Initialize lastMessage fields if they don't exist
+                        const connectionRef = doc(db, 'connections', connection.connectionId);
+                        const connectionSnap = await getDoc(connectionRef);
+                        
+                        if (connectionSnap.exists()) {
+                          const data = connectionSnap.data();
+                          if (!data.lastMessage && data.lastMessage !== '') {
+                            await updateDoc(connectionRef, {
+                              lastMessage: '',
+                              lastMessageTime: serverTimestamp(),
+                              unreadCount: {
+                                [user.uid]: 0,
+                                [connection.userId]: 0,
+                              },
+                            });
+                          }
+                        }
+                        
+                        // Navigate to chat
+                        router.push({
+                          pathname: '/chat/[id]',
+                          params: { 
+                            id: connection.connectionId, 
+                            name: connection.displayName,
+                          }
+                        });
+                      } catch (error) {
+                        console.error('Error opening chat:', error);
+                      }
+                    }}
+                  >
+                    <Ionicons name="chatbubble" size={18} color={Colors.white} />
+                  </TouchableOpacity>
+                </TouchableOpacity>
+              ))}
+            </View>
+            ) : (
+              <View style={styles.emptyConnectionsState}>
+                <Ionicons name="calendar-outline" size={48} color={Colors.text.secondary} />
+                <ThemedText style={styles.emptyConnectionsTitle}>
+                  No upcoming overlaps
+                </ThemedText>
+                <ThemedText style={styles.emptyConnectionsText}>
+                  None of your connections have layovers that overlap with yours yet
+                </ThemedText>
+              </View>
+            )}
+          </View>
+        )}
 
         {/* Upcoming Layovers */}
         <View style={styles.section}>
@@ -1438,7 +1690,11 @@ export default function MyLayoverScreen() {
             </ThemedText>
           </View>
 
-          {upcomingLayovers.filter(l => l.startDate.toDate() > new Date()).length === 0 && !currentLayover ? (
+          {upcomingLayovers.filter(l => {
+            const endDate = l.endDate.toDate();
+            endDate.setHours(23, 59, 59, 999);
+            return endDate >= new Date(); // Show if not expired
+          }).length === 0 && !currentLayover ? (
             <View style={styles.emptyState}>
               <Ionicons name="airplane-outline" size={64} color={Colors.text.secondary} />
               <ThemedText style={styles.emptyTitle}>No Layovers Yet</ThemedText>
@@ -1448,8 +1704,22 @@ export default function MyLayoverScreen() {
             </View>
           ) : (
             upcomingLayovers
-              .filter(layover => layover.startDate.toDate() > new Date()) // Only show future layovers
-              .map(layover => (
+              .filter(layover => {
+                const endDate = layover.endDate.toDate();
+                endDate.setHours(23, 59, 59, 999);
+                return endDate >= new Date(); // Show if not expired
+              })
+              .map(layover => {
+                // Check if layover is active today (can check in)
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                const startDate = layover.startDate.toDate();
+                startDate.setHours(0, 0, 0, 0);
+                const endDate = layover.endDate.toDate();
+                endDate.setHours(23, 59, 59, 999);
+                const isActiveToday = today >= startDate && today <= endDate;
+                
+                return (
               <TouchableOpacity 
                 key={layover.id} 
                 style={styles.layoverCard}
@@ -1488,26 +1758,35 @@ export default function MyLayoverScreen() {
                 </View>
 
                 <View style={styles.layoverActions}>
-                  <TouchableOpacity
-                    style={styles.checkInButton}
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      checkInToLayover(layover);
-                    }}
-                    disabled={verifying}
-                  >
-                    {verifying ? (
-                      <>
-                        <ActivityIndicator size="small" color={Colors.white} />
-                        <ThemedText style={styles.checkInButtonText}>Verifying...</ThemedText>
-                      </>
-                    ) : (
-                      <>
-                        <Ionicons name="location" size={18} color={Colors.white} />
-                        <ThemedText style={styles.checkInButtonText}>Check In & Go Live</ThemedText>
-                      </>
-                    )}
-                  </TouchableOpacity>
+                  {isActiveToday ? (
+                    <TouchableOpacity
+                      style={styles.checkInButton}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        checkInToLayover(layover);
+                      }}
+                      disabled={verifying}
+                    >
+                      {verifying ? (
+                        <>
+                          <ActivityIndicator size="small" color={Colors.white} />
+                          <ThemedText style={styles.checkInButtonText}>Verifying...</ThemedText>
+                        </>
+                      ) : (
+                        <>
+                          <Ionicons name="location" size={18} color={Colors.white} />
+                          <ThemedText style={styles.checkInButtonText}>Check In & Go Live</ThemedText>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  ) : (
+                    <View style={styles.checkInDisabled}>
+                      <Ionicons name="time-outline" size={18} color={Colors.text.secondary} />
+                      <ThemedText style={styles.checkInDisabledText}>
+                        Starts {layover.startDate.toDate().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </ThemedText>
+                    </View>
+                  )}
 
                   <TouchableOpacity
                     style={styles.viewPlansButton}
@@ -1521,7 +1800,8 @@ export default function MyLayoverScreen() {
                   </TouchableOpacity>
                 </View>
               </TouchableOpacity>
-            ))
+                );
+              })
           )}
 
           {/* Add Layover Button */}
@@ -1623,16 +1903,24 @@ export default function MyLayoverScreen() {
               showsVerticalScrollIndicator={false}
             >
               <ThemedText style={styles.pickerSubtitle}>{selectedCity}</ThemedText>
-              {(selectedAirportData?.areas || selectedCityData?.areas || []).map((item) => (
-                <TouchableOpacity
-                  key={item}
-                  style={styles.areaItem}
-                  onPress={() => selectArea(item)}
-                >
-                  <ThemedText style={styles.areaName}>{item}</ThemedText>
-                  <Ionicons name="chevron-forward" size={20} color={Colors.text.secondary} />
-                </TouchableOpacity>
-              ))}
+              {/* Simplified area options */}
+              {(() => {
+                const airportCode = selectedAirportData?.code;
+                const areaOptions = [
+                  airportCode ? `${airportCode} Airport Area` : 'Airport Area',
+                  'City-wide'
+                ];
+                return areaOptions.map((item) => (
+                  <TouchableOpacity
+                    key={item}
+                    style={styles.areaItem}
+                    onPress={() => selectArea(item)}
+                  >
+                    <ThemedText style={styles.areaName}>{item}</ThemedText>
+                    <Ionicons name="chevron-forward" size={20} color={Colors.text.secondary} />
+                  </TouchableOpacity>
+                ));
+              })()}
             </ScrollView>
           )}
 
@@ -1775,6 +2063,23 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 20,
     paddingBottom: 40,
+  },
+  welcomeSection: {
+    marginBottom: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  welcomeText: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: Colors.text.primary,
+    marginBottom: 4,
+  },
+  welcomeSubtext: {
+    fontSize: 15,
+    color: Colors.text.secondary,
+    fontWeight: '500',
   },
   section: {
     marginBottom: 24,
@@ -1989,6 +2294,21 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: Colors.white,
+  },
+  checkInDisabled: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: Colors.background.secondary,
+    padding: 12,
+    borderRadius: 12,
+  },
+  checkInDisabledText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.text.secondary,
   },
   viewPlansButton: {
     flexDirection: 'row',

@@ -122,9 +122,11 @@ export default function PlansScreen() {
     const cities = [...new Set(layovers.map(l => l.city))]; // Unique cities
     console.log('🔍 Fetching myPlans for cities:', cities);
 
+    // Use state to accumulate plans from all cities
+    let accumulatedPlans: Plan[] = [];
+
     // Create a query for each city
     const unsubscribes: (() => void)[] = [];
-    const allMyPlans: Plan[] = [];
 
     cities.forEach(city => {
       const q = query(
@@ -136,15 +138,15 @@ export default function PlansScreen() {
       );
 
       const unsubscribe = onSnapshot(q, (snapshot) => {
-        // Remove plans from this city
-        const filtered = allMyPlans.filter(p => p.city !== city);
+        // Remove plans from this city from accumulated plans
+        accumulatedPlans = accumulatedPlans.filter(p => p.city !== city);
         
         // Add new plans from this city
         snapshot.forEach((doc) => {
           const data = doc.data() as Plan;
           // Include if user is host or attendee
           if (data.hostUserId === user.uid || data.attendeeIds.includes(user.uid)) {
-            filtered.push({
+            accumulatedPlans.push({
               id: doc.id,
               ...data,
             });
@@ -152,14 +154,14 @@ export default function PlansScreen() {
         });
 
         // Sort by scheduled time
-        filtered.sort((a, b) => {
+        const sorted = [...accumulatedPlans].sort((a, b) => {
           const aTime = a.scheduledTime?.toDate ? a.scheduledTime.toDate().getTime() : 0;
           const bTime = b.scheduledTime?.toDate ? b.scheduledTime.toDate().getTime() : 0;
           return aTime - bTime;
         });
 
-        console.log('📋 My plans updated, total:', filtered.length);
-        setMyPlans([...filtered]);
+        console.log('📋 My plans updated for', city, '- total across all cities:', sorted.length);
+        setMyPlans(sorted);
         setLoading(false);
         setRefreshing(false);
       });
@@ -181,7 +183,7 @@ export default function PlansScreen() {
     console.log('🔍 Fetching allPlans for cities:', cities);
 
     const unsubscribes: (() => void)[] = [];
-    const allPublicPlans: Plan[] = [];
+    let accumulatedPublicPlans: Plan[] = [];
 
     cities.forEach(city => {
       const q = query(
@@ -193,15 +195,15 @@ export default function PlansScreen() {
       );
 
       const unsubscribe = onSnapshot(q, (snapshot) => {
-        // Remove plans from this city
-        const filtered = allPublicPlans.filter(p => p.city !== city);
+        // Remove plans from this city from accumulated plans
+        accumulatedPublicPlans = accumulatedPublicPlans.filter(p => p.city !== city);
         
         // Add new plans from this city
         snapshot.forEach((doc) => {
           const data = doc.data() as Plan;
           // Exclude plans where user is host or attendee
           if (data.hostUserId !== user.uid && !data.attendeeIds.includes(user.uid)) {
-            filtered.push({
+            accumulatedPublicPlans.push({
               id: doc.id,
               ...data,
             } as Plan);
@@ -209,14 +211,14 @@ export default function PlansScreen() {
         });
 
         // Sort by scheduled time
-        filtered.sort((a, b) => {
+        const sorted = [...accumulatedPublicPlans].sort((a, b) => {
           const aTime = a.scheduledTime?.toDate ? a.scheduledTime.toDate().getTime() : 0;
           const bTime = b.scheduledTime?.toDate ? b.scheduledTime.toDate().getTime() : 0;
           return aTime - bTime;
         });
 
-        console.log('📋 All plans updated, total:', filtered.length);
-        setAllPlans([...filtered]);
+        console.log('📋 All plans updated for', city, '- total across all cities:', sorted.length);
+        setAllPlans(sorted);
         setLoading(false);
         setRefreshing(false);
       });
@@ -416,6 +418,7 @@ export default function PlansScreen() {
       <CreatePlanWizard
         isOpen={showCreateWizard}
         onClose={() => setShowCreateWizard(false)}
+        layoverId={selectedCity && selectedCity !== 'all' ? layovers.find(l => l.city === selectedCity)?.id : undefined}
         layoverCity={selectedCity || undefined}
       />
     </ThemedView>
