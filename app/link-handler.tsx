@@ -56,9 +56,7 @@ export default function LinkHandler() {
           });
         } else {
           // Store the plan ID and redirect after login
-          // You could use AsyncStorage here to persist across app restarts
           console.log('⏳ User not logged in, storing plan ID for after auth');
-          // For now, we'll just navigate to the plan - the plan page will handle auth redirects
           router.push({
             pathname: '/plan/[id]',
             params: { id: planId }
@@ -67,8 +65,30 @@ export default function LinkHandler() {
       }
     }
     
-    // Handle other deep link types here in the future
-    // e.g., crewmateapp://spot/{id}, crewmateapp://profile/{id}, etc.
+    // Handle connection links: crewmateapp://connect/{userId}
+    if (hostname === 'connect' && path) {
+      const userId = path.split('/')[0]; // Get user ID from path
+      
+      if (userId) {
+        console.log('👥 Navigating to user profile:', userId);
+        
+        // Navigate to friend profile
+        if (user) {
+          router.push({
+            pathname: '/profile/friend/[userId]',
+            params: { userId: userId }
+          });
+        } else {
+          // Not logged in - redirect to sign in, then to profile
+          console.log('⏳ User not logged in, redirecting to sign in first');
+          // For now, navigate to sign in - they can try the link again after auth
+          router.push('/auth/signin');
+        }
+      }
+    }
+    
+    // Add more deep link handlers here as needed
+    // e.g., crewmateapp://spot/{id}, crewmateapp://layover/{id}, etc.
   };
 
   // This component doesn't render anything

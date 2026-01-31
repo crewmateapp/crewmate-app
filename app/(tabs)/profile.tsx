@@ -1,29 +1,28 @@
 // app/(tabs)/profile.tsx
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { LevelProgressBar } from '@/components/LevelProgressBar';
 import { BadgeShowcase } from '@/components/BadgeShowcase';
+import { LevelProgressBar } from '@/components/LevelProgressBar';
 import { StatsGrid } from '@/components/StatsGrid';
+import { ThemedView } from '@/components/themed-view';
 import { db } from '@/config/firebase';
-import { Colors } from '@/constants/Colors';
 import { getSkylineForBase } from '@/constants/BaseSkylines';
-import { useColors } from '@/hooks/use-theme-color';
+import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
+import { useColors } from '@/hooks/use-theme-color';
 import { isAdmin } from '@/hooks/useAdminRole';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { doc, getDoc, collection, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, doc, getDoc, onSnapshot, query, where } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
-import { 
-  ActivityIndicator, 
-  Alert, 
-  Image, 
-  ScrollView, 
-  StyleSheet, 
-  Text, 
-  TouchableOpacity, 
-  View,
-  RefreshControl
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 
 type UserProfile = {
@@ -406,7 +405,7 @@ const styles = StyleSheet.create({
   },
   coverHeader: {
     position: 'absolute',
-    top: 60,
+    top: 16,
     left: 0,
     right: 0,
     flexDirection: 'row',

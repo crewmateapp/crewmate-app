@@ -68,6 +68,16 @@
               "scheme": "https",
               "host": "www.crewmate.app",
               "pathPrefix": "/plan"
+            },
+            {
+              "scheme": "https",
+              "host": "crewmate.app",
+              "pathPrefix": "/connect"
+            },
+            {
+              "scheme": "https",
+              "host": "www.crewmate.app",
+              "pathPrefix": "/connect"
             }
           ],
           "category": [

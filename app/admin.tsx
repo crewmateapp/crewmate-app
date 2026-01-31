@@ -12,6 +12,7 @@ import { runFullMigration } from '@/utils/migration_resetPlanStats';
 import { notifyCityApproved, notifyCityRejected, notifySpotApproved, notifySpotRejected } from '@/utils/notifications';
 import { seedInitialSkylines } from '@/utils/dynamicBaseSkylines';
 import { analyzeSkylineCoverage, formatCoverageReport, type CoverageReport } from '@/utils/skylineCoverageAnalyzer';
+import { migrateSkylinesCityNames } from '@/utils/migrateSkylinesCityNames';
 import { SkylineManager } from '@/components/SkylineManager';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -173,6 +174,10 @@ export default function AdminScreen() {
   // Skyline Coverage Analysis
   const [analyzingCoverage, setAnalyzingCoverage] = useState(false);
   const [coverageReport, setCoverageReport] = useState<CoverageReport | null>(null);
+
+  // Skyline City Names Migration
+  const [migratingSkylineCityNames, setMigratingSkylineCityNames] = useState(false);
+  const [skylineCityNameResult, setSkylineCityNameResult] = useState<any>(null);
 
   // Analytics data
   const [stats, setStats] = useState({
@@ -1600,6 +1605,59 @@ const handleFixOrphanedUsers = async () => {
     }
   };
 
+  // Migrate Skyline City Names
+  const handleMigrateSkylineCityNames = async () => {
+    if (!isSuperAdmin(role)) {
+      Alert.alert('Permission Denied', 'Only super admins can run this operation.');
+      return;
+    }
+
+    Alert.alert(
+      '🏙️ Add City Names to Skylines',
+      'This will add a "cityName" field to all existing skylines in Firestore.\n\nExample: CLT → cityName: "Charlotte, NC"\n\nThis enables dynamic city skylines on layover pages.\n\nSafe to run multiple times.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Run Migration',
+          onPress: async () => {
+            try {
+              setMigratingSkylineCityNames(true);
+              console.log('🏙️ Migrating skyline city names...');
+              
+              const result = await migrateSkylinesCityNames();
+              setSkylineCityNameResult(result);
+              
+              console.log('📋 Migration Results:');
+              result.details.forEach(detail => console.log(detail));
+              
+              if (result.success) {
+                Alert.alert(
+                  '✅ Migration Complete!',
+                  `Updated: ${result.updated} skylines\n` +
+                  `Skipped: ${result.skipped} skylines\n` +
+                  `Errors: ${result.errors}\n\n` +
+                  `Check console for details.`
+                );
+              } else {
+                Alert.alert(
+                  '⚠️ Migration Completed with Errors',
+                  `Updated: ${result.updated}\n` +
+                  `Errors: ${result.errors}\n\n` +
+                  `Check console for details.`
+                );
+              }
+            } catch (error: any) {
+              console.error('❌ Migration failed:', error);
+              Alert.alert('Migration Failed', error.message || 'An error occurred');
+            } finally {
+              setMigratingSkylineCityNames(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   // Migration function (kept from original)
   const handleMigrateCities = async () => {
     // This would migrate from hardcoded cities - keeping as placeholder
@@ -2550,6 +2608,47 @@ const handleFixOrphanedUsers = async () => {
                   <ThemedText style={[styles.cardDescription, { color: '#155724' }]}>
                     CLT and PHL skylines have been added to Firestore.{'\n'}
                     Profile pages will now show city skylines!
+                  </ThemedText>
+                </View>
+              )}
+            </View>
+            
+            {/* Migrate Skyline City Names Card */}
+            <View style={[styles.card, { marginTop: 20, backgroundColor: '#FFF3E0', borderColor: '#FF6B6B' }]}>
+              <ThemedText style={[styles.cardTitle, { color: '#E65100' }]}>🏙️ Add City Names to Skylines</ThemedText>
+              <ThemedText style={[styles.cardDescription, { color: '#E65100' }]}>
+                Add "cityName" field to all existing skylines for dynamic layover pages. This will:{'\n'}
+                • Add cityName to CLT → "Charlotte, NC"{'\n'}
+                • Add cityName to PHL → "Philadelphia, PA"{'\n'}
+                • Enable automatic skyline display on layover detail pages{'\n'}
+                • Make future skylines work automatically with layovers{'\n'}
+                {'\n'}
+                ⚠️ Run this ONCE after seeding skylines. Safe to run multiple times.
+              </ThemedText>
+              
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: '#FF6B6B' }, migratingSkylineCityNames && styles.buttonDisabled]}
+                onPress={handleMigrateSkylineCityNames}
+                disabled={migratingSkylineCityNames}
+              >
+                {migratingSkylineCityNames ? (
+                  <ActivityIndicator color={Colors.white} />
+                ) : (
+                  <ThemedText style={styles.buttonText}>🏙️ Migrate City Names</ThemedText>
+                )}
+              </TouchableOpacity>
+              
+              {skylineCityNameResult && (
+                <View style={[styles.card, { marginTop: 16, backgroundColor: skylineCityNameResult.success ? '#D4EDDA' : '#F8D7DA', borderColor: skylineCityNameResult.success ? '#28A745' : '#DC3545' }]}>
+                  <ThemedText style={[styles.cardTitle, { color: skylineCityNameResult.success ? '#155724' : '#721C24' }]}>
+                    {skylineCityNameResult.success ? '✅ Migration Complete!' : '⚠️ Migration Completed with Issues'}
+                  </ThemedText>
+                  <ThemedText style={[styles.cardDescription, { color: skylineCityNameResult.success ? '#155724' : '#721C24' }]}>
+                    • Updated: {skylineCityNameResult.updated} skylines{'\n'}
+                    • Skipped: {skylineCityNameResult.skipped} skylines{'\n'}
+                    • Errors: {skylineCityNameResult.errors}{'\n'}
+                    {'\n'}
+                    Check console for detailed results.
                   </ThemedText>
                 </View>
               )}

@@ -1,14 +1,16 @@
 // app/layover/[id].tsx - ENHANCED VERSION
 // UPDATED: Now passes layover context (layoverId, layoverCity, fromLayover) when navigating to spots
 // This enables smart plan creation - no "Set Layover First" error when creating plans from this layover
+// UPDATED: Dynamic city skylines that sync with Firestore baseSkylines collection
 import { PlanCard } from '@/components/PlanCard';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import AppHeader from '@/components/AppHeader';
 import AppDrawer from '@/components/AppDrawer';
 import CreatePlanWizard from '@/components/CreatePlanWizard';
 import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
+import { getSkylineForBase } from '@/constants/BaseSkylines';
+import { cityToAirportCodeSync } from '@/utils/cityToAirportCode';
 import { useColors } from '@/hooks/use-theme-color';
 import { useAuth } from '@/contexts/AuthContext';
 import { Plan } from '@/types/plan';
@@ -37,6 +39,7 @@ import {
   SafeAreaView,
   ScrollView,
   StyleSheet,
+  Text,
   TouchableOpacity,
   View,
   TextInput,
@@ -98,6 +101,7 @@ export default function LayoverDetailScreen() {
   const [recommendedSpots, setRecommendedSpots] = useState<Spot[]>([]);
   const [weather, setWeather] = useState<Weather | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(false);
+  const [cityImageUrl, setCityImageUrl] = useState<string | null>(null);
   
   // Create Plan Wizard
   const [showCreateWizard, setShowCreateWizard] = useState(false);
@@ -233,6 +237,16 @@ export default function LayoverDetailScreen() {
         setNotes(found.notes || '');
         setEditStartDate(found.startDate?.toDate ? found.startDate.toDate() : new Date(found.startDate));
         setEditEndDate(found.endDate?.toDate ? found.endDate.toDate() : new Date(found.endDate));
+        
+        // Get city skyline image (uses cached Firestore data + fallback)
+        const airportCode = cityToAirportCodeSync(found.city);
+        if (airportCode) {
+          const skyline = getSkylineForBase(airportCode);
+          setCityImageUrl(skyline.imageUrl);
+        } else {
+          setCityImageUrl(null); // No skyline available for this city
+        }
+        
         return found;
       }
     }
@@ -240,22 +254,26 @@ export default function LayoverDetailScreen() {
   };
 
   const fetchMyPlans = async () => {
-    if (!user?.uid) return;
+    if (!user?.uid || !layover) return;
 
     try {
-      // Query for plans where user is the host
+      // Get layover date range for filtering
+      const startDate = layover.startDate?.toDate ? layover.startDate.toDate() : new Date(layover.startDate);
+      const endDate = layover.endDate?.toDate ? layover.endDate.toDate() : new Date(layover.endDate);
+
+      // Query for plans where user is the host in this city
       const hostedPlansQuery = query(
         collection(db, 'plans'),
         where('hostUserId', '==', user.uid),
-        where('layoverId', '==', id),
+        where('city', '==', layover.city),
         where('status', '==', 'active')
       );
 
-      // Query for plans where user is in the attendees array
+      // Query for plans where user is in the attendees array in this city
       const joinedPlansQuery = query(
         collection(db, 'plans'),
         where('attendeeIds', 'array-contains', user.uid),
-        where('layoverId', '==', id),
+        where('city', '==', layover.city),
         where('status', '==', 'active')
       );
 
@@ -265,14 +283,19 @@ export default function LayoverDetailScreen() {
         getDocs(joinedPlansQuery)
       ]);
 
-      // Map hosted plans with isHost flag
-      const hostedPlans: Plan[] = hostedSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        isHost: true
-      } as Plan));
+      // Map hosted plans with isHost flag and filter by date range
+      const hostedPlans: Plan[] = hostedSnapshot.docs
+        .map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          isHost: true
+        } as Plan))
+        .filter(plan => {
+          const planTime = plan.scheduledTime?.toDate ? plan.scheduledTime.toDate() : new Date(plan.scheduledTime);
+          return planTime >= startDate && planTime <= endDate;
+        });
 
-      // Map joined plans with isHost flag
+      // Map joined plans with isHost flag and filter by date range
       // Filter out plans where user is also the host (to avoid duplicates)
       const joinedPlans: Plan[] = joinedSnapshot.docs
         .filter(doc => doc.data().hostUserId !== user.uid)
@@ -280,7 +303,11 @@ export default function LayoverDetailScreen() {
           id: doc.id,
           ...doc.data(),
           isHost: false
-        } as Plan));
+        } as Plan))
+        .filter(plan => {
+          const planTime = plan.scheduledTime?.toDate ? plan.scheduledTime.toDate() : new Date(plan.scheduledTime);
+          return planTime >= startDate && planTime <= endDate;
+        });
 
       // Merge and sort by time
       const allMyPlans = [...hostedPlans, ...joinedPlans].sort((a, b) => {
@@ -658,63 +685,98 @@ export default function LayoverDetailScreen() {
       
       <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
         <ThemedView style={styles.container}>
-          {/* App Header */}
-          <AppHeader
-            onMenuPress={() => setDrawerVisible(true)}
-            unreadCount={totalUnreadCount}
-          />
           
-          {/* Action Buttons Row */}
-          <View style={[styles.actionBar, { borderBottomColor: colors.border }]}>
-            <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-              <Ionicons name="chevron-back" size={28} color={Colors.primary} />
-            </TouchableOpacity>
-            <View style={styles.headerActions}>
-              <TouchableOpacity 
-                style={[styles.headerButton, { backgroundColor: colors.card, borderColor: colors.border }]}
-                onPress={handleShare}
-              >
-                <Ionicons name="share-outline" size={20} color={Colors.primary} />
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.headerButton, { backgroundColor: colors.card, borderColor: colors.border }]}
-                onPress={() => setShowEditModal(true)}
-              >
-                <Ionicons name="pencil-outline" size={20} color={Colors.primary} />
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.headerButton, { backgroundColor: colors.card, borderColor: colors.border }]}
-                onPress={handleDeleteLayover}
-              >
-                <Ionicons name="trash-outline" size={20} color={Colors.error} />
-              </TouchableOpacity>
-            </View>
-          </View>
-
           <ScrollView 
-          style={styles.content} 
+          style={[styles.content, { backgroundColor: 'transparent' }]} 
+          contentContainerStyle={{ flexGrow: 1, paddingTop: 0 }}
+          contentInsetAdjustmentBehavior="never"
+          automaticallyAdjustContentInsets={false}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.primary} />
           }
         >
-          {/* Layover Info Card */}
-          <View style={[styles.layoverCard, { borderBottomColor: colors.border }]}>
-            <View style={[styles.layoverIcon, { backgroundColor: Colors.primary + '15' }]}>
-              <Ionicons name="airplane" size={32} color={Colors.primary} />
+          {/* Layover Cover Photo with City Skyline */}
+          <View style={styles.coverPhotoContainer}>
+            {cityImageUrl ? (
+              <>
+                <Image 
+                  source={{ uri: cityImageUrl }}
+                  style={styles.coverPhoto}
+                  resizeMode="cover"
+                />
+                {/* Dark overlay for text contrast */}
+                <View style={styles.coverOverlay} />
+              </>
+            ) : (
+              /* Gradient fallback for cities without skylines */
+              <View style={[styles.coverPhoto, { backgroundColor: Colors.primary }]}>
+                <View style={styles.coverOverlay} />
+              </View>
+            )}
+            
+            {/* Action Buttons Row - Floating over cover photo */}
+            <View style={styles.actionBarOverlay}>
+              <View style={styles.headerActions}>
+                <TouchableOpacity 
+                  style={styles.headerButtonOverlay}
+                  onPress={() => setDrawerVisible(true)}
+                >
+                  <Ionicons name="menu" size={24} color={Colors.white} />
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.headerButtonOverlay}
+                  onPress={() => router.back()}
+                >
+                  <Ionicons name="chevron-back" size={24} color={Colors.white} />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.headerActions}>
+                <TouchableOpacity 
+                  style={styles.headerButtonOverlay}
+                  onPress={handleShare}
+                >
+                  <Ionicons name="share-outline" size={20} color={Colors.white} />
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.headerButtonOverlay}
+                  onPress={() => setShowEditModal(true)}
+                >
+                  <Ionicons name="pencil-outline" size={20} color={Colors.white} />
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.headerButtonOverlay}
+                  onPress={handleDeleteLayover}
+                >
+                  <Ionicons name="trash-outline" size={20} color={Colors.white} />
+                </TouchableOpacity>
+              </View>
             </View>
-            <ThemedText style={[styles.cityName, { color: colors.text.primary }]}>{layover.city}</ThemedText>
-            <ThemedText style={[styles.areaName, { color: colors.text.secondary }]}>{layover.area}</ThemedText>
-            <ThemedText style={[styles.dates, { color: colors.text.secondary }]}>
-              {formatDateRange(layover.startDate, layover.endDate)}
-            </ThemedText>
-            <View style={[styles.countdownBadge, { 
-              backgroundColor: Colors.primary + '15',
-              borderColor: Colors.primary
-            }]}>
-              <ThemedText style={[styles.countdownText, { color: Colors.primary }]}>
-                {getDaysUntil()}
-              </ThemedText>
+            
+            {/* Layover Info Overlaid on Cover */}
+            <View style={styles.layoverInfoOverlay}>
+              <View style={[styles.layoverIcon, { 
+                backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                width: 56,
+                height: 56,
+                borderRadius: 28,
+                marginBottom: 12,
+              }]}>
+                <Ionicons name="airplane" size={28} color={Colors.white} />
+              </View>
+              <Text style={styles.cityNameOverlay}>{layover.city}</Text>
+              <Text style={styles.areaNameOverlay}>{layover.area}</Text>
+              <Text style={styles.datesOverlay}>
+                {formatDateRange(layover.startDate, layover.endDate)}
+              </Text>
+              <View style={[styles.countdownBadge, { 
+                backgroundColor: 'rgba(255, 255, 255, 0.25)',
+                borderColor: Colors.white
+              }]}>
+                <Text style={[styles.countdownText, { color: Colors.white }]}>
+                  {getDaysUntil()}
+                </Text>
+              </View>
             </View>
           </View>
 
@@ -1108,8 +1170,29 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
   },
+  actionBarOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    zIndex: 10,
+  },
   backButton: {
     padding: 4,
+  },
+  backButtonOverlay: {
+    padding: 4,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   headerActions: {
     flexDirection: 'row',
@@ -1123,6 +1206,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
   },
+  headerButtonOverlay: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -1130,6 +1221,59 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+  },
+  coverPhotoContainer: {
+    position: 'relative',
+    width: '100%',
+    height: 280,
+    marginTop: 0,
+  },
+  coverPhoto: {
+    width: '100%',
+    height: '100%',
+  },
+  coverOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
+  },
+  layoverInfoOverlay: {
+    position: 'absolute',
+    top: 60,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
+    paddingHorizontal: 20,
+  },
+  cityNameOverlay: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: Colors.white,
+    marginBottom: 4,
+    textAlign: 'center',
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  areaNameOverlay: {
+    fontSize: 16,
+    color: Colors.white,
+    marginBottom: 8,
+    textAlign: 'center',
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  datesOverlay: {
+    fontSize: 15,
+    color: Colors.white,
+    marginBottom: 12,
+    textAlign: 'center',
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
   },
   layoverCard: {
     alignItems: 'center',

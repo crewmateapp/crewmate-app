@@ -81,20 +81,79 @@ export default function CreateProfileScreen() {
     }
   };
 
-  const uploadPhoto = async (): Promise<string | null> => {
+const uploadPhoto = async (): Promise<string | null> => {
     if (!photoUri || !user) return null;
 
     try {
-      const response = await fetch(photoUri);
-      const blob = await response.blob();
-      
-      const photoRef = ref(storage, `profilePhotos/${user.uid}.jpg`);
-      await uploadBytes(photoRef, blob);
-      
-      const downloadURL = await getDownloadURL(photoRef);
-      return downloadURL;
-    } catch (error) {
+      // Add timeout protection (30 seconds)
+      const timeoutPromise = new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('Upload timeout - please check your connection')), 30000)
+      );
+
+      const uploadPromise = async () => {
+        console.log('Starting photo upload...');
+        
+        // Fetch the image
+        const response = await fetch(photoUri);
+        if (!response.ok) {
+          throw new Error('Failed to load image from device');
+        }
+
+        // Convert to blob
+        const blob = await response.blob();
+        console.log('Image converted to blob, size:', blob.size);
+        
+        // Validate blob
+        if (!blob || blob.size === 0) {
+          throw new Error('Invalid image file');
+        }
+
+        // Check file size (max 5MB)
+        if (blob.size > 5 * 1024 * 1024) {
+          throw new Error('Image too large - please choose a smaller image (max 5MB)');
+        }
+        
+        // Upload to Firebase Storage
+        const photoRef = ref(storage, `profilePhotos/${user.uid}.jpg`);
+        console.log('Uploading to Firebase Storage...');
+        await uploadBytes(photoRef, blob);
+        
+        // Get download URL
+        console.log('Getting download URL...');
+        const downloadURL = await getDownloadURL(photoRef);
+        console.log('Upload successful!');
+        return downloadURL;
+      };
+
+      // Race between upload and timeout
+      return await Promise.race([uploadPromise(), timeoutPromise]);
+
+    } catch (error: any) {
       console.error('Error uploading photo:', error);
+      console.error('Error details:', {
+        message: error.message,
+        code: error.code,
+        stack: error.stack
+      });
+      
+      // Show specific error to user
+      let errorMessage = 'Failed to upload photo. ';
+      
+      if (error.message?.includes('timeout')) {
+        errorMessage += 'Upload timed out. Please check your internet connection and try again.';
+      } else if (error.message?.includes('permission') || error.code === 'storage/unauthorized') {
+        errorMessage += 'Permission denied. Please contact support.';
+      } else if (error.message?.includes('too large')) {
+        errorMessage += error.message;
+      } else if (error.message?.includes('network') || error.code === 'storage/retry-limit-exceeded') {
+        errorMessage += 'Network error. Please check your connection and try again.';
+      } else if (error.code === 'storage/canceled') {
+        errorMessage += 'Upload was canceled.';
+      } else {
+        errorMessage += `Please try again. Error: ${error.message || 'Unknown error'}`;
+      }
+      
+      Alert.alert('Upload Failed', errorMessage);
       return null;
     }
   };
