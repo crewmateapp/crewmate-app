@@ -777,6 +777,7 @@ export default function AddSpotScreen() {
                   <ScrollView 
                     style={styles.categoryDropdownScroll}
                     keyboardShouldPersistTaps="handled"
+                    nestedScrollEnabled={true}
                   >
                     {filteredCategoryOptions.length > 0 ? (
                       filteredCategoryOptions.map((cat) => {
@@ -1245,7 +1246,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: '#fff',
     maxHeight: 300,
-    overflow: 'hidden',
+    // Removed overflow: 'hidden' - was preventing scrolling on Android
   },
   categoryDropdownScroll: {
     maxHeight: 250,

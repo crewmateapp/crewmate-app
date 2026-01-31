@@ -100,6 +100,7 @@ export const AIRPORTS: Record<string, AirportData> = {
   SJU: a('SJU', 'San Juan', 'Luis Muñoz Marín International', 18.4394, -66.0018, 'PR', ['Old San Juan', 'Condado']),
   SMF: a('SMF', 'Sacramento', 'Sacramento International', 38.6954, -121.5908, 'US', ['Midtown']),
   SNA: a('SNA', 'Orange County', 'John Wayne Airport', 33.6762, -117.8682, 'US', ['Newport Beach']),
+  SRQ: a('SRQ', 'Sarasota', 'Sarasota-Bradenton International', 27.3954, -82.5544, 'US', ['Siesta Key', 'St Armands']),
   STL: a('STL', 'St Louis', 'St Louis Lambert International', 38.7487, -90.3700, 'US', ['The Hill', 'Downtown']),
   TUS: a('TUS', 'Tucson', 'Tucson International', 32.1161, -110.9410, 'US', ['Downtown']),
   
@@ -162,6 +163,13 @@ export const AIRPORTS: Record<string, AirportData> = {
   NAS: a('NAS', 'Nassau', 'Lynden Pindling International', 25.0390, -77.4662, 'BS', ['Paradise Island']),
   PUJ: a('PUJ', 'Punta Cana', 'Punta Cana International', 18.5674, -68.3634, 'DO', ['Bavaro']),
   SJO: a('SJO', 'San Jose CR', 'Juan Santamaría International', 9.9939, -84.2088, 'CR', ['Escazú']),
+
+  // SOUTH AMERICA
+  BOG: a('BOG', 'Bogotá', 'El Dorado International', 4.7016, -74.1469, 'CO', ['Zona Rosa', 'La Candelaria']),
+  EZE: a('EZE', 'Buenos Aires', 'Ministro Pistarini International', -34.8222, -58.5358, 'AR', ['Palermo', 'Recoleta', 'San Telmo']),
+  GRU: a('GRU', 'São Paulo', 'São Paulo–Guarulhos International', -23.4356, -46.4731, 'BR', ['Jardins', 'Paulista', 'Vila Madalena']),
+  LIM: a('LIM', 'Lima', 'Jorge Chávez International', -12.0219, -77.1143, 'PE', ['Miraflores', 'Barranco']),
+  SDQ: a('SDQ', 'Santo Domingo', 'Las Américas International', 18.4297, -69.6689, 'DO', ['Zona Colonial', 'Piantini']),
 
   // CANADA
   YUL: a('YUL', 'Montreal', 'Montreal-Trudeau International', 45.4706, -73.7408, 'CA', ['Old Montreal', 'Plateau']),

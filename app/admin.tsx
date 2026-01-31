@@ -11,8 +11,10 @@ import { AirportData, getAirportByCode, searchAirports } from '@/utils/airportDa
 import { runFullMigration } from '@/utils/migration_resetPlanStats';
 import { notifyCityApproved, notifyCityRejected, notifySpotApproved, notifySpotRejected } from '@/utils/notifications';
 import { seedInitialSkylines } from '@/utils/dynamicBaseSkylines';
-import { analyzeSkylineCoverage, formatCoverageReport, type CoverageReport } from '@/utils/skylineCoverageAnalyzer';
+import { analyzeCitySkylineCoverage, formatCityCoverageReport, getCityCoverageSummary, getPriorityCities, type CityCoverageReport } from '@/utils/citySkylineCoverageAnalyzer';
+import { migrateUserBases, previewUserBaseMigration, type UserBaseMigrationResult } from '@/utils/migrateUserBases';
 import { migrateSkylinesCityNames } from '@/utils/migrateSkylinesCityNames';
+import { migrateCityData, type CityMigrationResult } from '@/utils/migrateCityData';
 import { SkylineManager } from '@/components/SkylineManager';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -173,11 +175,21 @@ export default function AdminScreen() {
 
   // Skyline Coverage Analysis
   const [analyzingCoverage, setAnalyzingCoverage] = useState(false);
-  const [coverageReport, setCoverageReport] = useState<CoverageReport | null>(null);
+  const [coverageReport, setCoverageReport] = useState<CityCoverageReport | null>(null);
+
+  // User Base Migration
+  const [previewingBaseMigration, setPreviewingBaseMigration] = useState(false);
+  const [runningBaseMigration, setRunningBaseMigration] = useState(false);
+  const [baseMigrationPreview, setBaseMigrationPreview] = useState<UserBaseMigrationResult | null>(null);
+  const [baseMigrationResult, setBaseMigrationResult] = useState<UserBaseMigrationResult | null>(null);
 
   // Skyline City Names Migration
   const [migratingSkylineCityNames, setMigratingSkylineCityNames] = useState(false);
   const [skylineCityNameResult, setSkylineCityNameResult] = useState<any>(null);
+
+  // City Data Migration (lat/lng, names, etc.)
+  const [migratingCityData, setMigratingCityData] = useState(false);
+  const [cityDataMigrationResult, setCityDataMigrationResult] = useState<CityMigrationResult | null>(null);
 
   // Analytics data
   const [stats, setStats] = useState({
@@ -332,7 +344,12 @@ export default function AdminScreen() {
         id: doc.id,
         ...doc.data()
       } as City));
-      setAllCities(citiesList.sort((a, b) => a.name.localeCompare(b.name)));
+      // Sort by name, but handle cities without names (incomplete entries)
+      setAllCities(citiesList.sort((a, b) => {
+        const nameA = a.name || a.code || '';
+        const nameB = b.name || b.code || '';
+        return nameA.localeCompare(nameB);
+      }));
     } catch (error) {
       console.error('Error loading cities:', error);
     }
@@ -1580,22 +1597,23 @@ const handleFixOrphanedUsers = async () => {
   };
 
   // Analyze Skyline Coverage
+  // Analyze Skyline Coverage
   const handleAnalyzeCoverage = async () => {
     try {
       setAnalyzingCoverage(true);
-      console.log('📊 Analyzing skyline coverage...');
+      console.log('📊 Analyzing city skyline coverage...');
       
-      const report = await analyzeSkylineCoverage();
+      const report = await analyzeCitySkylineCoverage();
       setCoverageReport(report);
       
       console.log('✅ Coverage analysis complete!');
-      console.log(formatCoverageReport(report));
+      console.log(formatCityCoverageReport(report));
       
       Alert.alert(
-        '📊 Coverage Report',
-        `${report.usersWithSkylines}/${report.totalUsers} users have skylines (${report.coveragePercent.toFixed(1)}%)\n\n` +
-        `${report.basesWithoutSkylines.length} bases need skylines.\n\n` +
-        `Check the report below for details.`
+        '🏙️ City Skyline Coverage',
+        getCityCoverageSummary(report) + '\n\n' +
+        `${report.citiesWithoutSkylines.length} cities need skylines.\n\n` +
+        `Check the detailed report below.`
       );
     } catch (error: any) {
       console.error('❌ Coverage analysis failed:', error);
@@ -1603,6 +1621,87 @@ const handleFixOrphanedUsers = async () => {
     } finally {
       setAnalyzingCoverage(false);
     }
+  };
+
+  // Preview User Base Migration
+  const handlePreviewBaseMigration = async () => {
+    if (!isSuperAdmin(role)) {
+      Alert.alert('Permission Denied', 'Only super admins can preview this migration.');
+      return;
+    }
+
+    try {
+      setPreviewingBaseMigration(true);
+      console.log('👀 Previewing user base migration...');
+      
+      const preview = await previewUserBaseMigration();
+      setBaseMigrationPreview(preview);
+      
+      console.log('✅ Preview complete!');
+      
+      Alert.alert(
+        '👀 Migration Preview',
+        `Will normalize ${preview.usersNormalized} user bases.\n\n` +
+        `${preview.usersAlreadyCorrect} already correct.\n` +
+        `${preview.usersUnmapped > 0 ? `⚠️ ${preview.usersUnmapped} cannot be mapped.\n\n` : ''}` +
+        `Check the details below.`
+      );
+    } catch (error: any) {
+      console.error('❌ Preview failed:', error);
+      Alert.alert('Preview Failed', error.message || 'An error occurred');
+    } finally {
+      setPreviewingBaseMigration(false);
+    }
+  };
+
+  // Run User Base Migration
+  const handleRunBaseMigration = async () => {
+    if (!isSuperAdmin(role)) {
+      Alert.alert('Permission Denied', 'Only super admins can run this migration.');
+      return;
+    }
+
+    if (!baseMigrationPreview) {
+      Alert.alert('Preview Required', 'Please preview the migration first.');
+      return;
+    }
+
+    Alert.alert(
+      '🔄 Normalize User Bases',
+      `This will update ${baseMigrationPreview.usersNormalized} user profiles.\n\n` +
+      `${baseMigrationPreview.usersUnmapped > 0 ? `⚠️ ${baseMigrationPreview.usersUnmapped} bases cannot be mapped and will be skipped.\n\n` : ''}` +
+      `Are you sure you want to proceed?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Run Migration',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setRunningBaseMigration(true);
+              console.log('🔄 Running user base migration...');
+              
+              const result = await migrateUserBases();
+              setBaseMigrationResult(result);
+              
+              console.log('✅ Migration complete!');
+              
+              Alert.alert(
+                '✅ Migration Complete!',
+                `Normalized ${result.usersNormalized} user bases.\n\n` +
+                `${result.errors > 0 ? `⚠️ ${result.errors} errors (check console)\n\n` : ''}` +
+                `Run coverage analysis to see updated results!`
+              );
+            } catch (error: any) {
+              console.error('❌ Migration failed:', error);
+              Alert.alert('Migration Failed', error.message || 'An error occurred');
+            } finally {
+              setRunningBaseMigration(false);
+            }
+          }
+        }
+      ]
+    );
   };
 
   // Migrate Skyline City Names
@@ -1651,6 +1750,68 @@ const handleFixOrphanedUsers = async () => {
               Alert.alert('Migration Failed', error.message || 'An error occurred');
             } finally {
               setMigratingSkylineCityNames(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // Migrate city data (add missing lat/lng, names, etc.)
+  const handleMigrateCityData = async () => {
+    if (!isSuperAdmin(role)) {
+      Alert.alert('Permission Denied', 'Only super admins can run this operation.');
+      return;
+    }
+
+    Alert.alert(
+      '🌍 Fix Incomplete City Data',
+      'This will automatically update all cities missing lat/lng coordinates, names, or other data by looking them up in the airport database.\n\n' +
+      'Examples:\n' +
+      '• GRU → São Paulo (lat: -23.5505, lng: -46.6333)\n' +
+      '• EZE → Buenos Aires (lat: -34.8222, lng: -58.5358)\n\n' +
+      'Cities not found in the database will be skipped and need manual entry.\n\n' +
+      'Safe to run multiple times.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Run Migration',
+          onPress: async () => {
+            try {
+              setMigratingCityData(true);
+              console.log('🌍 Migrating city data...');
+              
+              const result = await migrateCityData();
+              setCityDataMigrationResult(result);
+              
+              console.log('📋 Migration Results:');
+              result.details.forEach(detail => {
+                console.log(`${detail.code}: ${detail.action} - ${detail.reason}`);
+              });
+              
+              if (result.success) {
+                Alert.alert(
+                  '✅ Migration Complete!',
+                  `Total cities: ${result.totalCities}\n` +
+                  `Updated: ${result.citiesUpdated}\n` +
+                  `Skipped: ${result.citiesSkipped}\n` +
+                  `Errors: ${result.errors.length}\n\n` +
+                  `Check console for details.`
+                );
+                // Reload cities to show updated data
+                loadCities();
+              } else {
+                Alert.alert(
+                  '⚠️ Migration Failed',
+                  `Errors: ${result.errors.length}\n\n` +
+                  `Check console for details.`
+                );
+              }
+            } catch (error: any) {
+              console.error('❌ Migration failed:', error);
+              Alert.alert('Migration Failed', error.message || 'An error occurred');
+            } finally {
+              setMigratingCityData(false);
             }
           }
         }
@@ -2048,7 +2209,7 @@ const handleFixOrphanedUsers = async () => {
                 <View style={styles.cityHeader}>
                   <View style={{ flex: 1 }}>
                     <View style={styles.cityNameRow}>
-                      <ThemedText style={styles.cityName}>{city.name}</ThemedText>
+                      <ThemedText style={styles.cityName}>{city.name || city.code || 'Unnamed City'}</ThemedText>
                       {city.needsReview && (
                         <View style={styles.needsReviewBadge}>
                           <ThemedText style={styles.needsReviewText}>Needs Review</ThemedText>
@@ -2073,7 +2234,7 @@ const handleFixOrphanedUsers = async () => {
                   </View>
                 </View>
                 <ThemedText style={styles.cityCoords}>
-                  📍 {city.lat?.toFixed(4) || '0'}, {city.lng?.toFixed(4) || '0'}
+                  📍 {typeof city.lat === 'number' ? city.lat.toFixed(4) : 'N/A'}, {typeof city.lng === 'number' ? city.lng.toFixed(4) : 'N/A'}
                 </ThemedText>
                 <ThemedText style={styles.cityAreas}>
                   Areas: {city.areas?.join(', ') || 'None'}
@@ -2460,7 +2621,14 @@ const handleFixOrphanedUsers = async () => {
         {/* Migration Tab */}
         {activeTab === 'migration' && (
           <ScrollView contentContainerStyle={{ padding: 20 }}>
-            <ThemedText style={styles.sectionTitle}>🚀 Engagement System</ThemedText>
+            
+            {/* ===== SECTION 1: USER MANAGEMENT ===== */}
+            <View style={styles.sectionHeader}>
+              <ThemedText style={styles.sectionHeaderText}>👥 USER MANAGEMENT</ThemedText>
+              <ThemedText style={styles.sectionSubtext}>
+                User profiles, bases, and engagement
+              </ThemedText>
+            </View>
             
             {/* Engagement System Migration Card */}
             <View style={styles.card}>
@@ -2483,7 +2651,113 @@ const handleFixOrphanedUsers = async () => {
               </TouchableOpacity>
             </View>
             
-            {/* Badge System Migration Card - NEW */}
+            {/* Normalize User Bases Card - NEW! */}
+            <View style={[styles.card, { marginTop: 20, backgroundColor: '#E8F5E9', borderColor: '#4CAF50' }]}>
+              <ThemedText style={[styles.cardTitle, { color: '#1B5E20' }]}>
+                🔄 Normalize User Bases
+              </ThemedText>
+              <ThemedText style={[styles.cardDescription, { color: '#1B5E20' }]}>
+                Fix inconsistent base data by converting full city names to airport codes.{'\n'}
+                {'\n'}
+                Problem: Some users have "CHARLOTTE" while others have "CLT"{'\n'}
+                Solution: Normalize all to airport codes (CLT, ORD, etc.){'\n'}
+                {'\n'}
+                📊 This will fix your skyline coverage report!
+              </ThemedText>
+              
+              {/* Preview Button */}
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: '#4CAF50', marginBottom: 12 }, previewingBaseMigration && styles.buttonDisabled]}
+                onPress={handlePreviewBaseMigration}
+                disabled={previewingBaseMigration}
+              >
+                {previewingBaseMigration ? (
+                  <ActivityIndicator color={Colors.white} />
+                ) : (
+                  <ThemedText style={styles.buttonText}>👀 Preview Migration</ThemedText>
+                )}
+              </TouchableOpacity>
+              
+              {/* Run Button */}
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: '#FF5722' }, runningBaseMigration && styles.buttonDisabled]}
+                onPress={handleRunBaseMigration}
+                disabled={runningBaseMigration || !baseMigrationPreview}
+              >
+                {runningBaseMigration ? (
+                  <ActivityIndicator color={Colors.white} />
+                ) : (
+                  <ThemedText style={styles.buttonText}>
+                    {baseMigrationPreview ? '🔄 Run Migration' : '👀 Preview First'}
+                  </ThemedText>
+                )}
+              </TouchableOpacity>
+              
+              {/* Preview Results */}
+              {baseMigrationPreview && (
+                <View style={[styles.card, { marginTop: 16, backgroundColor: '#FFF9C4', borderColor: '#FFC107' }]}>
+                  <ThemedText style={[styles.cardTitle, { color: '#856404' }]}>
+                    👀 Preview Results
+                  </ThemedText>
+                  <ThemedText style={[styles.cardDescription, { color: '#856404' }]}>
+                    Total users: {baseMigrationPreview.totalUsers}{'\n'}
+                    ✅ Already correct: {baseMigrationPreview.usersAlreadyCorrect}{'\n'}
+                    🔄 Will normalize: {baseMigrationPreview.usersNormalized}{'\n'}
+                    ⚠️ Cannot map: {baseMigrationPreview.usersUnmapped}{'\n'}
+                    {'\n'}
+                    {baseMigrationPreview.usersUnmapped > 0 && baseMigrationPreview.details.unmapped.length > 0 && (
+                      'Cannot map:\n' +
+                      baseMigrationPreview.details.unmapped.slice(0, 5).map((u: any) => 
+                        `• ${u.name}: "${u.base}"`
+                      ).join('\n') +
+                      (baseMigrationPreview.details.unmapped.length > 5 
+                        ? `\n... and ${baseMigrationPreview.details.unmapped.length - 5} more` 
+                        : '')
+                    )}
+                  </ThemedText>
+                </View>
+              )}
+              
+              {/* Migration Results */}
+              {baseMigrationResult && (
+                <View style={[styles.card, { marginTop: 16, backgroundColor: baseMigrationResult.errors > 0 ? '#FFF3CD' : '#D4EDDA', borderColor: baseMigrationResult.errors > 0 ? '#FFC107' : '#28A745' }]}>
+                  <ThemedText style={[styles.cardTitle, { color: baseMigrationResult.errors > 0 ? '#856404' : '#155724' }]}>
+                    {baseMigrationResult.errors > 0 ? '⚠️ Migration Completed with Issues' : '✅ Migration Complete!'}
+                  </ThemedText>
+                  <ThemedText style={[styles.cardDescription, { color: baseMigrationResult.errors > 0 ? '#856404' : '#155724' }]}>
+                    Total users: {baseMigrationResult.totalUsers}{'\n'}
+                    ✅ Already correct: {baseMigrationResult.usersAlreadyCorrect}{'\n'}
+                    🔄 Normalized: {baseMigrationResult.usersNormalized}{'\n'}
+                    ⚠️ Unmapped: {baseMigrationResult.usersUnmapped}{'\n'}
+                    ❌ Errors: {baseMigrationResult.errors}{'\n'}
+                    {'\n'}
+                    {baseMigrationResult.details.normalized.length > 0 && (
+                      'Examples:\n' +
+                      baseMigrationResult.details.normalized.slice(0, 5).map((u: any) =>
+                        `• ${u.name}: ${u.oldBase} → ${u.newBase}`
+                      ).join('\n') +
+                      (baseMigrationResult.details.normalized.length > 5 
+                        ? `\n... and ${baseMigrationResult.details.normalized.length - 5} more`
+                        : ''
+                      )
+                    )}
+                  </ThemedText>
+                  
+                  {baseMigrationResult.usersNormalized > 0 && (
+                    <TouchableOpacity
+                      style={[styles.button, { backgroundColor: '#4CAF50', marginTop: 12 }]}
+                      onPress={handleAnalyzeCoverage}
+                    >
+                      <ThemedText style={styles.buttonText}>
+                        📊 Re-run Coverage Analysis
+                      </ThemedText>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+            </View>
+            
+            {/* Badge System Migration Card */}
             <View style={[styles.card, { marginTop: 20, backgroundColor: '#FFF3CD', borderColor: '#FFC107' }]}>
               <ThemedText style={[styles.cardTitle, { color: '#856404' }]}>🏆 Badge System Migration (ONE-TIME)</ThemedText>
               <ThemedText style={[styles.cardDescription, { color: '#856404' }]}>
@@ -2575,6 +2849,14 @@ const handleFixOrphanedUsers = async () => {
               )}
             </View>
             
+            {/* ===== SECTION 2: CITY & SKYLINE MANAGEMENT ===== */}
+            <View style={[styles.sectionHeader, { marginTop: 40 }]}>
+              <ThemedText style={styles.sectionHeaderText}>🏙️ CITY & SKYLINE MANAGEMENT</ThemedText>
+              <ThemedText style={styles.sectionSubtext}>
+                City data, coordinates, and skyline images
+              </ThemedText>
+            </View>
+            
             {/* Seed Base Skylines Card */}
             <View style={[styles.card, { marginTop: 20, backgroundColor: '#F3E5F5', borderColor: '#9C27B0' }]}>
               <ThemedText style={[styles.cardTitle, { color: '#4A148C' }]}>🏙️ Seed Base Skylines</ThemedText>
@@ -2647,6 +2929,51 @@ const handleFixOrphanedUsers = async () => {
                     • Updated: {skylineCityNameResult.updated} skylines{'\n'}
                     • Skipped: {skylineCityNameResult.skipped} skylines{'\n'}
                     • Errors: {skylineCityNameResult.errors}{'\n'}
+                    {'\n'}
+                    Check console for detailed results.
+                  </ThemedText>
+                </View>
+              )}
+            </View>
+            
+            {/* City Data Migration Card */}
+            <View style={[styles.card, { marginTop: 20, backgroundColor: '#E3F2FD', borderColor: '#2196F3' }]}>
+              <ThemedText style={[styles.cardTitle, { color: '#0D47A1' }]}>🌍 Fix Incomplete City Data</ThemedText>
+              <ThemedText style={[styles.cardDescription, { color: '#0D47A1' }]}>
+                Automatically fix cities with missing coordinates, names, or areas by looking them up in the airport database.{'\n'}
+                {'\n'}
+                This will:{'\n'}
+                • Add lat/lng to cities with missing or zero coordinates{'\n'}
+                • Update city names (e.g., GRU → "São Paulo"){'\n'}
+                • Add proper area lists from airport database{'\n'}
+                • Mark cities as no longer needing review{'\n'}
+                {'\n'}
+                Cities not found in the database will be skipped for manual entry.{'\n'}
+                ⚠️ Safe to run multiple times.
+              </ThemedText>
+              
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: '#2196F3' }, migratingCityData && styles.buttonDisabled]}
+                onPress={handleMigrateCityData}
+                disabled={migratingCityData}
+              >
+                {migratingCityData ? (
+                  <ActivityIndicator color={Colors.white} />
+                ) : (
+                  <ThemedText style={styles.buttonText}>🌍 Fix City Data</ThemedText>
+                )}
+              </TouchableOpacity>
+              
+              {cityDataMigrationResult && (
+                <View style={[styles.card, { marginTop: 16, backgroundColor: cityDataMigrationResult.success ? '#D4EDDA' : '#F8D7DA', borderColor: cityDataMigrationResult.success ? '#28A745' : '#DC3545' }]}>
+                  <ThemedText style={[styles.cardTitle, { color: cityDataMigrationResult.success ? '#155724' : '#721C24' }]}>
+                    {cityDataMigrationResult.success ? '✅ Migration Complete!' : '⚠️ Migration Failed'}
+                  </ThemedText>
+                  <ThemedText style={[styles.cardDescription, { color: cityDataMigrationResult.success ? '#155724' : '#721C24' }]}>
+                    • Total cities: {cityDataMigrationResult.totalCities}{'\n'}
+                    • Updated: {cityDataMigrationResult.citiesUpdated}{'\n'}
+                    • Skipped: {cityDataMigrationResult.citiesSkipped}{'\n'}
+                    • Errors: {cityDataMigrationResult.errors.length}{'\n'}
                     {'\n'}
                     Check console for detailed results.
                   </ThemedText>
@@ -2814,6 +3141,14 @@ const handleFixOrphanedUsers = async () => {
                   )}
                 </View>
               )}
+            </View>
+
+            {/* ===== SECTION 3: DATA CLEANUP ===== */}
+            <View style={[styles.sectionHeader, { marginTop: 40 }]}>
+              <ThemedText style={styles.sectionHeaderText}>🧹 DATA CLEANUP</ThemedText>
+              <ThemedText style={styles.sectionSubtext}>
+                Spot data and other cleanup tasks
+              </ThemedText>
             </View>
 
             {/* City Name Migration Card */}
@@ -3644,5 +3979,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: Colors.white,
+  },
+  sectionHeader: {
+    marginTop: 32,
+    marginBottom: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 2,
+    borderBottomColor: Colors.primary,
+  },
+  sectionHeaderText: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: Colors.text.primary,
+    marginBottom: 4,
+  },
+  sectionSubtext: {
+    fontSize: 14,
+    color: Colors.text.secondary,
+    fontStyle: 'italic',
   },
 });
