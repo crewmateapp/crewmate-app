@@ -342,19 +342,19 @@ export default function MyLayoverScreen() {
         }
 
         const location = await getCurrentLocation();
-        if (!location) {
+        if (!location.success) {
           console.log('❌ Auto check-in failed: Could not get location');
           return;
         }
 
         // Verify city location (50km radius check)
         const cityVerified = await verifyCityLocation(
-          layoverToCheckIn.city,
-          location.latitude,
-          location.longitude
+          location.latitude!,
+          location.longitude!,
+          layoverToCheckIn.city
         );
 
-        if (!cityVerified.isValid) {
+        if (!cityVerified.verified) {
           console.log(`❌ Auto check-in failed: Not within 50km of ${layoverToCheckIn.city}`);
           Alert.alert(
             'Auto Check-In Failed',

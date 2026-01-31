@@ -3009,50 +3009,78 @@ const handleFixOrphanedUsers = async () => {
               {coverageReport && (
                 <View style={[styles.card, { marginTop: 16, backgroundColor: Colors.card, borderColor: Colors.border }]}>
                   <ThemedText style={[styles.cardTitle, { color: Colors.text.primary }]}>📈 Coverage Summary</ThemedText>
+                  
+                  {/* Overall City Coverage */}
                   <ThemedText style={[styles.cardDescription, { color: Colors.text.primary }]}>
-                    Total Users: {coverageReport.totalUsers}{'\n'}
-                    ✅ With Skylines: {coverageReport.usersWithSkylines} ({coverageReport.coveragePercent.toFixed(1)}%){'\n'}
-                    ❌ Without Skylines: {coverageReport.usersWithoutSkylines} ({(100 - coverageReport.coveragePercent).toFixed(1)}%)
+                    🏙️ CITIES:{'\n'}
+                    Total: {coverageReport.totalCities}{'\n'}
+                    ✅ With Skylines: {coverageReport.citiesWithSkylines} ({coverageReport.coveragePercent.toFixed(1)}%){'\n'}
+                    ❌ Without Skylines: {coverageReport.citiesWithoutSkylines} ({(100 - coverageReport.coveragePercent).toFixed(1)}%){'\n'}
+                    {'\n'}
+                    👥 USERS:{'\n'}
+                    Total: {coverageReport.totalUsers}{'\n'}
+                    ✅ With Skylines: {coverageReport.usersWithSkylines} ({coverageReport.userCoveragePercent.toFixed(1)}%){'\n'}
+                    ❌ Without Skylines: {coverageReport.usersWithoutSkylines}{'\n'}
+                    {'\n'}
+                    ✈️ LAYOVERS:{'\n'}
+                    Total Active: {coverageReport.totalLayovers}{'\n'}
+                    ✅ With Skylines: {coverageReport.layoversWithSkylines}
                   </ThemedText>
                   
-                  {coverageReport.basesWithSkylines.length > 0 && (
+                  {/* Cities with skylines */}
+                  {coverageReport.citiesWithSkylines > 0 && (
                     <>
                       <ThemedText style={[styles.cardTitle, { marginTop: 16, color: Colors.text.primary }]}>
-                        ✅ Bases with Skylines ({coverageReport.basesWithSkylines.length})
+                        ✅ Cities with Skylines ({coverageReport.citiesWithSkylines})
                       </ThemedText>
                       <ThemedText style={[styles.cardDescription, { color: Colors.text.secondary }]}>
-                        {coverageReport.baseDetails
-                          .filter(b => b.hasSkyline)
-                          .map(b => `• ${b.base} (${b.userCount} users)`)
+                        {coverageReport.cityDetails
+                          .filter(c => c.hasSkyline && c.totalUsage > 0)
+                          .slice(0, 15)
+                          .map(c => {
+                            const usage = [];
+                            if (c.baseUsers > 0) usage.push(`${c.baseUsers} users`);
+                            if (c.layoverCount > 0) usage.push(`${c.layoverCount} layovers`);
+                            return `• ${c.city} - ${c.cityName} (${usage.join(', ')}, ${c.source})`;
+                          })
                           .join('\n')}
+                        {coverageReport.cityDetails.filter(c => c.hasSkyline && c.totalUsage > 0).length > 15 && 
+                          `\n... and ${coverageReport.cityDetails.filter(c => c.hasSkyline && c.totalUsage > 0).length - 15} more`}
                       </ThemedText>
                     </>
                   )}
                   
-                  {coverageReport.basesWithoutSkylines.length > 0 && (
+                  {/* Cities needing skylines */}
+                  {getPriorityCities(coverageReport).length > 0 && (
                     <>
                       <ThemedText style={[styles.cardTitle, { marginTop: 16, color: Colors.text.primary }]}>
-                        ❌ Bases Needing Skylines ({coverageReport.basesWithoutSkylines.length})
+                        ❌ Cities Needing Skylines ({getPriorityCities(coverageReport).length})
                       </ThemedText>
                       <ThemedText style={[styles.cardDescription, { color: Colors.text.secondary }]}>
-                        {coverageReport.baseDetails
-                          .filter(b => !b.hasSkyline)
-                          .map(b => {
-                            const userNames = b.users.map(u => u.name).join(', ');
-                            return `• ${b.base} (${b.userCount} users): ${userNames}`;
+                        {getPriorityCities(coverageReport)
+                          .slice(0, 10)
+                          .map(c => {
+                            const usage = [];
+                            if (c.baseUsers > 0) usage.push(`${c.baseUsers} users`);
+                            if (c.layoverCount > 0) usage.push(`${c.layoverCount} layovers`);
+                            const userNames = c.baseUserDetails.slice(0, 3).map(u => u.name).join(', ');
+                            return `• ${c.city} - ${c.cityName} (${usage.join(', ')})\n  Users: ${userNames}${c.baseUserDetails.length > 3 ? ` +${c.baseUserDetails.length - 3} more` : ''}`;
                           })
                           .join('\n\n')}
                       </ThemedText>
                       
                       <ThemedText style={[styles.cardTitle, { marginTop: 16, color: Colors.warning }]}>
-                        🎯 Priority Order (add these first)
+                        🎯 Top Priority (add these first)
                       </ThemedText>
                       <ThemedText style={[styles.cardDescription, { color: Colors.text.secondary }]}>
-                        {coverageReport.baseDetails
-                          .filter(b => !b.hasSkyline)
-                          .sort((a, b) => b.userCount - a.userCount)
+                        {getPriorityCities(coverageReport)
                           .slice(0, 5)
-                          .map((b, i) => `${i + 1}. ${b.base} (${b.userCount} users waiting)`)
+                          .map((c, i) => {
+                            const usage = [];
+                            if (c.baseUsers > 0) usage.push(`${c.baseUsers} users`);
+                            if (c.layoverCount > 0) usage.push(`${c.layoverCount} layovers`);
+                            return `${i + 1}. ${c.city} - ${c.cityName} (${usage.join(', ')})`;
+                          })
                           .join('\n')}
                       </ThemedText>
                     </>
@@ -3062,20 +3090,20 @@ const handleFixOrphanedUsers = async () => {
             </View>
             
             {/* Add Skylines Section - Shows after coverage report is generated */}
-            {coverageReport && coverageReport.basesWithoutSkylines.length > 0 && (
+            {coverageReport && getPriorityCities(coverageReport).length > 0 && (
               <View style={{ marginTop: 32 }}>
                 <ThemedText style={styles.sectionTitle}>
-                  ➕ Add Skylines ({coverageReport.basesWithoutSkylines.length} bases)
+                  ➕ Add City Skylines ({getPriorityCities(coverageReport).length} cities)
                 </ThemedText>
                 
                 <View style={[styles.card, { backgroundColor: Colors.primary + '10', borderColor: Colors.primary }]}>
                   <ThemedText style={[styles.cardTitle, { color: Colors.text.primary }]}>
-                    🎨 Add Skylines from the App
+                    🎨 Add Skylines Manually
                   </ThemedText>
                   <ThemedText style={[styles.cardDescription, { color: Colors.text.primary }]}>
-                    Below are all the bases that need skylines, sorted by priority.{'\n'}
+                    Below are all the cities that need skylines, sorted by priority (usage score).{'\n'}
                     {'\n'}
-                    Tap "Add Skyline" on any base to:{'\n'}
+                    Tap "Add Skyline" on any city to:{'\n'}
                     • Search Unsplash for a skyline photo{'\n'}
                     • Copy the image URL{'\n'}
                     • Add it directly from your app{'\n'}
@@ -3083,17 +3111,16 @@ const handleFixOrphanedUsers = async () => {
                   </ThemedText>
                 </View>
                 
-                {/* Render SkylineManager for each base needing a skyline */}
-                {coverageReport.baseDetails
-                  .filter(b => !b.hasSkyline)
-                  .sort((a, b) => b.userCount - a.userCount)
-                  .map((base) => (
+                {/* Render SkylineManager for each city needing a skyline */}
+                {getPriorityCities(coverageReport)
+                  .map((city) => (
                     <SkylineManager
-                      key={base.base}
-                      baseCode={base.base}
-                      cityName={base.base.length === 3 ? undefined : base.base}
-                      userCount={base.userCount}
-                      users={base.users}
+                      key={city.city}
+                      baseCode={city.city}
+                      cityName={city.cityName}
+                      userCount={city.baseUsers}
+                      users={city.baseUserDetails}
+                      layoverCount={city.layoverCount}
                       onComplete={handleAnalyzeCoverage}
                     />
                   ))}
