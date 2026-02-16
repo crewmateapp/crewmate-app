@@ -3,7 +3,8 @@
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { db, functions } from '@/config/firebase';
+import { db, functions, storage } from '@/config/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { isSuperAdmin, useAdminRole } from '@/hooks/useAdminRole';
@@ -15,6 +16,9 @@ import { analyzeCitySkylineCoverage, formatCityCoverageReport, getCityCoverageSu
 import { migrateUserBases, previewUserBaseMigration, type UserBaseMigrationResult } from '@/utils/migrateUserBases';
 import { migrateSkylinesCityNames } from '@/utils/migrateSkylinesCityNames';
 import { migrateCityData, type CityMigrationResult } from '@/utils/migrateCityData';
+import { migrateAirlineData } from '@/utils/migrateAirlineData';
+import { migrateUserNames } from '@/utils/migrateUserNames';
+import { migratePositionData } from '@/utils/migratePositionData';
 import { SkylineManager } from '@/components/SkylineManager';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -1356,25 +1360,57 @@ const handleFixOrphanedUsers = async () => {
                   const detailsData = await detailsResponse.json();
 
                   if (detailsData.status === 'OK' && detailsData.result?.photos && detailsData.result.photos.length > 0) {
-                    // Build photo URLs (up to 3 photos)
-                    const photoUrls = detailsData.result.photos.slice(0, 3).map((photo: any) => 
-                      `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photo_reference=${photo.photo_reference}&key=${GOOGLE_PLACES_API_KEY}`
-                    );
+                    // FIX: Upload photos to Firebase Storage instead of storing
+                    // raw Google API URLs. This means photo renders in the app
+                    // will load from Firebase (free) instead of hitting the
+                    // Google Places Photo API ($7/1,000 requests) every time.
+                    const firebasePhotoUrls: string[] = [];
+                    const photosToProcess = detailsData.result.photos.slice(0, 3);
 
-                    // Update spot with photos
-                    await updateDoc(doc(db, 'spots', spot.id), {
-                      photoURLs: photoUrls
-                    });
+                    for (let j = 0; j < photosToProcess.length; j++) {
+                      const photo = photosToProcess[j];
+                      try {
+                        const photoApiUrl = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photo_reference=${photo.photo_reference}&key=${GOOGLE_PLACES_API_KEY}`;
+                        const photoResponse = await fetch(photoApiUrl);
 
-                    successCount++;
-                    console.log(`✅ ${i + 1}/${spotsNeedingPhotos.length} - Added ${photoUrls.length} photos to ${spot.name}`);
+                        if (!photoResponse.ok) {
+                          console.warn(`   ⚠️ Failed to fetch photo ${j + 1} for ${spot.name}`);
+                          continue;
+                        }
+
+                        // Upload to Firebase Storage
+                        const blob = await photoResponse.blob();
+                        const timestamp = Date.now();
+                        const storageRef = ref(
+                          storage,
+                          `spots/backfill/${spot.id}_${j}_${timestamp}.jpg`
+                        );
+                        await uploadBytes(storageRef, blob);
+                        const downloadUrl = await getDownloadURL(storageRef);
+                        firebasePhotoUrls.push(downloadUrl);
+                      } catch (photoError) {
+                        console.warn(`   ⚠️ Error uploading photo ${j + 1}:`, photoError);
+                      }
+                    }
+
+                    if (firebasePhotoUrls.length > 0) {
+                      // Update spot with Firebase Storage URLs (NOT Google API URLs)
+                      await updateDoc(doc(db, 'spots', spot.id), {
+                        photoURLs: firebasePhotoUrls
+                      });
+                      successCount++;
+                      console.log(`✅ ${i + 1}/${spotsNeedingPhotos.length} - Added ${firebasePhotoUrls.length} photos to ${spot.name}`);
+                    } else {
+                      noPhotosAvailable++;
+                      console.log(`⚠️ ${i + 1}/${spotsNeedingPhotos.length} - Photos found but upload failed for ${spot.name}`);
+                    }
                   } else {
                     noPhotosAvailable++;
                     console.log(`⚠️ ${i + 1}/${spotsNeedingPhotos.length} - No photos available for ${spot.name}`);
                   }
 
-                  // Small delay to avoid rate limiting
-                  await new Promise(resolve => setTimeout(resolve, 100));
+                  // Rate limit delay (increased from 100ms to 500ms)
+                  await new Promise(resolve => setTimeout(resolve, 500));
 
                 } catch (error: any) {
                   errorCount++;
@@ -2981,6 +3017,64 @@ const handleFixOrphanedUsers = async () => {
               )}
             </View>
             
+            {/* Airline Data Migration Card */}
+            <View style={[styles.card, { marginTop: 20, backgroundColor: '#FFF3E0', borderColor: '#FF9800' }]}>
+              <ThemedText style={[styles.cardTitle, { color: '#E65100' }]}>✈️ Fix Airline Names</ThemedText>
+              <ThemedText style={[styles.cardDescription, { color: '#E65100' }]}>
+                Normalizes the airline field for all users based on their email domain.{'\\n'}
+                {'\\n'}
+                This will fix:{'\\n'}
+                • Users with no airline set{'\\n'}
+                • Inconsistent names like "AA" → "American Airlines"{'\\n'}
+                {'\\n'}
+                ⚠️ Safe to run multiple times. Check console for results.
+              </ThemedText>
+              
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: '#FF9800' }]}
+                onPress={migrateAirlineData}
+              >
+                <ThemedText style={styles.buttonText}>✈️ Fix Airline Names</ThemedText>
+              </TouchableOpacity>
+            </View>
+
+            {/* User Name Migration Card */}
+            <View style={[styles.card, { marginTop: 20, backgroundColor: '#F3E5F5', borderColor: '#9C27B0' }]}>
+              <ThemedText style={[styles.cardTitle, { color: '#4A148C' }]}>👤 Backfill User Names</ThemedText>
+              <ThemedText style={[styles.cardDescription, { color: '#4A148C' }]}>
+                Derives firstName, lastInitial, and displayName from email for users who never completed profile setup.{'\\n'}
+                {'\\n'}
+                Currently parses AA emails (first.last@aa.com).{'\\n'}
+                Only writes fields that are missing — won't overwrite existing names.{'\\n'}
+                {'\\n'}
+                ⚠️ Safe to run multiple times. Check console for results.
+              </ThemedText>
+
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: '#9C27B0' }]}
+                onPress={migrateUserNames}
+              >
+                <ThemedText style={styles.buttonText}>👤 Backfill User Names</ThemedText>
+              </TouchableOpacity>
+            </View>
+
+            {/* Position Migration Card */}
+            <View style={[styles.card, { marginTop: 20, backgroundColor: '#FFF8E1', borderColor: '#FFC107' }]}>
+              <ThemedText style={[styles.cardTitle, { color: '#FF6F00' }]}>🎯 Fix Position Names</ThemedText>
+              <ThemedText style={[styles.cardDescription, { color: '#FF6F00' }]}>
+                Normalizes the position field for all users. Fixes casing variants like "flight attendant" or "FLIGHT ATTENDANT" → "Flight Attendant".{'\\n'}
+                {'\\n'}
+                ⚠️ Safe to run multiple times. Check console for results.
+              </ThemedText>
+
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: '#FFC107' }]}
+                onPress={migratePositionData}
+              >
+                <ThemedText style={[styles.buttonText, { color: '#000' }]}>🎯 Fix Position Names</ThemedText>
+              </TouchableOpacity>
+            </View>
+
             {/* Skyline Coverage Report Card */}
             <View style={[styles.card, { marginTop: 20, backgroundColor: '#E8F5E9', borderColor: '#4CAF50' }]}>
               <ThemedText style={[styles.cardTitle, { color: '#1B5E20' }]}>📊 Skyline Coverage Report</ThemedText>
