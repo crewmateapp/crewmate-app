@@ -116,13 +116,14 @@ export function WriteReviewModal({
 
             const result = await ImagePicker.launchImageLibraryAsync({
               mediaTypes: ImagePicker.MediaTypeOptions.Images,
-              allowsEditing: true,
-              aspect: [16, 9],
+              allowsMultipleSelection: true,
+              selectionLimit: 5 - photos.length,
               quality: 0.7,
             });
 
             if (!result.canceled) {
-              setPhotos([...photos, result.assets[0].uri]);
+              const newUris = result.assets.map(a => a.uri);
+              setPhotos([...photos, ...newUris].slice(0, 5));
             }
           }
         },

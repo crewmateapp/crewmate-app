@@ -506,13 +506,14 @@ export default function AddSpotScreen() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [16, 9],
+      allowsMultipleSelection: true,
+      selectionLimit: 3 - photoUris.length,
       quality: 0.6,
     });
 
     if (!result.canceled) {
-      setPhotoUris([...photoUris, result.assets[0].uri]);
+      const newUris = result.assets.map(a => a.uri);
+      setPhotoUris([...photoUris, ...newUris].slice(0, 3));
     }
   };
 
