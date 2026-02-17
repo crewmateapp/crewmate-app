@@ -194,7 +194,7 @@ export default function AddSpotScreen() {
   };
 
   // Helper function to map extracted city to standardized city name from database
-  const mapToStandardizedCity = (extractedCity: string): string => {
+  const mapToStandardizedCity = (extractedCity: string, spotLat?: number | null, spotLng?: number | null): string => {
     if (!extractedCity || cities.length === 0) return extractedCity;
     
     const lowerExtracted = extractedCity.toLowerCase().trim();
@@ -210,6 +210,30 @@ export default function AddSpotScreen() {
     // Try to find city that contains extracted name
     const containsMatch = cities.find(c => c.name.toLowerCase().includes(lowerExtracted));
     if (containsMatch) return containsMatch.name;
+
+    // Fallback: find nearest city by coordinates (within 80km / ~50 miles)
+    // Handles suburbs like "Redondo Beach" → "Los Angeles" or "Covent Garden" → "London"
+    if (spotLat && spotLng) {
+      const getDistance = (lat1: number, lng1: number, lat2: number, lng2: number) => {
+        const R = 6371; // Earth radius in km
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLng = (lng2 - lng1) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+          Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      };
+
+      let nearest: { name: string; distance: number } | null = null;
+      for (const c of cities) {
+        if (!c.lat || !c.lng) continue;
+        const dist = getDistance(spotLat, spotLng, c.lat, c.lng);
+        if (dist < 80 && (!nearest || dist < nearest.distance)) {
+          nearest = { name: c.name, distance: dist };
+        }
+      }
+      if (nearest) return nearest.name;
+    }
     
     // If no match found, return original (user can manually correct)
     return extractedCity;
@@ -375,9 +399,14 @@ export default function AddSpotScreen() {
       const { city: extractedCity, neighborhood: extractedNeighborhood } = extractCityAndNeighborhood(details.address_components);
       
       if (extractedCity) {
-        // Map to standardized city name from database (e.g., "Minneapolis" → "Minneapolis-St Paul")
-        const standardizedCity = mapToStandardizedCity(extractedCity);
-        setCity(standardizedCity);
+        // If user came from a city page, keep that city — don't override
+        // This prevents a spot near SNA being assigned to LA just because it's closer
+        if (!cityParam) {
+          const spotLat = details.geometry?.location?.lat;
+          const spotLng = details.geometry?.location?.lng;
+          const standardizedCity = mapToStandardizedCity(extractedCity, spotLat, spotLng);
+          setCity(standardizedCity);
+        }
       }
       
       if (extractedNeighborhood) {
@@ -393,7 +422,8 @@ export default function AddSpotScreen() {
     // ============================================================
     let photoMessage = '';
     if (details.photos && details.photos.length > 0) {
-      photoMessage = `\n\n📸 ${details.photos.length} photo${details.photos.length > 1 ? 's' : ''} found from Google! Will be added automatically.`;
+      const photoCount = Math.min(details.photos.length, 3);
+      photoMessage = `\n\n📸 ${photoCount} photo${photoCount > 1 ? 's' : ''} found from Google! Will be added automatically.`;
       
       // Store photo references — URLs are built ONLY at save time,
       // not on every render. This prevents repeated Place Photo API
@@ -554,10 +584,25 @@ export default function AddSpotScreen() {
       // Upload user photos
       const uploadedPhotoURLs = await uploadPhotos();
       
-      // Combine user photos with Google Places photos (Google photos first if user didn't upload any)
-      const allPhotoURLs = uploadedPhotoURLs.length > 0 
-        ? uploadedPhotoURLs  // User uploaded photos - use only those
-        : googlePhotoUrls;   // No user photos - use Google photos
+      // If user didn't upload photos, download Google photos and upload to Firebase Storage
+      // NEVER store raw Google API URLs — they trigger billing on every render
+      let allPhotoURLs = uploadedPhotoURLs;
+      if (uploadedPhotoURLs.length === 0 && googlePhotoUrls.length > 0) {
+        const firebasePhotoURLs: string[] = [];
+        for (let i = 0; i < googlePhotoUrls.length; i++) {
+          try {
+            const photoResponse = await fetch(googlePhotoUrls[i]);
+            const blob = await photoResponse.blob();
+            const photoRef = ref(storage, `spots/${user.uid}/${Date.now()}_google_${i}.jpg`);
+            await uploadBytes(photoRef, blob);
+            const downloadURL = await getDownloadURL(photoRef);
+            firebasePhotoURLs.push(downloadURL);
+          } catch (error) {
+            console.error(`Error uploading Google photo ${i}:`, error);
+          }
+        }
+        allPhotoURLs = firebasePhotoURLs;
+      }
 
       // Get user display name
       const userDisplayName = await getUserDisplayName();
