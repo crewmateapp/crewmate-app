@@ -3,12 +3,14 @@ import { ThemedText } from '@/components/themed-text';
 import { Colors } from '@/constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Image,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   TextInput,
@@ -24,17 +26,18 @@ type WriteReviewModalProps = {
   isVerified: boolean;
 };
 
-export function WriteReviewModal({ 
-  visible, 
-  onClose, 
-  onSubmit, 
+export function WriteReviewModal({
+  visible,
+  onClose,
+  onSubmit,
   spotName,
-  isVerified 
+  isVerified
 }: WriteReviewModalProps) {
   const [rating, setRating] = useState(0);
   const [reviewText, setReviewText] = useState('');
   const [photos, setPhotos] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const scrollViewRef = useRef<ScrollView>(null);
 
   const handleReset = () => {
     setRating(0);
@@ -84,7 +87,7 @@ export function WriteReviewModal({
           text: 'Take Photo',
           onPress: async () => {
             const { status } = await ImagePicker.requestCameraPermissionsAsync();
-            
+
             if (status !== 'granted') {
               Alert.alert('Permission Needed', 'Please allow access to your camera.');
               return;
@@ -105,7 +108,7 @@ export function WriteReviewModal({
           text: 'Choose from Library',
           onPress: async () => {
             const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-            
+
             if (status !== 'granted') {
               Alert.alert('Permission Needed', 'Please allow access to your photo library.');
               return;
@@ -145,7 +148,11 @@ export function WriteReviewModal({
       presentationStyle="pageSheet"
       onRequestClose={handleClose}
     >
-      <View style={styles.container}>
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      >
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
@@ -155,10 +162,12 @@ export function WriteReviewModal({
           <View style={styles.placeholder} />
         </View>
 
-        <ScrollView 
+        <ScrollView
+          ref={scrollViewRef}
           style={styles.content}
           contentContainerStyle={styles.contentContainer}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
           {/* Spot Name */}
           <ThemedText style={styles.spotName}>{spotName}</ThemedText>
@@ -178,8 +187,8 @@ export function WriteReviewModal({
             <ThemedText style={styles.label}>Your Rating *</ThemedText>
             <View style={styles.starsContainer}>
               {[1, 2, 3, 4, 5].map((star) => (
-                <TouchableOpacity 
-                  key={star} 
+                <TouchableOpacity
+                  key={star}
                   onPress={() => setRating(star)}
                   style={styles.starButton}
                 >
@@ -213,6 +222,12 @@ export function WriteReviewModal({
               multiline
               numberOfLines={6}
               textAlignVertical="top"
+              onFocus={() => {
+                // Scroll down after a short delay so the keyboard has time to appear
+                setTimeout(() => {
+                  scrollViewRef.current?.scrollToEnd({ animated: true });
+                }, 300);
+              }}
             />
           </View>
 
@@ -220,12 +235,12 @@ export function WriteReviewModal({
           <View style={styles.section}>
             <ThemedText style={styles.label}>Photos (Optional)</ThemedText>
             <ThemedText style={styles.hint}>Add up to 5 photos</ThemedText>
-            
+
             <View style={styles.photosContainer}>
               {photos.map((photo, index) => (
                 <View key={index} style={styles.photoItem}>
                   <Image source={{ uri: photo }} style={styles.photoPreview} />
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={styles.removePhotoButton}
                     onPress={() => handleRemovePhoto(index)}
                   >
@@ -233,9 +248,9 @@ export function WriteReviewModal({
                   </TouchableOpacity>
                 </View>
               ))}
-              
+
               {photos.length < 5 && (
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={styles.addPhotoButton}
                   onPress={handleAddPhoto}
                 >
@@ -245,11 +260,14 @@ export function WriteReviewModal({
               )}
             </View>
           </View>
+
+          {/* Extra padding so content isn't hidden behind footer */}
+          <View style={{ height: 20 }} />
         </ScrollView>
 
         {/* Submit Button */}
         <View style={styles.footer}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[
               styles.submitButton,
               (rating === 0 || charCount < minChars || submitting) && styles.submitButtonDisabled
@@ -267,7 +285,7 @@ export function WriteReviewModal({
             )}
           </TouchableOpacity>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
