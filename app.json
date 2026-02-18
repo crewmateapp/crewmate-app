@@ -3,7 +3,7 @@
     "name": "CrewMate",
     "slug": "CrewMate-App",
     "owner": "crewmate-app",
-    "version": "1.1.3",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "crewmateapp",
@@ -12,7 +12,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.crewmateapp.CrewMateApp",
-      "buildNumber": "19",
+      "buildNumber": "20",
       "config": {
         "googleMapsApiKey": "AIzaSyAo_wJxot0rxpjXZmxP3a_aYjIaT5W6TbU"
       },
@@ -31,7 +31,7 @@
       ]
     },
     "android": {
-      "versionCode": 15,
+      "versionCode": 16,
       "config": {
         "googleMaps": {
           "apiKey": "AIzaSyD9SoERup6vjlVnlVvG89Bz2-YrZXGnMkI"

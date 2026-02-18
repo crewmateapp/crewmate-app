@@ -227,7 +227,7 @@ export default function SettingsScreen() {
 
             <TouchableOpacity 
               style={styles.settingItem}
-              onPress={() => openURL('https://crewmate.beehiiv.com/privacy-policy')}
+              onPress={() => openURL('https://crewmateapp.dev/privacy')}
             >
               <View style={styles.settingInfo}>
                 <Ionicons name="shield-outline" size={20} color={colors.text.primary} />
@@ -272,7 +272,7 @@ export default function SettingsScreen() {
           <View style={[styles.settingCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <TouchableOpacity 
               style={styles.settingItem}
-              onPress={() => openURL('https://crewmate.beehiiv.com/privacy-policy')}
+              onPress={() => openURL('https://crewmateapp.dev/privacy')}
             >
               <View style={styles.settingInfo}>
                 <Ionicons name="document-text-outline" size={20} color={colors.text.primary} />
@@ -285,7 +285,7 @@ export default function SettingsScreen() {
 
             <TouchableOpacity 
               style={styles.settingItem}
-              onPress={() => openURL('https://crewmate.beehiiv.com/crewmate-terms-of-service')}
+              onPress={() => openURL('https://crewmateapp.dev/terms')}
             >
               <View style={styles.settingInfo}>
                 <Ionicons name="document-text-outline" size={20} color={colors.text.primary} />
@@ -298,7 +298,7 @@ export default function SettingsScreen() {
 
             <TouchableOpacity 
               style={styles.settingItem}
-              onPress={() => openURL('https://crewmate.beehiiv.com/crewmate-community-guidelines')}
+              onPress={() => openURL('https://crewmateapp.dev/community-guidelines')}
             >
               <View style={styles.settingInfo}>
                 <Ionicons name="people-outline" size={20} color={colors.text.primary} />
@@ -311,7 +311,7 @@ export default function SettingsScreen() {
 
             <TouchableOpacity 
               style={styles.settingItem}
-              onPress={() => openURL('https://crewmate.beehiiv.com/untitledcrewmate-faq---help')}
+              onPress={() => openURL('https://crewmateapp.dev/faq')}
             >
               <View style={styles.settingInfo}>
                 <Ionicons name="help-circle-outline" size={20} color={colors.text.primary} />

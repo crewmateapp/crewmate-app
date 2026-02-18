@@ -18,7 +18,6 @@ import {
   Modal,
   Platform,
   ScrollView,
-  Share,
   StyleSheet,
   TouchableOpacity,
   View,
@@ -119,20 +118,8 @@ Device: ${Platform.OS} ${Platform.Version}
     }
   };
 
-  const handleInviteCrew = async () => {
-    onClose();
-    
-    try {
-      const referralLink = `crewmateapp://refer/${user?.uid}`;
-      const inviteMessage = `Hey crew! I'm on CrewMate — the app built by and for airline crew. Join using my link and we can connect during layovers:\n\n${referralLink}`;
-      
-      await Share.share({
-        message: inviteMessage,
-        title: 'Join me on CrewMate!',
-      });
-    } catch (error) {
-      console.error('Error sharing:', error);
-    }
+  const handleInviteCrew = () => {
+    handleNavigation('/invite-crew');
   };
 
   const handleAboutCrewMate = () => {
@@ -148,13 +135,13 @@ Device: ${Platform.OS} ${Platform.Version}
         {
           text: 'Privacy Policy',
           onPress: () => {
-            Linking.openURL('https://crewmate.beehiiv.com/privacy-policy');
+            Linking.openURL('https://crewmateapp.dev/privacy');
           }
         },
         {
           text: 'Learn More',
           onPress: () => {
-            Linking.openURL('https://crewmate.beehiiv.com');
+            Linking.openURL('https://crewmateapp.dev');
           }
         },
         { text: 'Close', style: 'cancel' }
@@ -331,7 +318,7 @@ Device: ${Platform.OS} ${Platform.Version}
                 style={styles.menuItem}
                 onPress={() => {
                   onClose();
-                  Linking.openURL('https://crewmate.beehiiv.com/untitledcrewmate-faq---help');
+                  Linking.openURL('https://crewmateapp.dev/faq');
                 }}
               >
                 <Ionicons name="help-circle-outline" size={24} color={colors.text.primary} />
