@@ -397,7 +397,7 @@ export default function CrewfiesFeed({ initialLimit }: CrewfiesFeedProps) {
     : posts.slice(0, initialLimit);
 
   // If initialLimit is set, use View with map() to avoid FlatList nesting
-  if (initialLimit && !showingAll) {
+  if (initialLimit) {
     return (
       <View>
         <View style={styles.feedContent}>

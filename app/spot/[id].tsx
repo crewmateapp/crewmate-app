@@ -24,6 +24,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  increment,
   onSnapshot,
   query,
   serverTimestamp,
@@ -374,6 +375,15 @@ export default function SpotDetailScreen() {
         city: spot.city,
         rating: rating,
         createdAt: serverTimestamp(),
+      });
+
+      // Increment user's reviewsWritten stat
+      await updateDoc(doc(db, 'users', user.uid), {
+        'stats.reviewsWritten': increment(1),
+        // Also increment photosUploaded if they included photos
+        ...(uploadedPhotoURLs.length > 0 && {
+          'stats.photosUploaded': increment(uploadedPhotoURLs.length)
+        })
       });
 
       Alert.alert('Thanks!', 'Your review has been posted.');

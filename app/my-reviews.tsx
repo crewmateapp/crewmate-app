@@ -11,8 +11,10 @@ import {
     deleteDoc,
     doc,
     getDocs,
+    increment,
     onSnapshot,
     query,
+    updateDoc,
     where,
 } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
@@ -116,6 +118,15 @@ export default function MyReviewsScreen() {
           onPress: async () => {
             try {
               await deleteDoc(doc(db, 'reviews', review.id));
+              
+              // Decrement user's reviewsWritten stat (and photos if applicable)
+              await updateDoc(doc(db, 'users', user!.uid), {
+                'stats.reviewsWritten': increment(-1),
+                // Also decrement photosUploaded if the review had photos
+                ...(review.photos.length > 0 && {
+                  'stats.photosUploaded': increment(-review.photos.length)
+                })
+              });
               
               // Also delete the activity
               const activitiesQuery = query(

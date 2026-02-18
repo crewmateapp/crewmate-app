@@ -1,6 +1,6 @@
 /**
  * CrewMate Badge System
- * Defines all 45 badges across 4 categories: Founder, Travel, Community, Experience
+ * Defines all 49 badges across 4 categories: Founder, Travel, Community, Experience
  */
 
 export interface Badge {
@@ -204,7 +204,7 @@ const TRAVEL_BADGES: Badge[] = [
 ];
 
 // ============================================================================
-// COMMUNITY BADGES (14)
+// COMMUNITY BADGES (18)
 // ============================================================================
 
 const COMMUNITY_BADGES: Badge[] = [
@@ -319,6 +319,64 @@ const COMMUNITY_BADGES: Badge[] = [
     automated: true,
   },
   
+  // Recruiter Series (4 tiers) — Referral badges
+  {
+    id: 'recruiter_1',
+    name: 'The Connector',
+    category: 'community',
+    description: 'Brought your first fellow crew member to CrewMate',
+    requirement: 'Successfully refer 1 crew member',
+    rarity: 'uncommon',
+    icon: 'person-add',
+    color: '#34C759', // Green
+    cmsValue: 50,
+    hidden: false,
+    automated: true,
+    special: 'A referral is successful when the referred crew member verifies their email and uploads a profile photo.',
+  },
+  {
+    id: 'recruiter_5',
+    name: 'The Recruiter',
+    category: 'community',
+    description: 'Built up a solid crew — 5 members brought in',
+    requirement: 'Successfully refer 5 crew members',
+    rarity: 'rare',
+    icon: 'people-add',
+    color: '#007AFF', // Blue
+    cmsValue: 150,
+    hidden: false,
+    automated: true,
+    special: 'A referral is successful when the referred crew member verifies their email and uploads a profile photo.',
+  },
+  {
+    id: 'recruiter_15',
+    name: 'Crew Builder',
+    category: 'community',
+    description: 'A true ambassador — 15 crew members brought aboard',
+    requirement: 'Successfully refer 15 crew members',
+    rarity: 'epic',
+    icon: 'shield',
+    color: '#AF52DE', // Purple
+    cmsValue: 300,
+    hidden: false,
+    automated: true,
+    special: 'A referral is successful when the referred crew member verifies their email and uploads a profile photo.',
+  },
+  {
+    id: 'recruiter_25',
+    name: 'Legend of the Crew',
+    category: 'community',
+    description: 'You\'ve built something special — 25 crew members and counting. The crew knows your name.',
+    requirement: 'Successfully refer 25 crew members',
+    rarity: 'legendary',
+    icon: 'trophy',
+    color: '#F4C430', // Gold
+    cmsValue: 500,
+    hidden: true, // Secret badge — doesn't show until earned
+    automated: true,
+    special: 'Hidden badge. Unlocking this badge also earns a $25 Amazon gift card reward. Claim via the badge detail screen.',
+  },
+
   // Special Community Badges
   {
     id: 'welcomer',
@@ -675,4 +733,19 @@ export function getBadgeCountByCategory(): Record<Badge['category'], number> {
  */
 export function getTotalBadgeCount(): number {
   return ALL_BADGES.length;
+}
+
+/**
+ * Get all recruiter (referral) badges in order
+ */
+export function getRecruiterBadges(): Badge[] {
+  return ALL_BADGES.filter(badge => badge.id.startsWith('recruiter_'));
+}
+
+/**
+ * Check if a badge has a claimable reward (e.g. gift card)
+ * Currently only recruiter_25 has a reward
+ */
+export function hasClaimableReward(badgeId: string): boolean {
+  return badgeId === 'recruiter_25';
 }

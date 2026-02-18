@@ -8,7 +8,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { db, auth } from '../config/firebase';
 import { Ionicons } from '@expo/vector-icons';
 import { ThemedView } from '@/components/themed-view';
@@ -50,24 +50,48 @@ export default function CitiesVisitedScreen() {
       const userData = userDoc.data();
       setViewingUser({ id: userDoc.id, ...userData });
 
-      // Extract cities from checkInStats
-      const checkInStats = userData.checkInStats || {};
-      const citiesData = checkInStats.cities || {};
+      // ===== UPDATED: Read from visitedCities array =====
+      const visitedCities = userData.visitedCities || [];
+      
+      if (visitedCities.length === 0) {
+        setCities([]);
+        setLoading(false);
+        return;
+      }
 
-      // Convert cities object to array and sort by visit count
-      const citiesArray: CityData[] = Object.entries(citiesData)
-        .map(([cityStateKey, data]: [string, any]) => {
-          // Parse "City, State" format
-          const [cityName, state] = cityStateKey.split(', ');
-          
-          return {
-            cityName: cityName || cityStateKey,
-            state: state || '',
-            visitCount: data.count || 0,
-            lastVisit: data.lastVisit?.toDate() || null,
-          };
-        })
-        .sort((a, b) => b.visitCount - a.visitCount); // Most visited first
+      // For each city, get layover data to calculate visit counts
+      const citiesArray: CityData[] = [];
+      
+      for (const cityName of visitedCities) {
+        // Get all layovers for this city
+        const layoversQuery = query(
+          collection(db, 'layovers'),
+          where('userId', '==', targetUserId),
+          where('city', '==', cityName)
+        );
+        
+        const layoversSnap = await getDocs(layoversQuery);
+        const visitCount = layoversSnap.size;
+        
+        // Find most recent visit
+        let lastVisit: Date | null = null;
+        layoversSnap.docs.forEach(doc => {
+          const checkedInAt = doc.data().checkedInAt?.toDate();
+          if (checkedInAt && (!lastVisit || checkedInAt > lastVisit)) {
+            lastVisit = checkedInAt;
+          }
+        });
+        
+        citiesArray.push({
+          cityName: cityName,
+          state: '', // Can parse from city name if it has ", ST" format
+          visitCount,
+          lastVisit,
+        });
+      }
+      
+      // Sort by visit count
+      citiesArray.sort((a, b) => b.visitCount - a.visitCount);
 
       setCities(citiesArray);
     } catch (error) {
@@ -145,18 +169,18 @@ export default function CitiesVisitedScreen() {
             )}
           </View>
 
-          {/* Visit Count */}
-          <View style={styles.visitBadge}>
-            <Text style={styles.visitCount}>{city.visitCount}</Text>
-            <Text style={styles.visitLabel}>
-              {city.visitCount === 1 ? 'visit' : 'visits'}
-            </Text>
+          {/* Visit Count + Last Visit - Stacked vertically */}
+          <View style={styles.visitInfoContainer}>
+            <View style={styles.visitBadge}>
+              <Text style={styles.visitCount}>{city.visitCount}</Text>
+              <Text style={styles.visitLabel}>
+                {city.visitCount === 1 ? 'visit' : 'visits'}
+              </Text>
+            </View>
+            {city.lastVisit && (
+              <Text style={styles.lastVisit}>{formatLastVisit(city.lastVisit)}</Text>
+            )}
           </View>
-
-          {/* Last Visit */}
-          {city.lastVisit && (
-            <Text style={styles.lastVisit}>{formatLastVisit(city.lastVisit)}</Text>
-          )}
         </View>
 
         {/* Chevron */}
@@ -506,9 +530,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
   },
+  visitInfoContainer: {
+    alignItems: 'flex-end',
+    gap: 4,
+  },
   visitBadge: {
     alignItems: 'flex-end',
-    marginRight: 12,
   },
   visitCount: {
     fontSize: 20,
@@ -522,9 +549,6 @@ const styles = StyleSheet.create({
   lastVisit: {
     fontSize: 12,
     color: '#999',
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
   },
   emptyState: {
     flex: 1,

@@ -19,10 +19,12 @@ import * as Location from 'expo-location';
 import { router } from 'expo-router';
 import {
   addDoc,
+  arrayUnion,
   collection,
   doc,
   getDoc,
   getDocs,
+  increment,
   onSnapshot,
   orderBy,
   query,
@@ -276,10 +278,25 @@ export default function MyLayoverScreen() {
               return endDate >= now; // Keep only non-expired
             });
             
+            // Update user document
             await updateDoc(doc(db, 'users', user.uid), {
               currentLayover: null,
               upcomingLayovers: cleanedUpcomingLayovers
             });
+            
+            // ALSO set the layover document to inactive
+            const layoverQuery = query(
+              collection(db, 'layovers'),
+              where('userId', '==', user.uid),
+              where('isActive', '==', true)
+            );
+            const layoverSnap = await getDocs(layoverQuery);
+            
+            for (const layoverDoc of layoverSnap.docs) {
+              await updateDoc(doc(db, 'layovers', layoverDoc.id), {
+                isActive: false
+              });
+            }
             
             Alert.alert(
               'Layover Expired',
@@ -375,8 +392,15 @@ export default function MyLayoverScreen() {
           l => l.id !== layoverToCheckIn.id
         );
 
+        // ===== TRACK CITY VISIT =====
+        const userRef = doc(db, 'users', user.uid);
+        const userSnap = await getDoc(userRef);
+        const userData = userSnap.data();
+        const visitedCities = userData?.visitedCities || [];
+        const isNewCity = !visitedCities.includes(layoverToCheckIn.city);
+
         // Auto check-in!
-        await updateDoc(doc(db, 'users', user.uid), {
+        await updateDoc(userRef, {
           currentLayover: {
             city: layoverToCheckIn.city,
             area: layoverToCheckIn.area,
@@ -387,6 +411,11 @@ export default function MyLayoverScreen() {
             updatedAt: Timestamp.now(),
           },
           upcomingLayovers: updatedUpcomingLayovers, // Remove from upcoming
+          // Add new city to visited cities if it's new
+          ...(isNewCity && {
+            visitedCities: arrayUnion(layoverToCheckIn.city),
+            'stats.citiesVisitedCount': increment(1)
+          })
         });
 
         // Update stats
@@ -825,7 +854,14 @@ export default function MyLayoverScreen() {
       // Remove from upcoming layovers list (you've checked in!)
       const updatedUpcomingLayovers = upcomingLayovers.filter(l => l.id !== layover.id);
 
-      await updateDoc(doc(db, 'users', user.uid), {
+      // ===== TRACK CITY VISIT =====
+      const userRef = doc(db, 'users', user.uid);
+      const userSnap = await getDoc(userRef);
+      const userData = userSnap.data();
+      const visitedCities = userData?.visitedCities || [];
+      const isNewCity = !visitedCities.includes(layover.city);
+
+      await updateDoc(userRef, {
         currentLayover: {
           city: layover.city,
           area: layover.area,
@@ -836,16 +872,17 @@ export default function MyLayoverScreen() {
           expiresAt: expiresAt,
         },
         upcomingLayovers: updatedUpcomingLayovers, // Remove this layover from upcoming
+        // Add new city to visited cities if it's new
+        ...(isNewCity && {
+          visitedCities: arrayUnion(layover.city),
+          'stats.citiesVisitedCount': increment(1)
+        })
       });
 
       // ✨ ENGAGEMENT: Track check-in stats ONLY if first check-in today
       if (isFirstCheckInToday) {
         try {
-          // Check if this is a new city for the user
-          const userDoc = await getDoc(doc(db, 'users', user.uid));
-          const cityCheckIns = userDoc.data()?.stats?.cityCheckIns || {};
-          const isNewCity = !cityCheckIns[layover.city] || cityCheckIns[layover.city] === 0;
-          
+          // isNewCity already calculated above
           await updateStatsForLayoverCheckIn(user.uid, layover.city, isNewCity);
           await updateCheckInStreak(user.uid);
         } catch (error) {
@@ -955,6 +992,20 @@ export default function MyLayoverScreen() {
                 currentLayover: null,
                 upcomingLayovers: cleanedUpcomingLayovers
               });
+              
+              // ALSO set the layover document to inactive
+              const layoverQuery = query(
+                collection(db, 'layovers'),
+                where('userId', '==', user.uid),
+                where('isActive', '==', true)
+              );
+              const layoverSnap = await getDocs(layoverQuery);
+              
+              for (const layoverDoc of layoverSnap.docs) {
+                await updateDoc(doc(db, 'layovers', layoverDoc.id), {
+                  isActive: false
+                });
+              }
               
               // Show undo toast
               setShowUndoToast(true);
@@ -1178,7 +1229,7 @@ export default function MyLayoverScreen() {
         {
           text: 'Request City',
           onPress: async () => {
-            await notifyAdminsNewCityRequest(user?.uid || '', searchQuery);
+            await notifyAdminsNewCityRequest(`cityreq_${Date.now()}`, searchQuery, user?.uid || '', userFirstName || 'A crew member');
             Alert.alert('Request Sent!', "We'll review your request and add the city soon.");
             setPickerStep('closed');
           },

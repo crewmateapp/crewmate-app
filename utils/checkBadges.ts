@@ -8,7 +8,7 @@ import { Badge, ALL_BADGES, getAutomatedBadges } from '@/constants/BadgeDefiniti
 export interface UserStats {
   // Check-in stats
   totalCheckIns?: number;
-  layoversCompleted?: number; // NEW: Actually completed check-ins
+  layoversCompleted?: number; // Actually completed check-ins
   citiesVisited?: string[]; // Array of city names
   citiesVisitedCount?: number;
   continentCheckIns?: Record<string, number>; // Continent -> count
@@ -16,10 +16,10 @@ export interface UserStats {
   currentStreak?: number;
   longestStreak?: number;
   
-  // Plan stats - UPDATED
+  // Plan stats
   plansCreated?: number; // For tracking only (not used for badges)
-  plansCompleted?: number; // NEW: Actually completed plans (used for badges)
-  plansCompletedWithAttendees?: number; // NEW: Completed plans with 2+ attendees
+  plansCompleted?: number; // Actually completed plans (used for badges)
+  plansCompletedWithAttendees?: number; // Completed plans with 2+ attendees
   plansJoined?: number;
   
   // Old fields (deprecated but kept for migration)
@@ -39,6 +39,9 @@ export interface UserStats {
   nightPlans?: number; // Plans after 10pm
   morningPlans?: number; // Plans before 9am
   weekendPlans?: number; // Plans on Sat/Sun
+
+  // Referral stats
+  successfulReferrals?: number; // Number of referred users who completed signup + photo upload
 }
 
 /**
@@ -80,8 +83,8 @@ function checkBadgeRequirement(badge: Badge, stats: UserStats): boolean {
     continentCheckIns = {},
     cityCheckInCounts = {},
     currentStreak = 0,
-    plansCompleted = 0, // NEW: Use completed plans
-    plansCompletedWithAttendees = 0, // NEW: Use completed plans with attendees
+    plansCompleted = 0,
+    plansCompletedWithAttendees = 0,
     plansJoined = 0,
     connectionsCount = 0,
     reviewsWritten = 0,
@@ -91,6 +94,7 @@ function checkBadgeRequirement(badge: Badge, stats: UserStats): boolean {
     nightPlans = 0,
     morningPlans = 0,
     weekendPlans = 0,
+    successfulReferrals = 0,
   } = stats;
   
   switch (badge.id) {
@@ -142,8 +146,7 @@ function checkBadgeRequirement(badge: Badge, stats: UserStats): boolean {
     case 'social_butterfly_100':
       return connectionsCount >= 100;
     
-    // Plan Master Series (requires attendees)
-    // Plan Master Series - UPDATED to use completed plans
+    // Plan Master Series
     case 'plan_master_5':
       return plansCompletedWithAttendees >= 5;
     case 'plan_master_25':
@@ -159,10 +162,18 @@ function checkBadgeRequirement(badge: Badge, stats: UserStats): boolean {
     case 'review_guru_100':
       return reviewsWritten >= 100;
     
+    // Recruiter Series (Referral badges)
+    case 'recruiter_1':
+      return successfulReferrals >= 1;
+    case 'recruiter_5':
+      return successfulReferrals >= 5;
+    case 'recruiter_15':
+      return successfulReferrals >= 15;
+    case 'recruiter_25':
+      return successfulReferrals >= 25;
+
     // Spot Recommender Series
     case 'spot_recommender_5':
-      // This would need spotRecommendations stat (not in current schema)
-      // For now, return false until we add that tracking
       return false;
     case 'spot_recommender_25':
       return false;
@@ -250,7 +261,7 @@ export function getBadgeProgress(badge: Badge, stats: UserStats): string {
     continentCheckIns = {},
     currentStreak = 0,
     plansCompleted = 0,
-    plansCompletedWithAttendees = 0, // NEW: Use completed plans
+    plansCompletedWithAttendees = 0,
     connectionsCount = 0,
     reviewsWritten = 0,
     photosUploaded = 0,
@@ -258,6 +269,7 @@ export function getBadgeProgress(badge: Badge, stats: UserStats): string {
     nightPlans = 0,
     morningPlans = 0,
     weekendPlans = 0,
+    successfulReferrals = 0,
   } = stats;
   
   switch (badge.id) {
@@ -288,13 +300,23 @@ export function getBadgeProgress(badge: Badge, stats: UserStats): string {
     case 'social_butterfly_100':
       return `${connectionsCount}/100 connections`;
     
-    // Plans - UPDATED to use completed plans
+    // Plans
     case 'plan_master_5':
       return `${plansCompletedWithAttendees}/5 plans`;
     case 'plan_master_25':
       return `${plansCompletedWithAttendees}/25 plans`;
     case 'plan_master_100':
       return `${plansCompletedWithAttendees}/100 plans`;
+
+    // Recruiter Series
+    case 'recruiter_1':
+      return `${successfulReferrals}/1 referred`;
+    case 'recruiter_5':
+      return `${successfulReferrals}/5 referred`;
+    case 'recruiter_15':
+      return `${successfulReferrals}/15 referred`;
+    case 'recruiter_25':
+      return `${successfulReferrals}/25 referred`;
     
     default:
       return badge.requirement;
@@ -310,6 +332,7 @@ export function getBadgeCompletionPercent(badge: Badge, stats: UserStats): numbe
     citiesVisitedCount = 0,
     connectionsCount = 0,
     reviewsWritten = 0,
+    successfulReferrals = 0,
   } = stats;
   
   // Extract target number from badge requirement
@@ -329,6 +352,8 @@ export function getBadgeCompletionPercent(badge: Badge, stats: UserStats): numbe
     current = reviewsWritten;
   } else if (badge.id.includes('century') || badge.id.includes('veteran')) {
     current = totalCheckIns;
+  } else if (badge.id.includes('recruiter')) {
+    current = successfulReferrals;
   }
   
   return Math.min(100, Math.round((current / target) * 100));

@@ -3,10 +3,12 @@ import { ThemedView } from '@/components/themed-view';
 import { db, storage } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
-import { useCities } from '@/hooks/useCities';
 import { getAirlineFromEmail } from '@/data/airlines';
-import { Ionicons } from '@expo/vector-icons';
+import { useCities } from '@/hooks/useCities';
 import { notifyAdminsNewUser } from '@/utils/notifications';
+import { storeReferral, creditReferrer } from '@/utils/handleReferral';
+import { getPendingReferrer, clearPendingReferrer } from '@/utils/pendingReferral';
+import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { doc, setDoc } from 'firebase/firestore';
@@ -200,10 +202,26 @@ const uploadPhoto = async (): Promise<string | null> => {
         base: base,
         bio: bio.trim() || '',
         photoURL: photoURL,
-        createdAt: new Date().toISOString(),
         emailVerified: user.emailVerified,
         profileComplete: true,
+        }, { merge: true
       });
+
+      // ─── Referral: wire up the pending referrer ──────────────────────────
+      const referrerId = getPendingReferrer();
+      if (referrerId) {
+        console.log('🎁 Found pending referrer, storing:', referrerId);
+        await storeReferral(user.uid, referrerId);
+        clearPendingReferrer();
+
+        // If the user uploaded a photo during profile creation, that counts
+        // as a completed referral right now — credit the referrer immediately.
+        if (photoURL) {
+          console.log('🎁 User has photo from signup, crediting referrer now');
+          await creditReferrer(user.uid);
+        }
+      }
+      // ─────────────────────────────────────────────────────────────────────
 
       // Notify admins of new user signup
       await notifyAdminsNewUser(
@@ -369,7 +387,7 @@ const uploadPhoto = async (): Promise<string | null> => {
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator color={Colors.white} />
+                <ActivityIndicator color={Colors.White} />
               ) : (
                 <ThemedText style={styles.buttonText}>Complete Profile</ThemedText>
               )}
@@ -474,7 +492,7 @@ const styles = StyleSheet.create({
     fontSize: 32,
   },
   photoPlaceholderLabel: {
-    color: Colors.white,
+    color: Colors.White,
     fontSize: 14,
     marginTop: 5,
   },
@@ -495,7 +513,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 15,
     fontSize: 16,
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.White,
     color: Colors.text.primary,
   },
   textArea: {
@@ -521,7 +539,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 2,
     borderColor: Colors.border,
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.White,
   },
   positionButtonActive: {
     borderColor: Colors.primary,
@@ -533,14 +551,14 @@ const styles = StyleSheet.create({
     color: Colors.text.primary,
   },
   positionTextActive: {
-    color: Colors.white,
+    color: Colors.White,
   },
   pickerButton: {
     borderWidth: 1,
     borderColor: Colors.border,
     borderRadius: 12,
     padding: 15,
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.White,
   },
   pickerText: {
     fontSize: 16,
@@ -561,7 +579,7 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   buttonText: {
-    color: Colors.white,
+    color: Colors.White,
     fontSize: 18,
     fontWeight: '600',
   },
@@ -582,7 +600,7 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
     paddingTop: 60,
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.White,
   },
   modalHeader: {
     flexDirection: 'row',

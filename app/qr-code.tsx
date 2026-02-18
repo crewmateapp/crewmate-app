@@ -100,6 +100,19 @@ export default function QRCodeModal() {
     }
   };
 
+  // Share referral link to invite new crew to the app
+  const handleShareReferral = async () => {
+    try {
+      const referralLink = `crewmateapp://refer/${user?.uid}`;
+      await Share.share({
+        message: `Hey crew! I'm on CrewMate — the app built by and for airline crew. Join using my link and we can connect during layovers:\n\n${referralLink}`,
+        title: 'Join CrewMate',
+      });
+    } catch (error) {
+      console.error('Error sharing referral:', error);
+    }
+  };
+
   // Check if users are connected
   const checkConnection = async (userId1: string, userId2: string): Promise<boolean> => {
     const connectionsQuery = query(
@@ -488,6 +501,7 @@ export default function QRCodeModal() {
             </ThemedText>
           </View>
 
+          {/* Share My Code — connect with existing crew */}
           <TouchableOpacity style={styles.shareButton} onPress={handleShare}>
             <Ionicons name="share-outline" size={20} color={Colors.white} />
             <ThemedText style={styles.shareButtonText}>Share My Code</ThemedText>
@@ -496,6 +510,34 @@ export default function QRCodeModal() {
           <ThemedText style={styles.instructionText}>
             Have another crew member scan this code to connect!
           </ThemedText>
+
+          {/* Divider */}
+          <View style={styles.divider}>
+            <View style={styles.dividerLine} />
+            <ThemedText style={styles.dividerText}>or</ThemedText>
+            <View style={styles.dividerLine} />
+          </View>
+
+          {/* Invite Crew — referral flow for new users */}
+          <TouchableOpacity style={styles.inviteButton} onPress={handleShareReferral}>
+            <Ionicons name="person-add" size={20} color={Colors.primary} />
+            <ThemedText style={styles.inviteButtonText}>Invite Crew to CrewMate</ThemedText>
+          </TouchableOpacity>
+
+          <ThemedText style={styles.inviteSubtext}>
+            Earn badges when your crew joins!
+          </ThemedText>
+
+          {/* Link to full referral tracking screen */}
+          <TouchableOpacity
+            style={styles.trackingLink}
+            onPress={() => {
+              router.back();
+              router.push('/referrals');
+            }}
+          >
+            <ThemedText style={styles.trackingLinkText}>View Referral Progress →</ThemedText>
+          </TouchableOpacity>
         </View>
       ) : (
         <View style={styles.scanContainer}>
@@ -627,6 +669,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: Colors.text.secondary,
   },
+
+  // ── Share My Code button ─────────────────────────────────────────────────
   shareButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -638,7 +682,7 @@ const styles = StyleSheet.create({
     marginTop: 30,
   },
   shareButtonText: {
-    color: Colors.white,
+    color: Colors.White,
     fontSize: 16,
     fontWeight: '600',
   },
@@ -646,9 +690,66 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.text.secondary,
     textAlign: 'center',
-    marginTop: 30,
+    marginTop: 12,
     paddingHorizontal: 40,
   },
+
+  // ── Divider ──────────────────────────────────────────────────────────────
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    marginTop: 28,
+    marginBottom: 20,
+    gap: 12,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: Colors.border,
+  },
+  dividerText: {
+    fontSize: 13,
+    color: Colors.text.secondary,
+    fontWeight: '500',
+  },
+
+  // ── Invite Crew button ───────────────────────────────────────────────────
+  inviteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: Colors.primary + '12',
+    borderWidth: 1.5,
+    borderColor: Colors.primary,
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  inviteButtonText: {
+    color: Colors.primary,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  inviteSubtext: {
+    fontSize: 13,
+    color: Colors.text.secondary,
+    textAlign: 'center',
+    marginTop: 8,
+  },
+
+  // ── Referral tracking link ───────────────────────────────────────────────
+  trackingLink: {
+    marginTop: 16,
+    paddingVertical: 6,
+  },
+  trackingLinkText: {
+    fontSize: 14,
+    color: Colors.primary,
+    fontWeight: '600',
+  },
+
+  // ── Scan tab ─────────────────────────────────────────────────────────────
   scanContainer: {
     flex: 1,
     position: 'relative',

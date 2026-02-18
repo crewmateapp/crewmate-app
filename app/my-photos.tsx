@@ -35,29 +35,83 @@ export default function MyPhotosScreen() {
       if (!user) return;
 
       try {
-        const activitiesQuery = query(
-          collection(db, 'activities'),
-          where('userId', '==', user.uid),
-          where('type', '==', 'photo_posted'),
-          orderBy('createdAt', 'desc')
+        const allPhotos: Photo[] = [];
+
+        // ===== 1. Get photos from user's REVIEWS =====
+        const reviewsQuery = query(
+          collection(db, 'reviews'),
+          where('userId', '==', user.uid)
         );
         
-        const activitiesSnapshot = await getDocs(activitiesQuery);
-        const fetchedPhotos: Photo[] = [];
-
-        activitiesSnapshot.docs.forEach(doc => {
-          const data = doc.data();
-          fetchedPhotos.push({
-            id: doc.id,
-            photoURL: data.photoURL,
-            spotId: data.spotId,
-            spotName: data.spotName,
-            city: data.city,
-            createdAt: data.createdAt,
+        const reviewsSnapshot = await getDocs(reviewsQuery);
+        
+        for (const reviewDoc of reviewsSnapshot.docs) {
+          const reviewData = reviewDoc.data();
+          const reviewPhotos = reviewData.photos || [];
+          
+          // Get spot name and city
+          let spotName = 'Unknown Spot';
+          let spotCity = '';
+          let spotId = reviewData.spotId;
+          
+          try {
+            const spotDoc = await getDocs(
+              query(collection(db, 'spots'), where('__name__', '==', reviewData.spotId))
+            );
+            if (!spotDoc.empty) {
+              spotName = spotDoc.docs[0].data().name || 'Unknown Spot';
+              spotCity = spotDoc.docs[0].data().city || '';
+            }
+          } catch (error) {
+            console.error('Error fetching spot:', error);
+          }
+          
+          // Add each photo from this review
+          reviewPhotos.forEach((photoURL: string) => {
+            allPhotos.push({
+              id: `${reviewDoc.id}-${photoURL}`,
+              photoURL: photoURL,
+              spotId: spotId,
+              spotName: spotName,
+              city: spotCity,
+              createdAt: reviewData.createdAt,
+            });
           });
+        }
+
+        // ===== 2. Get photos from user's APPROVED SPOTS =====
+        const spotsQuery = query(
+          collection(db, 'spots'),
+          where('addedBy', '==', user.uid),
+          where('status', '==', 'approved')
+        );
+        
+        const spotsSnapshot = await getDocs(spotsQuery);
+        
+        for (const spotDoc of spotsSnapshot.docs) {
+          const spotData = spotDoc.data();
+          const spotPhotos = spotData.photoURLs || spotData.photos || [];
+          
+          // Add each photo from this spot
+          spotPhotos.forEach((photoURL: string) => {
+            allPhotos.push({
+              id: `${spotDoc.id}-${photoURL}`,
+              photoURL: photoURL,
+              spotId: spotDoc.id,
+              spotName: spotData.name || 'Unknown Spot',
+              city: spotData.city || '',
+              createdAt: spotData.createdAt,
+            });
+          });
+        }
+
+        // Sort by date (newest first)
+        allPhotos.sort((a, b) => {
+          if (!a.createdAt || !b.createdAt) return 0;
+          return b.createdAt.toMillis() - a.createdAt.toMillis();
         });
 
-        setPhotos(fetchedPhotos);
+        setPhotos(allPhotos);
       } catch (error) {
         console.error('Error fetching photos:', error);
       } finally {

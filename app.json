@@ -14,7 +14,7 @@
       "bundleIdentifier": "com.crewmateapp.CrewMateApp",
       "buildNumber": "19",
       "config": {
-        "googleMapsApiKey": "AIzaSyD9SoERup6vjlVnlVvG89Bz2-YrZXGnMkI"
+        "googleMapsApiKey": "AIzaSyAo_wJxot0rxpjXZmxP3a_aYjIaT5W6TbU"
       },
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
@@ -78,6 +78,16 @@
               "scheme": "https",
               "host": "www.crewmate.app",
               "pathPrefix": "/connect"
+            },
+            {
+              "scheme": "https",
+              "host": "crewmate.app",
+              "pathPrefix": "/refer"
+            },
+            {
+              "scheme": "https",
+              "host": "www.crewmate.app",
+              "pathPrefix": "/refer"
             }
           ],
           "category": [

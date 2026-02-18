@@ -123,7 +123,8 @@ Device: ${Platform.OS} ${Platform.Version}
     onClose();
     
     try {
-      const inviteMessage = `Hey! I've been using CrewMate to connect with other crew during layovers. It's built by crew, for crew. Check it out!\n\n🔗 Download: [App Store/Play Store link coming soon]\n\nUse my referral: ${user?.uid?.substring(0, 8)}`;
+      const referralLink = `crewmateapp://refer/${user?.uid}`;
+      const inviteMessage = `Hey crew! I'm on CrewMate — the app built by and for airline crew. Join using my link and we can connect during layovers:\n\n${referralLink}`;
       
       await Share.share({
         message: inviteMessage,

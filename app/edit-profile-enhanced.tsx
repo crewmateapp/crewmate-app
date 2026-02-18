@@ -2,14 +2,16 @@
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { db, storage } from '@/config/firebase';
+import { getAirlineFromEmail } from '@/data/airlines';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
+import { creditReferrer } from '@/utils/handleReferral';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -49,6 +51,11 @@ export default function EditProfileEnhancedScreen() {
   const [saving, setSaving] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
+  // Tracks what photoURL was when the profile was first loaded.
+  // If it was empty/null and the user uploads a photo, that's their first photo
+  // and we need to call creditReferrer().
+  const initialPhotoRef = useRef<string | null>(null);
+
   // Profile fields
   const [firstName, setFirstName] = useState('');
   const [lastInitial, setLastInitial] = useState('');
@@ -81,6 +88,9 @@ export default function EditProfileEnhancedScreen() {
         setBio(data.bio || '');
         setFavoriteCities(data.favoriteCities || []);
         setSelectedInterests(data.interests || []);
+
+        // Snapshot the initial photoURL so we can detect first-photo uploads
+        initialPhotoRef.current = data.photoURL || null;
       }
     } catch (error) {
       console.error('Error loading profile:', error);
@@ -119,7 +129,27 @@ export default function EditProfileEnhancedScreen() {
       const photoRef = ref(storage, `profilePhotos/${user.uid}`);
       await uploadBytes(photoRef, blob);
       const downloadURL = await getDownloadURL(photoRef);
+
+      // Update local state
       setPhotoURL(downloadURL);
+
+      // Persist photoURL to Firestore immediately — don't wait for Save.
+      // This is important for two reasons:
+      //   1. The referral system checks photoURL to determine if a referral is complete
+      //   2. Other crew can see the photo right away
+      await updateDoc(doc(db, 'users', user.uid), {
+        photoURL: downloadURL,
+      });
+
+      // ─── Referral: if this is the user's first photo, credit their referrer ──
+      if (!initialPhotoRef.current) {
+        console.log('🎁 First photo uploaded, checking for referrer to credit');
+        await creditReferrer(user.uid);
+        // Update the ref so we don't credit again if they change their photo
+        initialPhotoRef.current = downloadURL;
+      }
+      // ────────────────────────────────────────────────────────────────────────
+
     } catch (error) {
       console.error('Error uploading photo:', error);
       Alert.alert('Error', 'Failed to upload photo.');
@@ -299,12 +329,15 @@ export default function EditProfileEnhancedScreen() {
             <View style={[styles.inputGroup, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <ThemedText style={styles.inputLabel}>Airline</ThemedText>
               <TextInput
-                style={[styles.input, { color: colors.text.primary }]}
+                style={[styles.input, styles.inputLocked, { color: colors.text.secondary }]}
                 value={airline}
-                onChangeText={setAirline}
+                editable={false}
                 placeholder="Your airline"
                 placeholderTextColor={colors.text.secondary}
               />
+              <ThemedText style={[styles.lockedHint, { color: colors.text.secondary }]}>
+                Auto-detected from your airline email
+              </ThemedText>
             </View>
 
             <View style={[styles.inputGroup, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -500,6 +533,18 @@ const styles = StyleSheet.create({
   input: {
     fontSize: 16,
     paddingVertical: 4,
+  },
+  inputLocked: {
+    backgroundColor: '#f0f0f0',
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    opacity: 0.6,
+  },
+  lockedHint: {
+    fontSize: 11,
+    marginTop: 4,
   },
   textArea: {
     fontSize: 16,

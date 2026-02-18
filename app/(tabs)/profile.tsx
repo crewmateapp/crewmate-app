@@ -24,6 +24,16 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import {
+  notifyCrewfikeLike,
+  notifyCrewfieComment,
+  notifyPlanJoin,
+  notifyPlanMessage,
+  notifyPlanStarting,
+  notifyPlanCancel,
+  notifyNearbyCrewOnLayover,
+  notifyBadgeEarned,
+} from '@/utils/notifications';
 
 type UserProfile = {
   firstName: string;
@@ -38,6 +48,9 @@ type UserProfile = {
   favoriteCities?: string[];
   interests?: string[];
   
+  // Admin
+  adminRole?: string;
+
   // Engagement fields
   cms?: number;
   level?: string;
@@ -53,6 +66,7 @@ type UserProfile = {
     reviewsWritten?: number;
     photosUploaded?: number;
     connectionsCount?: number;
+    spotsAdded?: number;
   };
 };
 
@@ -200,6 +214,15 @@ export default function ProfileScreen() {
       },
     },
     {
+      icon: 'restaurant' as const,
+      label: 'Spots Added',
+      value: profile?.stats?.spotsAdded || 0,
+      color: '#FF2D55',
+      onPress: () => {
+        router.push('/my-spots');
+      },
+    },
+    {
       icon: 'star' as const,
       label: 'Reviews',
       value: profile?.stats?.reviewsWritten || 0,
@@ -214,7 +237,7 @@ export default function ProfileScreen() {
       value: profile?.stats?.photosUploaded || 0,
       color: '#5856D6',
       onPress: () => {
-        router.push('/photo-gallery');
+        router.push('/my-photos');
       },
     },
     {
@@ -353,6 +376,89 @@ export default function ProfileScreen() {
 
       {/* Stats Grid (Interactive) */}
       <StatsGrid stats={statsData} />
+
+      {/* Notification Test Panel — super admin only, TEMPORARY */}
+      {profile?.adminRole === 'super' && (
+        <View style={styles.testSection}>
+          <View style={styles.testHeader}>
+            <Ionicons name="bug" size={16} color="#FF9500" />
+            <Text style={styles.testHeaderText}>Notification Tests</Text>
+          </View>
+          <View style={styles.testButtonGrid}>
+            <TouchableOpacity
+              style={styles.testButton}
+              onPress={() => notifyCrewfikeLike(user!.uid, 'fake-liker-id', 'Johnny', 'fake-post-123', 'Sunset in CLT')}
+            >
+              <Ionicons name="heart" size={16} color="#FF3B30" />
+              <Text style={styles.testButtonText}>Like</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.testButton}
+              onPress={() => notifyCrewfieComment(user!.uid, 'fake-commenter-id', 'Johnny', 'fake-post-123', 'Great shot!')}
+            >
+              <Ionicons name="chat-bubble-sharp" size={16} color="#FF9500" />
+              <Text style={styles.testButtonText}>Comment</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.testButton}
+              onPress={() => notifyPlanJoin(user!.uid, 'fake-plan-123', 'Tacos Tonight', 'fake-joiner-id', 'Johnny')}
+            >
+              <Ionicons name="person-add" size={16} color="#8E44AD" />
+              <Text style={styles.testButtonText}>Plan Join</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.testButton}
+              onPress={() => notifyPlanMessage('fake-plan-123', 'Tacos Tonight', 'fake-sender-id', 'Johnny', 'On my way, be there in 10!', [user!.uid])}
+            >
+              <Ionicons name="chat-bubble" size={16} color="#8E44AD" />
+              <Text style={styles.testButtonText}>Plan Msg</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.testButton}
+              onPress={() => notifyPlanStarting('fake-plan-123', 'Tacos Tonight', 'Charlotte', 'fake-creator-id', [user!.uid])}
+            >
+              <Ionicons name="rocket" size={16} color="#8E44AD" />
+              <Text style={styles.testButtonText}>Plan Start</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.testButton}
+              onPress={() => notifyPlanCancel(user!.uid, 'fake-plan-123', 'Tacos Tonight', 'fake-canceler-id', 'Johnny')}
+            >
+              <Ionicons name="close-circle" size={16} color="#E74C3C" />
+              <Text style={styles.testButtonText}>Plan Cancel</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.testButton}
+              onPress={() => notifyNearbyCrewOnLayover(user!.uid, 'fake-nearby-id', 'Johnny', 'American Airlines', 'Charlotte')}
+            >
+              <Ionicons name="location" size={16} color="#4A90D9" />
+              <Text style={styles.testButtonText}>Nearby</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.testButton}
+              onPress={() => notifyBadgeEarned(user!.uid, 'badge-explorer', 'Explorer', 'Visited 5 cities')}
+            >
+              <Ionicons name="trophy" size={16} color="#F5A623" />
+              <Text style={styles.testButtonText}>Badge</Text>
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity
+            style={styles.testNotifCenterButton}
+            onPress={() => router.push('/notifications')}
+          >
+            <Ionicons name="notifications" size={16} color={Colors.primary} />
+            <Text style={styles.testNotifCenterText}>Open Notification Center</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Admin Section */}
       {isAdmin(user?.email) && (
@@ -634,5 +740,62 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: Colors.error,
+  },
+
+  // ── Notification Test Panel (super admin temp) ──
+  testSection: {
+    paddingHorizontal: 20,
+    marginTop: 24,
+  },
+  testHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 10,
+  },
+  testHeaderText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#FF9500',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  testButtonGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  testButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  testButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.text.primary,
+  },
+  testNotifCenterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    backgroundColor: `${Colors.primary}0A`,
+  },
+  testNotifCenterText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.primary,
   },
 });

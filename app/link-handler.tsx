@@ -1,6 +1,7 @@
 // app/+link-handler.tsx
-// This file handles incoming deep links to plans
+// This file handles incoming deep links to plans, connections, and referrals
 import { useAuth } from '@/contexts/AuthContext';
+import { setPendingReferrer } from '@/utils/pendingReferral';
 import * as Linking from 'expo-linking';
 import { router } from 'expo-router';
 import { useEffect } from 'react';
@@ -83,6 +84,30 @@ export default function LinkHandler() {
           console.log('⏳ User not logged in, redirecting to sign in first');
           // For now, navigate to sign in - they can try the link again after auth
           router.push('/auth/signin');
+        }
+      }
+    }
+
+    // Handle referral links: crewmateapp://refer/{referrerId}
+    // This is tapped by someone who doesn't have an account yet.
+    // We store the referrer ID so create-profile can pick it up after signup.
+    if (hostname === 'refer' && path) {
+      const referrerId = path.split('/')[0];
+
+      if (referrerId) {
+        console.log('🎁 Referral link received, referrer:', referrerId);
+
+        // Store the referrer ID — survives through signup → create-profile
+        setPendingReferrer(referrerId);
+
+        if (user) {
+          // Already signed in — edge case (existing user tapping a referral link).
+          // Nothing to do, they're already on the app.
+          console.log('📝 User already signed in, referral link ignored');
+        } else {
+          // Not signed in — send them to signup
+          console.log('➡️ Redirecting to signup');
+          router.push('/auth/signup');
         }
       }
     }

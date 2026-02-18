@@ -19,6 +19,9 @@ import { migrateCityData, type CityMigrationResult } from '@/utils/migrateCityDa
 import { migrateAirlineData } from '@/utils/migrateAirlineData';
 import { migrateUserNames } from '@/utils/migrateUserNames';
 import { migratePositionData } from '@/utils/migratePositionData';
+import { migrateCitiesVisited } from '@/utils/migrateCitiesVisited';
+import { migrateUserStats } from '@/utils/migrateUserStats';
+import { cleanupStuckLayovers } from '@/utils/cleanupStuckLayovers';
 import { SkylineManager } from '@/components/SkylineManager';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -28,6 +31,7 @@ import {
   deleteDoc,
   doc,
   getDocs,
+  increment,
   onSnapshot,
   query,
   serverTimestamp,
@@ -194,6 +198,18 @@ export default function AdminScreen() {
   // City Data Migration (lat/lng, names, etc.)
   const [migratingCityData, setMigratingCityData] = useState(false);
   const [cityDataMigrationResult, setCityDataMigrationResult] = useState<CityMigrationResult | null>(null);
+
+  // Cities Visited Migration
+  const [migratingCitiesVisited, setMigratingCitiesVisited] = useState(false);
+  const [citiesVisitedResult, setCitiesVisitedResult] = useState<any>(null);
+
+  // User Stats Migration (spots, reviews, photos)
+  const [migratingUserStats, setMigratingUserStats] = useState(false);
+  const [userStatsResult, setUserStatsResult] = useState<any>(null);
+
+  // Stuck Layover Cleanup
+  const [cleaningLayovers, setCleaningLayovers] = useState(false);
+  const [layoverCleanupResult, setLayoverCleanupResult] = useState<any>(null);
 
   // Analytics data
   const [stats, setStats] = useState({
@@ -694,8 +710,18 @@ export default function AdminScreen() {
             city: spot.city,
             createdAt: spot.createdAt || serverTimestamp(),
           });
+          
+          // Increment user's photosUploaded stat
+          await updateDoc(doc(db, 'users', spot.addedBy), {
+            'stats.photosUploaded': increment(photos.length)
+          });
         }
       }
+
+      // Increment user's spotsAdded stat
+      await updateDoc(doc(db, 'users', spot.addedBy), {
+        'stats.spotsAdded': increment(1)
+      });
 
       // Notify the user who submitted the spot
       await notifySpotApproved(spot.addedBy, spot.id, spot.name);
@@ -1861,6 +1887,117 @@ const handleFixOrphanedUsers = async () => {
     Alert.alert('Info', 'Migration feature - use Add City to add new cities');
   };
 
+  // Cities Visited Migration
+  const handleMigrateCitiesVisited = async () => {
+    Alert.alert(
+      'Backfill Cities Visited',
+      'This will calculate cities visited for all users based on their layover history. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Run Migration',
+          onPress: async () => {
+            setMigratingCitiesVisited(true);
+            setCitiesVisitedResult(null);
+            
+            try {
+              const result = await migrateCitiesVisited();
+              setCitiesVisitedResult(result);
+              
+              if (result.success) {
+                Alert.alert(
+                  'Success! ✅',
+                  `Updated ${result.updatedCount} users\nErrors: ${result.errorCount}\nTotal: ${result.totalUsers} users`
+                );
+              } else {
+                Alert.alert('Error', 'Migration failed. Check console for details.');
+              }
+            } catch (error) {
+              console.error('Migration error:', error);
+              Alert.alert('Error', 'Migration failed. Check console for details.');
+            } finally {
+              setMigratingCitiesVisited(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // User Stats Migration (spots, reviews, photos)
+  const handleMigrateUserStats = async () => {
+    Alert.alert(
+      'Backfill User Stats',
+      'This will count spots, reviews, and photos for all users. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Run Migration',
+          onPress: async () => {
+            setMigratingUserStats(true);
+            setUserStatsResult(null);
+            
+            try {
+              const result = await migrateUserStats();
+              setUserStatsResult(result);
+              
+              if (result.success) {
+                Alert.alert(
+                  'Success! ✅',
+                  `Updated ${result.updatedCount} users\nErrors: ${result.errorCount}\nTotal: ${result.totalUsers} users`
+                );
+              } else {
+                Alert.alert('Error', 'Migration failed. Check console for details.');
+              }
+            } catch (error) {
+              console.error('Migration error:', error);
+              Alert.alert('Error', 'Migration failed. Check console for details.');
+            } finally {
+              setMigratingUserStats(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // Stuck Layover Cleanup
+  const handleCleanupStuckLayovers = async () => {
+    Alert.alert(
+      'Clean Up Stuck Layovers',
+      'This will fix layovers that are marked as active but should be inactive. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clean Up',
+          onPress: async () => {
+            setCleaningLayovers(true);
+            setLayoverCleanupResult(null);
+            
+            try {
+              const result = await cleanupStuckLayovers();
+              setLayoverCleanupResult(result);
+              
+              if (result.success) {
+                Alert.alert(
+                  'Success! ✅',
+                  `Fixed ${result.fixedCount} stuck layovers\nStill active: ${result.stillActiveCount}\nErrors: ${result.errorCount}`
+                );
+              } else {
+                Alert.alert('Error', 'Cleanup failed. Check console for details.');
+              }
+            } catch (error) {
+              console.error('Cleanup error:', error);
+              Alert.alert('Error', 'Cleanup failed. Check console for details.');
+            } finally {
+              setCleaningLayovers(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   if (loading || roleLoading) {
     return (
       <ThemedView style={styles.container}>
@@ -2880,6 +3017,144 @@ const handleFixOrphanedUsers = async () => {
                   <ThemedText style={[styles.cardTitle, { color: '#721C24' }]}>❌ Migration Failed</ThemedText>
                   <ThemedText style={[styles.cardDescription, { color: '#721C24' }]}>
                     {betaBadgeResult.error}
+                  </ThemedText>
+                </View>
+              )}
+            </View>
+            
+            {/* Cities Visited Migration Card */}
+            <View style={[styles.card, { marginTop: 20, backgroundColor: '#E8F5E9', borderColor: '#4CAF50' }]}>
+              <ThemedText style={[styles.cardTitle, { color: '#1B5E20' }]}>📍 Backfill Cities Visited</ThemedText>
+              <ThemedText style={[styles.cardDescription, { color: '#1B5E20' }]}>
+                Calculate cities visited count for all users based on their layover history. This will:{'\n'}
+                • Count unique cities from all layovers{'\n'}
+                • Update visitedCities array{'\n'}
+                • Update stats.citiesVisitedCount{'\n'}
+                • Enable the Cities stat on profile pages{'\n'}
+                {'\n'}
+                ✅ Safe to run multiple times - only updates missing data.
+              </ThemedText>
+              
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: '#4CAF50' }, migratingCitiesVisited && styles.buttonDisabled]}
+                onPress={handleMigrateCitiesVisited}
+                disabled={migratingCitiesVisited}
+              >
+                {migratingCitiesVisited ? (
+                  <ActivityIndicator color={Colors.white} />
+                ) : (
+                  <ThemedText style={styles.buttonText}>🗺️ Calculate Cities Visited</ThemedText>
+                )}
+              </TouchableOpacity>
+              
+              {citiesVisitedResult && citiesVisitedResult.success && (
+                <View style={[styles.card, { marginTop: 16, backgroundColor: '#D4EDDA', borderColor: '#28A745' }]}>
+                  <ThemedText style={[styles.cardTitle, { color: '#155724' }]}>✅ Migration Complete!</ThemedText>
+                  <ThemedText style={[styles.cardDescription, { color: '#155724' }]}>
+                    • Users updated: {citiesVisitedResult.updatedCount}{'\n'}
+                    • Total users: {citiesVisitedResult.totalUsers}{'\n'}
+                    • Errors: {citiesVisitedResult.errorCount}
+                  </ThemedText>
+                </View>
+              )}
+              
+              {citiesVisitedResult && !citiesVisitedResult.success && (
+                <View style={[styles.card, { marginTop: 16, backgroundColor: '#F8D7DA', borderColor: '#DC3545' }]}>
+                  <ThemedText style={[styles.cardTitle, { color: '#721C24' }]}>❌ Migration Failed</ThemedText>
+                  <ThemedText style={[styles.cardDescription, { color: '#721C24' }]}>
+                    Check console for details.
+                  </ThemedText>
+                </View>
+              )}
+            </View>
+            
+            {/* User Stats Migration Card - Spots, Reviews, Photos */}
+            <View style={[styles.card, { marginTop: 20, backgroundColor: '#FFF3E0', borderColor: '#FF9800' }]}>
+              <ThemedText style={[styles.cardTitle, { color: '#E65100' }]}>📊 Backfill Profile Stats</ThemedText>
+              <ThemedText style={[styles.cardDescription, { color: '#E65100' }]}>
+                Count spots, reviews, and photos for all users to populate profile stats. This will:{'\n'}
+                • Count approved spots added by each user{'\n'}
+                • Count reviews written by each user{'\n'}
+                • Count photos uploaded by each user{'\n'}
+                • Update stats.spotsAdded, stats.reviewsWritten, stats.photosUploaded{'\n'}
+                {'\n'}
+                ✅ Safe to run multiple times - recalculates accurate counts.
+              </ThemedText>
+              
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: '#FF9800' }, migratingUserStats && styles.buttonDisabled]}
+                onPress={handleMigrateUserStats}
+                disabled={migratingUserStats}
+              >
+                {migratingUserStats ? (
+                  <ActivityIndicator color={Colors.white} />
+                ) : (
+                  <ThemedText style={styles.buttonText}>📈 Calculate Profile Stats</ThemedText>
+                )}
+              </TouchableOpacity>
+              
+              {userStatsResult && userStatsResult.success && (
+                <View style={[styles.card, { marginTop: 16, backgroundColor: '#D4EDDA', borderColor: '#28A745' }]}>
+                  <ThemedText style={[styles.cardTitle, { color: '#155724' }]}>✅ Migration Complete!</ThemedText>
+                  <ThemedText style={[styles.cardDescription, { color: '#155724' }]}>
+                    • Users updated: {userStatsResult.updatedCount}{'\n'}
+                    • Total users: {userStatsResult.totalUsers}{'\n'}
+                    • Errors: {userStatsResult.errorCount}
+                  </ThemedText>
+                </View>
+              )}
+              
+              {userStatsResult && !userStatsResult.success && (
+                <View style={[styles.card, { marginTop: 16, backgroundColor: '#F8D7DA', borderColor: '#DC3545' }]}>
+                  <ThemedText style={[styles.cardTitle, { color: '#721C24' }]}>❌ Migration Failed</ThemedText>
+                  <ThemedText style={[styles.cardDescription, { color: '#721C24' }]}>
+                    Check console for details.
+                  </ThemedText>
+                </View>
+              )}
+            </View>
+            
+            {/* Stuck Layover Cleanup Card */}
+            <View style={[styles.card, { marginTop: 20, backgroundColor: '#FFF3E0', borderColor: '#FF5722' }]}>
+              <ThemedText style={[styles.cardTitle, { color: '#BF360C' }]}>🧹 Clean Up Stuck Layovers</ThemedText>
+              <ThemedText style={[styles.cardDescription, { color: '#BF360C' }]}>
+                Fix layovers that are marked as active but should be inactive. This will:{'\n'}
+                • Find all active layovers{'\n'}
+                • Check if user is still checked in{'\n'}
+                • Check if layover has expired{'\n'}
+                • Set stuck layovers to isActive: false{'\n'}
+                {'\n'}
+                ✅ Safe to run anytime - only fixes stuck layovers.
+              </ThemedText>
+              
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: '#FF5722' }, cleaningLayovers && styles.buttonDisabled]}
+                onPress={handleCleanupStuckLayovers}
+                disabled={cleaningLayovers}
+              >
+                {cleaningLayovers ? (
+                  <ActivityIndicator color={Colors.white} />
+                ) : (
+                  <ThemedText style={styles.buttonText}>🧹 Clean Up Layovers</ThemedText>
+                )}
+              </TouchableOpacity>
+              
+              {layoverCleanupResult && layoverCleanupResult.success && (
+                <View style={[styles.card, { marginTop: 16, backgroundColor: '#D4EDDA', borderColor: '#28A745' }]}>
+                  <ThemedText style={[styles.cardTitle, { color: '#155724' }]}>✅ Cleanup Complete!</ThemedText>
+                  <ThemedText style={[styles.cardDescription, { color: '#155724' }]}>
+                    • Fixed stuck layovers: {layoverCleanupResult.fixedCount}{'\n'}
+                    • Still active (valid): {layoverCleanupResult.stillActiveCount}{'\n'}
+                    • Errors: {layoverCleanupResult.errorCount}
+                  </ThemedText>
+                </View>
+              )}
+              
+              {layoverCleanupResult && !layoverCleanupResult.success && (
+                <View style={[styles.card, { marginTop: 16, backgroundColor: '#F8D7DA', borderColor: '#DC3545' }]}>
+                  <ThemedText style={[styles.cardTitle, { color: '#721C24' }]}>❌ Cleanup Failed</ThemedText>
+                  <ThemedText style={[styles.cardDescription, { color: '#721C24' }]}>
+                    Check console for details.
                   </ThemedText>
                 </View>
               )}

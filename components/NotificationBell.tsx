@@ -1,6 +1,6 @@
 // components/NotificationBell.tsx
 import { useTheme } from '@/contexts/ThemeContext';
-import { useNotifications } from '@/hooks/useNotifications';
+import { useUnreadNotificationCount } from '@/components/NotificationCenter';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import {
@@ -17,22 +17,22 @@ interface NotificationBellProps {
 
 export function NotificationBell({ size = 24, showBadge = true }: NotificationBellProps) {
   const { colors } = useTheme();
-  const { unreadCount } = useNotifications();
+  const unreadCount = useUnreadNotificationCount();
 
   const handlePress = () => {
     router.push('/notifications');
   };
 
   return (
-    <TouchableOpacity 
+    <TouchableOpacity
       onPress={handlePress}
       style={styles.container}
       activeOpacity={0.7}
     >
-      <Ionicons 
-        name={unreadCount > 0 ? "notifications" : "notifications-outline"} 
-        size={size} 
-        color={colors.text.primary} 
+      <Ionicons
+        name={unreadCount > 0 ? "notifications" : "notifications-outline"}
+        size={size}
+        color={colors.text.primary}
       />
       {showBadge && unreadCount > 0 && (
         <View style={[styles.badge, { backgroundColor: colors.error }]}>

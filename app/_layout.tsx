@@ -1,5 +1,4 @@
 import { DarkTheme, DefaultTheme, ThemeProvider as NavThemeProvider } from '@react-navigation/native';
-import * as Notifications from 'expo-notifications';
 import { router, Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { doc, getDoc } from 'firebase/firestore';
@@ -10,20 +9,8 @@ import { db } from '@/config/firebase';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
 import { redirectToOnboardingIfNeeded } from '@/hooks/useOnboardingCheck';
-import { usePushNotifications } from '@/hooks/usePushNotifications';
+import { useNotifications } from '@/utils/notificationSetup';
 import LinkHandler from './link-handler';
-
-// Configure how notifications are handled when app is in foreground
-// Only set if notifications are available (not in Expo Go)
-if (Notifications.setNotificationHandler) {
-  Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowAlert: true,
-      shouldPlaySound: true,
-      shouldSetBadge: true,
-    }),
-  });
-}
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -35,8 +22,9 @@ function RootLayoutNav() {
   const [checkingProfile, setCheckingProfile] = useState(true);
   const [hasNavigated, setHasNavigated] = useState(false);
   
-  // Initialize push notifications
-  const { expoPushToken } = usePushNotifications();
+  // Initialize push notifications — handles permission, token registration,
+  // foreground listener, and tap-to-navigate for all notification types
+  useNotifications(user?.uid ?? null);
 
   useEffect(() => {
     const checkUserState = async () => {

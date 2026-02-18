@@ -63,12 +63,17 @@ export async function sendPushNotification(
 
     const result = await response.json();
     
-    // Expo returns data as an array: { data: [{ status: 'ok', id: '...' }] }
-    if (result.data?.[0]?.status === 'ok') {
-      console.log('Push notification sent successfully');
+    // Expo can return either { data: { status: 'ok' } } or { data: [{ status: 'ok' }] }
+    // Handle both formats
+    const status = Array.isArray(result.data)
+      ? result.data[0]?.status
+      : result.data?.status;
+
+    if (status === 'ok') {
+      console.log('[CrewMate] Push notification sent successfully');
       return true;
     } else {
-      console.error('Error sending push notification:', result);
+      console.error('[CrewMate] Push send failed:', result);
       return false;
     }
   } catch (error) {
