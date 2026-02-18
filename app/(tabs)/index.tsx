@@ -10,6 +10,8 @@ import { useColors } from '@/hooks/use-theme-color';
 import { useCities } from '@/hooks/useCities';
 import { Plan } from '@/types/plan';
 import { AirportData, searchAirports } from '@/utils/airportData';
+import { archiveExpiredPlans } from '@/utils/archiveExpiredPlans';
+import { cleanExpiredLayovers } from '@/utils/cleanExpiredLayovers';
 import { getCurrentLocation, verifyCityLocation } from '@/utils/locationVerification';
 import { notifyAdminsNewCityRequest } from '@/utils/notifications';
 import { updateCheckInStreak, updateStatsForLayoverCheckIn } from '@/utils/updateUserStats';
@@ -208,6 +210,13 @@ export default function MyLayoverScreen() {
   const [previousLayover, setPreviousLayover] = useState<UserLayover | null>(null);
   const [showUndoToast, setShowUndoToast] = useState(false);
   const [showCreateWizard, setShowCreateWizard] = useState(false);
+
+  // ✅ Auto-archive expired plans + clean expired upcoming layovers on mount
+  useEffect(() => {
+    if (!user?.uid) return;
+    archiveExpiredPlans(user.uid);
+    cleanExpiredLayovers(user.uid);
+  }, [user]);
 
   // Connections on layover state
   const [connectionsOnLayover, setConnectionsOnLayover] = useState<Array<{
@@ -1862,6 +1871,25 @@ export default function MyLayoverScreen() {
               {upcomingLayovers.filter(l => l.startDate.toDate() > new Date()).length === 0 && !currentLayover ? 'Add Your First Layover' : 'Add Another Layover'}
             </ThemedText>
           </TouchableOpacity>
+
+          {/* ✅ View Layover History link */}
+          <TouchableOpacity 
+            style={styles.layoverHistoryLink}
+            onPress={() => router.push('/layover-history')}
+          >
+            <View style={styles.layoverHistoryIcon}>
+              <Ionicons name="airplane" size={20} color={Colors.white} />
+            </View>
+            <View style={styles.layoverHistoryContent}>
+              <ThemedText style={styles.layoverHistoryTitle}>
+                See Your Crew Journey
+              </ThemedText>
+              <ThemedText style={styles.layoverHistorySubtitle}>
+                View past layovers, plans & spots you visited
+              </ThemedText>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={Colors.text.secondary} />
+          </TouchableOpacity>
         </View>
       </ScrollView>
 
@@ -2408,6 +2436,40 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: Colors.primary,
+  },
+  // ✅ Layover History link styles
+  layoverHistoryLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    marginTop: 16,
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  layoverHistoryIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  layoverHistoryContent: {
+    flex: 1,
+  },
+  layoverHistoryTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Colors.text.primary,
+    marginBottom: 2,
+  },
+  layoverHistorySubtitle: {
+    fontSize: 13,
+    color: Colors.text.secondary,
   },
   modalContainer: {
     flex: 1,

@@ -397,7 +397,11 @@ export default function LayoverDetailScreen() {
 
     setWeatherLoading(true);
     try {
-      const apiKey = 'a4bd31a5e3bd40c9ee5799b847689643';
+      const apiKey = process.env.EXPO_PUBLIC_OPENWEATHER_API_KEY;
+      if (!apiKey) {
+        console.log('⚠️ OpenWeather API key not configured');
+        return;
+      }
       const response = await fetch(
         `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(targetLayover.city)}&units=imperial&appid=${apiKey}`
       );
@@ -418,7 +422,8 @@ export default function LayoverDetailScreen() {
       // Retry once after 1 second if first attempt fails
       setTimeout(async () => {
         try {
-          const apiKey = 'a4bd31a5e3bd40c9ee5799b847689643';
+          const apiKey = process.env.EXPO_PUBLIC_OPENWEATHER_API_KEY;
+          if (!apiKey) return;
           const response = await fetch(
             `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(targetLayover.city)}&units=imperial&appid=${apiKey}`
           );

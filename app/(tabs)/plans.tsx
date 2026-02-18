@@ -7,6 +7,7 @@ import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { Plan } from '@/types/plan';
+import { archiveExpiredPlans } from '@/utils/archiveExpiredPlans';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
@@ -57,6 +58,12 @@ export default function PlansScreen() {
   const [layovers, setLayovers] = useState<Layover[]>([]);
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
   const [showCreateWizard, setShowCreateWizard] = useState(false);
+
+  // ✅ Auto-archive expired plans on mount and refresh
+  useEffect(() => {
+    if (!user?.uid) return;
+    archiveExpiredPlans(user.uid);
+  }, [user]);
 
   // Get user's layovers
   useEffect(() => {
@@ -231,6 +238,12 @@ export default function PlansScreen() {
 
   const handleRefresh = () => {
     setRefreshing(true);
+    // ✅ Re-run archive check on pull-to-refresh
+    if (user?.uid) {
+      archiveExpiredPlans(user.uid).finally(() => {
+        setRefreshing(false);
+      });
+    }
   };
 
   const handleCreatePlan = () => {
@@ -412,6 +425,20 @@ export default function PlansScreen() {
             )}
           </View>
         )}
+
+        {/* ✅ View Past Plans link - always visible in My Plans tab */}
+        {activeTab === 'my' && (
+          <TouchableOpacity 
+            style={styles.pastPlansLink}
+            onPress={() => router.push('/plans-history')}
+          >
+            <Ionicons name="time-outline" size={18} color={Colors.primary} />
+            <ThemedText style={styles.pastPlansLinkText}>
+              View Past Plans
+            </ThemedText>
+            <Ionicons name="chevron-forward" size={16} color={Colors.primary} />
+          </TouchableOpacity>
+        )}
       </ScrollView>
 
       {/* Create Plan Wizard */}
@@ -545,5 +572,22 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: Colors.white,
+  },
+  // ✅ Past Plans link styles
+  pastPlansLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 16,
+    marginTop: 8,
+    marginBottom: 20,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  pastPlansLinkText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.primary,
   },
 });
