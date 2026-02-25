@@ -12,6 +12,7 @@ import {
   addDoc,
   arrayUnion,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -26,9 +27,13 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
+  Keyboard,
   Pressable,
+  ScrollView,
   Share,
   StyleSheet,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -58,12 +63,20 @@ export default function QRCodeModal() {
   const { tab: initialTab } = useLocalSearchParams<{ tab?: string }>();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'show' | 'scan'>(
-    initialTab === 'scan' ? 'scan' : 'show'
+  const [tab, setTab] = useState<'show' | 'scan' | 'search'>(
+    initialTab === 'scan' ? 'scan' : initialTab === 'search' ? 'search' : 'show'
   );
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [processing, setProcessing] = useState(false);
+  
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<(UserProfile & { id: string })[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [connectingTo, setConnectingTo] = useState<string | null>(null);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   // DEBOUNCE FIX: Use ref to track last scan time
   const lastScanRef = useRef<number>(0);
@@ -90,9 +103,9 @@ export default function QRCodeModal() {
 
   const handleShare = async () => {
     try {
-      const deepLink = `crewmateapp://connect/${user?.uid}`;
+      const connectLink = `https://crewmateapp.dev/connect/${user?.uid}`;
       await Share.share({
-        message: `Connect with me on CrewMate! Tap this link to send me a connection request:\n\n${deepLink}`,
+        message: `Connect with me on CrewMate! ✈️\n\n${connectLink}`,
         title: 'Connect on CrewMate',
       });
     } catch (error) {
@@ -103,7 +116,7 @@ export default function QRCodeModal() {
   // Share referral link to invite new crew to the app
   const handleShareReferral = async () => {
     try {
-      const referralLink = `crewmateapp://refer/${user?.uid}`;
+      const referralLink = `https://crewmateapp.dev/refer/${user?.uid}`;
       await Share.share({
         message: `Hey crew! I'm on CrewMate — the app built by and for airline crew. Join using my link and we can connect during layovers:\n\n${referralLink}`,
         title: 'Join CrewMate',
@@ -230,14 +243,6 @@ export default function QRCodeModal() {
     if (!user || !profile) return;
 
     try {
-
-      // Notify the recipient of the connection request  
-      await notifyConnectionRequest(
-        toUserId,
-        user.uid,
-        profile.displayName,
-        profile.photoURL
-      );
       // Add user to plan
       await updateDoc(doc(db, 'plans', planId), {
         attendeeIds: arrayUnion(user.uid),
@@ -275,7 +280,9 @@ export default function QRCodeModal() {
     }
   };
 
-  // Handle user QR code scan (existing logic)
+  // Handle user QR code scan — INSTANT CONNECT
+  // QR scanning is mutual consent (you showed your code, they scanned it)
+  // so we skip the request/approve flow and connect immediately
   const handleUserQRCode = async (scannedUserId: string) => {
     if (!user || !profile) return;
 
@@ -303,80 +310,103 @@ export default function QRCodeModal() {
 
     if (isConnected) {
       Alert.alert(
-        'Already Connected!',
-        `You're already connected with ${scannedUserData.displayName}. Check your Connections tab to chat!`,
-        [{ text: 'OK', onPress: () => resetScanner() }]
+        'Already Connected! ✈️',
+        `You and ${scannedUserData.displayName} are already crew! Check Messages to chat.`,
+        [
+          {
+            text: 'Message',
+            onPress: () => {
+              resetScanner();
+              router.back();
+              router.push('/(tabs)/messages');
+            }
+          },
+          { text: 'OK', onPress: () => resetScanner() }
+        ]
       );
       return;
     }
 
-    // Check if request already exists
-    const requestsQuery = query(
-      collection(db, 'connectionRequests'),
-      where('fromUserId', '==', user.uid),
-      where('toUserId', '==', scannedUserId),
-      where('status', '==', 'pending')
-    );
-    const requestsSnapshot = await getDocs(requestsQuery);
-
-    if (!requestsSnapshot.empty) {
-      Alert.alert(
-        'Request Already Sent',
-        `You already sent a connection request to ${scannedUserData.displayName}. They'll see it in their Connections tab!`,
-        [{ text: 'OK', onPress: () => resetScanner() }]
-      );
-      return;
-    }
-
-    // Check if they sent you a request (reverse)
-    const reverseRequestQuery = query(
-      collection(db, 'connectionRequests'),
-      where('fromUserId', '==', scannedUserId),
-      where('toUserId', '==', user.uid),
-      where('status', '==', 'pending')
-    );
-    const reverseRequestSnapshot = await getDocs(reverseRequestQuery);
-
-    if (!reverseRequestSnapshot.empty) {
-      Alert.alert(
-        'They Already Sent You a Request!',
-        `${scannedUserData.displayName} already sent you a connection request. Check your Connections tab to accept it!`,
-        [{ text: 'OK', onPress: () => resetScanner() }]
-      );
-      return;
-    }
-
-    // Send connection request
-    await addDoc(collection(db, 'connectionRequests'), {
-      fromUserId: user.uid,
-      fromUserName: profile.displayName,
-      toUserId: scannedUserId,
-      toUserName: scannedUserData.displayName,
-      status: 'pending',
-      createdAt: serverTimestamp(),
-    });
-
-    // Notify the scanned user of the connection request
-    await notifyConnectionRequest(
-      scannedUserId,
-      user.uid,
-      profile.displayName,
-      profile.photoURL
-    );
-
-    Alert.alert(
-      'Request Sent! ✈️',
-      `Connection request sent to ${scannedUserData.displayName}. They'll see it in their Connections tab!`,
-      [
-        {
-          text: 'Done',
-          onPress: () => {
-            resetScanner();
-            router.back();
-          }
+    // Clean up any pending requests in either direction
+    const cleanupRequests = async () => {
+      try {
+        // Requests I sent to them
+        const myRequestsQuery = query(
+          collection(db, 'connectionRequests'),
+          where('fromUserId', '==', user.uid),
+          where('toUserId', '==', scannedUserId),
+          where('status', '==', 'pending')
+        );
+        const myRequests = await getDocs(myRequestsQuery);
+        for (const reqDoc of myRequests.docs) {
+          await deleteDoc(doc(db, 'connectionRequests', reqDoc.id));
         }
-      ]
-    );
+
+        // Requests they sent to me
+        const theirRequestsQuery = query(
+          collection(db, 'connectionRequests'),
+          where('fromUserId', '==', scannedUserId),
+          where('toUserId', '==', user.uid),
+          where('status', '==', 'pending')
+        );
+        const theirRequests = await getDocs(theirRequestsQuery);
+        for (const reqDoc of theirRequests.docs) {
+          await deleteDoc(doc(db, 'connectionRequests', reqDoc.id));
+        }
+      } catch (err) {
+        console.warn('Error cleaning up pending requests:', err);
+      }
+    };
+
+    // Create the connection directly — QR scan = mutual consent
+    try {
+      await cleanupRequests();
+
+      await addDoc(collection(db, 'connections'), {
+        userIds: [user.uid, scannedUserId],
+        userNames: {
+          [user.uid]: profile.displayName,
+          [scannedUserId]: scannedUserData.displayName,
+        },
+        createdAt: serverTimestamp(),
+        connectedViaQR: true,
+      });
+
+      // Notify them
+      await notifyConnectionRequest(
+        scannedUserId,
+        user.uid,
+        profile.displayName,
+        profile.photoURL
+      );
+
+      Alert.alert(
+        'Connected! ✈️',
+        `You and ${scannedUserData.displayName} are now crew!`,
+        [
+          {
+            text: 'Send a Message',
+            onPress: () => {
+              resetScanner();
+              router.back();
+              router.push('/(tabs)/messages');
+            }
+          },
+          {
+            text: 'Done',
+            onPress: () => {
+              resetScanner();
+              router.back();
+            }
+          }
+        ]
+      );
+    } catch (error) {
+      console.error('Error creating instant connection:', error);
+      Alert.alert('Error', 'Failed to connect. Please try again.', [
+        { text: 'OK', onPress: () => resetScanner() }
+      ]);
+    }
   };
 
   // DEBOUNCE FIX: Reset scanner state
@@ -412,6 +442,11 @@ export default function QRCodeModal() {
         const planId = data.replace('PLAN:', '');
         await handlePlanQRCode(planId);
       } 
+      // Check if it's a universal link (format: "https://crewmateapp.dev/connect/{userId}")
+      else if (data.includes('crewmateapp.dev/connect/')) {
+        const userId = data.split('/connect/')[1]?.split('?')[0];
+        if (userId) await handleUserQRCode(userId);
+      }
       // Check if it's a deep link (format: "crewmateapp://connect/{userId}")
       else if (data.startsWith('crewmateapp://connect/')) {
         const userId = data.replace('crewmateapp://connect/', '');
@@ -426,6 +461,140 @@ export default function QRCodeModal() {
       Alert.alert('Error', 'Failed to process QR code. Please try again.', [
         { text: 'OK', onPress: () => resetScanner() }
       ]);
+    }
+  };
+
+  // ─── SEARCH FUNCTIONS ────────────────────────────────────────────────
+  const handleSearch = (text: string) => {
+    setSearchQuery(text);
+    
+    // Clear previous timeout
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    if (text.trim().length < 2) {
+      setSearchResults([]);
+      setHasSearched(false);
+      return;
+    }
+
+    // Debounce search by 400ms
+    searchTimeoutRef.current = setTimeout(() => {
+      performSearch(text.trim());
+    }, 400);
+  };
+
+  const performSearch = async (searchText: string) => {
+    if (!user) return;
+    setSearching(true);
+    setHasSearched(true);
+
+    try {
+      // Search by displayName — Firestore doesn't support full-text search,
+      // so we fetch users and filter client-side. For alpha with <100 users this is fine.
+      const usersSnap = await getDocs(collection(db, 'users'));
+      const results: (UserProfile & { id: string })[] = [];
+      const lowerSearch = searchText.toLowerCase();
+
+      usersSnap.docs.forEach((userDoc) => {
+        if (userDoc.id === user.uid) return; // Skip self
+
+        const data = userDoc.data();
+        const name = (data.displayName || '').toLowerCase();
+        const firstName = (data.firstName || '').toLowerCase();
+        const airline = (data.airline || '').toLowerCase();
+
+        if (name.includes(lowerSearch) || firstName.includes(lowerSearch) || airline.includes(lowerSearch)) {
+          results.push({
+            id: userDoc.id,
+            ...(data as UserProfile),
+          });
+        }
+      });
+
+      // Sort: exact name matches first, then alphabetical
+      results.sort((a, b) => {
+        const aName = (a.displayName || '').toLowerCase();
+        const bName = (b.displayName || '').toLowerCase();
+        const aStarts = aName.startsWith(lowerSearch) ? 0 : 1;
+        const bStarts = bName.startsWith(lowerSearch) ? 0 : 1;
+        if (aStarts !== bStarts) return aStarts - bStarts;
+        return aName.localeCompare(bName);
+      });
+
+      setSearchResults(results);
+    } catch (error) {
+      console.error('Error searching users:', error);
+      Alert.alert('Error', 'Failed to search. Please try again.');
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const handleSendRequest = async (targetUserId: string, targetName: string) => {
+    if (!user || !profile) return;
+    setConnectingTo(targetUserId);
+
+    try {
+      // Check if already connected
+      const isConnected = await checkConnection(user.uid, targetUserId);
+      if (isConnected) {
+        Alert.alert('Already Connected!', `You and ${targetName} are already crew!`);
+        setConnectingTo(null);
+        return;
+      }
+
+      // Check if request already exists in either direction
+      const existingQuery = query(
+        collection(db, 'connectionRequests'),
+        where('fromUserId', '==', user.uid),
+        where('toUserId', '==', targetUserId),
+        where('status', '==', 'pending')
+      );
+      const existingSnap = await getDocs(existingQuery);
+      if (!existingSnap.empty) {
+        Alert.alert('Already Sent', `You already sent ${targetName} a connection request.`);
+        setConnectingTo(null);
+        return;
+      }
+
+      const reverseQuery = query(
+        collection(db, 'connectionRequests'),
+        where('fromUserId', '==', targetUserId),
+        where('toUserId', '==', user.uid),
+        where('status', '==', 'pending')
+      );
+      const reverseSnap = await getDocs(reverseQuery);
+      if (!reverseSnap.empty) {
+        Alert.alert('Check Connections', `${targetName} already sent you a request! Check your Connections to accept.`);
+        setConnectingTo(null);
+        return;
+      }
+
+      // Send request
+      await addDoc(collection(db, 'connectionRequests'), {
+        fromUserId: user.uid,
+        fromUserName: profile.displayName,
+        toUserId: targetUserId,
+        toUserName: targetName,
+        status: 'pending',
+        createdAt: serverTimestamp(),
+      });
+
+      await notifyConnectionRequest(
+        targetUserId,
+        user.uid,
+        profile.displayName,
+        profile.photoURL
+      );
+
+      Alert.alert('Request Sent! ✈️', `Connection request sent to ${targetName}.`);
+    } catch (error) {
+      console.error('Error sending connection request:', error);
+      Alert.alert('Error', 'Failed to send request. Please try again.');
+    } finally {
+      setConnectingTo(null);
     }
   };
 
@@ -455,7 +624,7 @@ export default function QRCodeModal() {
         <TouchableOpacity onPress={() => router.back()} style={styles.closeButton}>
           <Ionicons name="close" size={28} color={Colors.text.primary} />
         </TouchableOpacity>
-        <ThemedText style={styles.headerTitle}>Connect with Crew</ThemedText>
+        <ThemedText style={styles.headerTitle}>Add Crew</ThemedText>
         <View style={{ width: 28 }} />
       </View>
 
@@ -466,18 +635,26 @@ export default function QRCodeModal() {
           onPress={() => setTab('show')}
         >
           <ThemedText style={[styles.tabText, tab === 'show' && styles.activeTabText]}>
-            My QR Code
+            My Code
           </ThemedText>
         </Pressable>
         <Pressable
           style={[styles.tab, tab === 'scan' && styles.activeTab]}
           onPress={() => {
             setTab('scan');
-            resetScanner(); // Reset when switching tabs
+            resetScanner();
           }}
         >
           <ThemedText style={[styles.tabText, tab === 'scan' && styles.activeTabText]}>
-            Scan QR
+            Scan
+          </ThemedText>
+        </Pressable>
+        <Pressable
+          style={[styles.tab, tab === 'search' && styles.activeTab]}
+          onPress={() => setTab('search')}
+        >
+          <ThemedText style={[styles.tabText, tab === 'search' && styles.activeTabText]}>
+            Search
           </ThemedText>
         </Pressable>
       </View>
@@ -487,7 +664,7 @@ export default function QRCodeModal() {
         <View style={styles.qrContainer}>
           <View style={styles.qrWrapper}>
             <QRCode
-              value={`crewmateapp://connect/${user?.uid}`}
+              value={`https://crewmateapp.dev/connect/${user?.uid}`}
               size={250}
               backgroundColor="white"
               color={Colors.primary}
@@ -504,11 +681,11 @@ export default function QRCodeModal() {
           {/* Share My Code — connect with existing crew */}
           <TouchableOpacity style={styles.shareButton} onPress={handleShare}>
             <Ionicons name="share-outline" size={20} color={Colors.white} />
-            <ThemedText style={styles.shareButtonText}>Share My Code</ThemedText>
+            <ThemedText style={styles.shareButtonText}>Share My Link</ThemedText>
           </TouchableOpacity>
 
           <ThemedText style={styles.instructionText}>
-            Have another crew member scan this code to connect!
+            Have another crew member scan this code{'\n'}or share your link to connect instantly!
           </ThemedText>
 
           {/* Divider */}
@@ -539,7 +716,7 @@ export default function QRCodeModal() {
             <ThemedText style={styles.trackingLinkText}>View Referral Progress →</ThemedText>
           </TouchableOpacity>
         </View>
-      ) : (
+      ) : tab === 'scan' ? (
         <View style={styles.scanContainer}>
           {permission?.granted ? (
             <>
@@ -590,6 +767,104 @@ export default function QRCodeModal() {
             </View>
           )}
         </View>
+      ) : (
+        /* ─── SEARCH TAB ─────────────────────────────────────────────── */
+        <View style={styles.searchContainer}>
+          {/* Search Input */}
+          <View style={styles.searchInputWrapper}>
+            <Ionicons name="search" size={20} color={Colors.text.secondary} style={{ marginRight: 10 }} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search by name or airline..."
+              placeholderTextColor={Colors.text.secondary}
+              value={searchQuery}
+              onChangeText={handleSearch}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="search"
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => { setSearchQuery(''); setSearchResults([]); setHasSearched(false); }}>
+                <Ionicons name="close-circle" size={20} color={Colors.text.secondary} />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Results */}
+          <ScrollView 
+            style={styles.searchResults} 
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            {searching ? (
+              <View style={styles.searchStatus}>
+                <ActivityIndicator size="small" color={Colors.primary} />
+                <ThemedText style={styles.searchStatusText}>Searching...</ThemedText>
+              </View>
+            ) : !hasSearched ? (
+              <View style={styles.searchStatus}>
+                <Ionicons name="people-outline" size={48} color={Colors.text.disabled} />
+                <ThemedText style={styles.searchStatusText}>
+                  Search for crew by name or airline
+                </ThemedText>
+              </View>
+            ) : searchResults.length === 0 ? (
+              <View style={styles.searchStatus}>
+                <Ionicons name="search-outline" size={48} color={Colors.text.disabled} />
+                <ThemedText style={styles.searchStatusText}>
+                  No crew found matching "{searchQuery}"
+                </ThemedText>
+                <ThemedText style={[styles.searchStatusText, { fontSize: 13, marginTop: 4 }]}>
+                  They might not be on CrewMate yet — invite them!
+                </ThemedText>
+                <TouchableOpacity style={[styles.inviteButton, { marginTop: 16 }]} onPress={handleShareReferral}>
+                  <Ionicons name="person-add" size={18} color={Colors.primary} />
+                  <ThemedText style={styles.inviteButtonText}>Invite Crew</ThemedText>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <>
+                <ThemedText style={styles.resultCount}>
+                  {searchResults.length} crew member{searchResults.length !== 1 ? 's' : ''} found
+                </ThemedText>
+                {searchResults.map((result) => (
+                  <TouchableOpacity
+                    key={result.id}
+                    style={styles.searchResultCard}
+                    onPress={() => handleSendRequest(result.id, result.displayName)}
+                    disabled={connectingTo === result.id}
+                  >
+                    <View style={styles.searchResultInfo}>
+                      {result.photoURL ? (
+                        <Image source={{ uri: result.photoURL }} style={styles.searchAvatar} />
+                      ) : (
+                        <View style={styles.searchAvatarFallback}>
+                          <ThemedText style={styles.searchAvatarText}>
+                            {result.firstName?.[0]}{result.lastInitial}
+                          </ThemedText>
+                        </View>
+                      )}
+                      <View style={styles.searchResultText}>
+                        <ThemedText style={styles.searchResultName}>{result.displayName}</ThemedText>
+                        <ThemedText style={styles.searchResultDetail}>
+                          {[result.airline, result.position, result.base].filter(Boolean).join(' • ')}
+                        </ThemedText>
+                      </View>
+                    </View>
+                    {connectingTo === result.id ? (
+                      <ActivityIndicator size="small" color={Colors.primary} />
+                    ) : (
+                      <View style={styles.connectButton}>
+                        <Ionicons name="person-add-outline" size={16} color={Colors.white} />
+                        <ThemedText style={styles.connectButtonText}>Connect</ThemedText>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </>
+            )}
+          </ScrollView>
+        </View>
       )}
     </ThemedView>
   );
@@ -624,7 +899,7 @@ const styles = StyleSheet.create({
   },
   tab: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 10,
     alignItems: 'center',
     borderRadius: 8,
   },
@@ -837,6 +1112,109 @@ const styles = StyleSheet.create({
   permissionButtonText: {
     color: Colors.white,
     fontSize: 16,
+    fontWeight: '600',
+  },
+  // ─── SEARCH TAB STYLES ──────────────────────────────────────────
+  searchContainer: {
+    flex: 1,
+    paddingHorizontal: 20,
+  },
+  searchInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.white,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    marginBottom: 16,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    color: Colors.text.primary,
+    padding: 0,
+  },
+  searchResults: {
+    flex: 1,
+  },
+  searchStatus: {
+    alignItems: 'center',
+    paddingTop: 60,
+    paddingHorizontal: 20,
+  },
+  searchStatusText: {
+    fontSize: 15,
+    color: Colors.text.secondary,
+    textAlign: 'center',
+    marginTop: 12,
+  },
+  resultCount: {
+    fontSize: 13,
+    color: Colors.text.secondary,
+    marginBottom: 12,
+  },
+  searchResultCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.white,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  searchResultInfo: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  searchAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+  },
+  searchAvatarFallback: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchAvatarText: {
+    color: Colors.white,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  searchResultText: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  searchResultName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.text.primary,
+  },
+  searchResultDetail: {
+    fontSize: 13,
+    color: Colors.text.secondary,
+    marginTop: 2,
+  },
+  connectButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+    gap: 4,
+    marginLeft: 8,
+  },
+  connectButtonText: {
+    color: Colors.white,
+    fontSize: 13,
     fontWeight: '600',
   },
 });

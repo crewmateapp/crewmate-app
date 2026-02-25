@@ -1,5 +1,6 @@
 import { DarkTheme, DefaultTheme, ThemeProvider as NavThemeProvider } from '@react-navigation/native';
 import { router, Stack } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { doc, getDoc } from 'firebase/firestore';
 import { useEffect, useState } from 'react';
@@ -10,7 +11,11 @@ import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
 import { redirectToOnboardingIfNeeded } from '@/hooks/useOnboardingCheck';
 import { useNotifications } from '@/utils/notificationSetup';
+import AnimatedSplash from '@/components/AnimatedSplash';
 import LinkHandler from './link-handler';
+
+// Keep the native splash screen visible until we're ready
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -22,14 +27,29 @@ function RootLayoutNav() {
   const [checkingProfile, setCheckingProfile] = useState(true);
   const [hasNavigated, setHasNavigated] = useState(false);
   
-  // Initialize push notifications — handles permission, token registration,
-  // foreground listener, and tap-to-navigate for all notification types
+  // Splash screen state
+  const [appReady, setAppReady] = useState(false);
+  const [splashDone, setSplashDone] = useState(false);
+  const [nativeSplashHidden, setNativeSplashHidden] = useState(false);
+  
+  // Initialize push notifications
   useNotifications(user?.uid ?? null);
+
+  // Hide native splash once our animated one is mounted
+  useEffect(() => {
+    if (!nativeSplashHidden) {
+      const timer = setTimeout(async () => {
+        await SplashScreen.hideAsync().catch(() => {});
+        setNativeSplashHidden(true);
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [nativeSplashHidden]);
 
   useEffect(() => {
     const checkUserState = async () => {
       if (loading) return;
-      if (hasNavigated) return; // Prevent re-navigation
+      if (hasNavigated) return;
 
       console.log('🔍 Checking user state...', { 
         userExists: !!user, 
@@ -41,16 +61,9 @@ function RootLayoutNav() {
         setHasNavigated(true);
         router.replace('/auth/signin');
         setCheckingProfile(false);
+        setAppReady(true);
         return;
       }
-
-      // TODO: RE-ENABLE EMAIL VERIFICATION BEFORE PRODUCTION!
-      // TEMPORARILY BYPASSED FOR TESTING
-      // if (!user.emailVerified) {
-      //   router.replace('/auth/verify-email');
-      //   setCheckingProfile(false);
-      //   return;
-      // }
 
       // Check if user needs onboarding
       console.log('🎯 Checking onboarding...');
@@ -59,19 +72,18 @@ function RootLayoutNav() {
         console.log('📚 Needs onboarding, redirected');
         setHasNavigated(true);
         setCheckingProfile(false);
-        return; // User was redirected to onboarding
+        setAppReady(true);
+        return;
       }
 
-      // Check if profile exists in Firestore (with retry for timing issues)
+      // Check Firestore user document
       try {
         console.log('📄 Fetching user profile...', { userId: user.uid });
         
-        // Add small delay to ensure Firebase is fully initialized
         await new Promise(resolve => setTimeout(resolve, 500));
         
         let userDoc = await getDoc(doc(db, 'users', user.uid));
         
-        // Retry once if first attempt fails
         if (!userDoc.exists()) {
           console.log('⚠️ First attempt failed, retrying in 1s...');
           await new Promise(resolve => setTimeout(resolve, 1000));
@@ -85,19 +97,33 @@ function RootLayoutNav() {
         });
         
         if (!userDoc.exists()) {
-          console.log('❌ Profile does not exist after retry, going to create-profile');
+          // New social sign-in user — doc should have been created by AuthContext
+          // but if it hasn't yet, send to verify-crew
+          console.log('❌ No user doc, going to verify-crew');
           setHasNavigated(true);
-          router.replace('/auth/create-profile');
+          router.replace('/auth/verify-crew');
           setCheckingProfile(false);
+          setAppReady(true);
           return;
         }
 
         const userData = userDoc.data();
         console.log('✅ Profile found:', { 
           profileComplete: userData?.profileComplete,
-          hasData: !!userData 
+          verifiedCrew: userData?.verifiedCrew,
         });
 
+        // ── NEW: Check crew verification status ──────────────────────
+        if (userData?.verifiedCrew === false) {
+          console.log('🛡️ Crew not verified, going to verify-crew');
+          setHasNavigated(true);
+          router.replace('/auth/verify-crew');
+          setCheckingProfile(false);
+          setAppReady(true);
+          return;
+        }
+
+        // ── Existing flow: check profile completeness ────────────────
         if (userData?.profileComplete) {
           console.log('🎉 Profile complete, going to tabs');
           setHasNavigated(true);
@@ -114,10 +140,11 @@ function RootLayoutNav() {
       }
       
       setCheckingProfile(false);
+      setAppReady(true);
     };
 
     checkUserState();
-  }, [user, loading]); // FIXED: Removed hasNavigated from deps to prevent race condition
+  }, [user, loading]);
 
   return (
     <>
@@ -128,6 +155,7 @@ function RootLayoutNav() {
           <Stack.Screen name="auth/signin" />
           <Stack.Screen name="auth/signup" />
           <Stack.Screen name="auth/verify-email" />
+          <Stack.Screen name="auth/verify-crew" />
           <Stack.Screen name="auth/create-profile" />
           <Stack.Screen name="onboarding" />
           <Stack.Screen name="setup-profile" />
@@ -138,6 +166,13 @@ function RootLayoutNav() {
         </Stack>
         <StatusBar style={isDark ? "light" : "dark"} />
       </NavThemeProvider>
+
+      {!splashDone && (
+        <AnimatedSplash
+          isReady={appReady}
+          onAnimationComplete={() => setSplashDone(true)}
+        />
+      )}
     </>
   );
 }

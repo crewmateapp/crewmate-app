@@ -1,6 +1,8 @@
 // app/(tabs)/index.tsx - REDESIGNED: No Gates, Layover List First
 import CreatePlanWizard from '@/components/CreatePlanWizard';
 import { PlanCard } from '@/components/PlanCard';
+import { SharingNudge } from '@/components/SharingNudge';
+import { ProfileCompletionBanner } from '@/components/ProfileCompletionBanner';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { db } from '@/config/firebase';
@@ -209,6 +211,7 @@ export default function MyLayoverScreen() {
   // Undo checkout state
   const [previousLayover, setPreviousLayover] = useState<UserLayover | null>(null);
   const [showUndoToast, setShowUndoToast] = useState(false);
+  const [justCheckedOut, setJustCheckedOut] = useState(false);
   const [showCreateWizard, setShowCreateWizard] = useState(false);
 
   // ✅ Auto-archive expired plans + clean expired upcoming layovers on mount
@@ -434,7 +437,32 @@ export default function MyLayoverScreen() {
         Alert.alert(
           '✅ Auto Check-In Success!',
           `You're now live in ${layoverToCheckIn.city}!`,
-          [{ text: 'Great!' }]
+          [{ 
+            text: 'Let\'s Go! ✈️', 
+            onPress: async () => {
+              try {
+                // Re-add layover entry so the layover page can load it
+                const activeLayover = {
+                  id: layoverToCheckIn.id,
+                  city: layoverToCheckIn.city,
+                  area: layoverToCheckIn.area,
+                  startDate: layoverToCheckIn.startDate,
+                  endDate: layoverToCheckIn.endDate,
+                  status: 'active' as const,
+                  preDiscoverable: false,
+                  createdAt: layoverToCheckIn.createdAt || Timestamp.now(),
+                };
+
+                await updateDoc(doc(db, 'users', user.uid), {
+                  upcomingLayovers: [...updatedUpcomingLayovers, activeLayover],
+                });
+
+                router.push(`/layover/${layoverToCheckIn.id}`);
+              } catch (error) {
+                console.error('Error navigating to layover:', error);
+              }
+            }
+          }]
         );
 
       } catch (error) {
@@ -903,7 +931,34 @@ export default function MyLayoverScreen() {
       Alert.alert(
         '✅ You\'re Live!',
         `You're checked in and visible to crew in ${layover.city}!${isFirstCheckInToday ? '' : '\n\n(Already checked in earlier today)'}`,
-        [{ text: 'Great!' }]
+        [{ 
+          text: 'Let\'s Go! ✈️', 
+          onPress: async () => {
+            try {
+              // Re-add layover entry so the layover page can load it
+              // (check-in removed it from upcomingLayovers above)
+              const activeLayover = {
+                id: layover.id,
+                city: layover.city,
+                area: layover.area,
+                startDate: layover.startDate,
+                endDate: layover.endDate,
+                status: 'active' as const,
+                preDiscoverable: false,
+                createdAt: layover.createdAt || Timestamp.now(),
+              };
+
+              await updateDoc(doc(db, 'users', user.uid), {
+                upcomingLayovers: [...updatedUpcomingLayovers, activeLayover],
+              });
+
+              router.push(`/layover/${layover.id}`);
+            } catch (error) {
+              console.error('Error navigating to layover:', error);
+              // Still works — they can tap the current layover card
+            }
+          }
+        }]
       );
     } catch (error) {
       console.error('Error checking in:', error);
@@ -1023,6 +1078,7 @@ export default function MyLayoverScreen() {
               setTimeout(() => {
                 setShowUndoToast(false);
                 setPreviousLayover(null);
+                setJustCheckedOut(true);
               }, 5000);
               
             } catch (error) {
@@ -1272,6 +1328,30 @@ export default function MyLayoverScreen() {
                 ? `You're checked in to ${currentLayover.city}`
                 : welcomeSaying}
             </ThemedText>
+          </View>
+        )}
+
+        {/* Profile Completion Banner — shows if missing photo/airline/base */}
+        {!currentLayover && (
+          <View style={{ paddingHorizontal: 20 }}>
+            <ProfileCompletionBanner />
+          </View>
+        )}
+
+        {/* Sharing Nudge — post-checkout */}
+        {justCheckedOut && !currentLayover && (
+          <View style={{ paddingHorizontal: 20 }}>
+            <SharingNudge
+              context="post_layover"
+              onDismiss={() => setJustCheckedOut(false)}
+            />
+          </View>
+        )}
+
+        {/* Sharing Nudge — general (when not checked in and didn't just check out) */}
+        {!currentLayover && !justCheckedOut && (
+          <View style={{ paddingHorizontal: 20 }}>
+            <SharingNudge context="home" compact />
           </View>
         )}
         
@@ -1746,11 +1826,15 @@ export default function MyLayoverScreen() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <ThemedText style={styles.sectionTitle}>
-              {currentLayover ? 'Upcoming Layovers' : 'My Layovers'} ({upcomingLayovers.filter(l => l.startDate.toDate() > new Date()).length})
+              {currentLayover ? 'Upcoming Layovers' : 'My Layovers'} ({upcomingLayovers.filter(l => {
+                if (currentLayover && l.city === currentLayover.city && l.area === currentLayover.area) return false;
+                return l.startDate.toDate() > new Date();
+              }).length})
             </ThemedText>
           </View>
 
           {upcomingLayovers.filter(l => {
+            if (currentLayover && l.city === currentLayover.city && l.area === currentLayover.area) return false;
             const endDate = l.endDate.toDate();
             endDate.setHours(23, 59, 59, 999);
             return endDate >= new Date(); // Show if not expired
@@ -1765,6 +1849,7 @@ export default function MyLayoverScreen() {
           ) : (
             upcomingLayovers
               .filter(layover => {
+                if (currentLayover && layover.city === currentLayover.city && layover.area === currentLayover.area) return false;
                 const endDate = layover.endDate.toDate();
                 endDate.setHours(23, 59, 59, 999);
                 return endDate >= new Date(); // Show if not expired
@@ -2019,50 +2104,85 @@ export default function MyLayoverScreen() {
                 <ThemedText style={styles.dateLabel}>Check-In Date</ThemedText>
                 
                 <TouchableOpacity 
-                  style={styles.dateTimeButton}
-                  onPress={() => setShowStartDatePicker(true)}
+                  style={[
+                    styles.dateTimeButton,
+                    showStartDatePicker && { borderColor: Colors.primary, borderWidth: 1.5 }
+                  ]}
+                  onPress={() => {
+                    setShowStartDatePicker(!showStartDatePicker);
+                    setShowEndDatePicker(false);
+                  }}
                 >
                   <Ionicons name="calendar-outline" size={20} color={Colors.primary} />
                   <ThemedText style={styles.dateTimeText}>
                     {startDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
                   </ThemedText>
+                  <Ionicons name={showStartDatePicker ? "chevron-up" : "chevron-down"} size={16} color={Colors.text.secondary} />
                 </TouchableOpacity>
 
                 {showStartDatePicker && (
-                  <DateTimePicker
-                    value={startDate}
-                    mode="date"
-                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                    onChange={(event, date) => {
-                      setShowStartDatePicker(Platform.OS === 'ios');
-                      if (date) setStartDate(date);
-                    }}
-                  />
+                  <View style={styles.calendarContainer}>
+                    <DateTimePicker
+                      value={startDate}
+                      mode="date"
+                      display="inline"
+                      minimumDate={new Date()}
+                      onChange={(event, date) => {
+                        if (date) {
+                          setStartDate(date);
+                          // Auto-advance end date if it's before the new start date
+                          if (date > endDate) {
+                            const nextDay = new Date(date);
+                            nextDay.setDate(nextDay.getDate() + 1);
+                            setEndDate(nextDay);
+                          }
+                          // Auto-advance to checkout picker
+                          setShowStartDatePicker(false);
+                          setTimeout(() => setShowEndDatePicker(true), 300);
+                        }
+                      }}
+                      style={{ height: 320 }}
+                    />
+                  </View>
                 )}
 
                 {/* End Date */}
-                <ThemedText style={[styles.dateLabel, { marginTop: 20 }]}>Check-Out Date</ThemedText>
+                <ThemedText style={[styles.dateLabel, { marginTop: 16 }]}>Check-Out Date</ThemedText>
                 
                 <TouchableOpacity 
-                  style={styles.dateTimeButton}
-                  onPress={() => setShowEndDatePicker(true)}
+                  style={[
+                    styles.dateTimeButton,
+                    showEndDatePicker && { borderColor: Colors.primary, borderWidth: 1.5 }
+                  ]}
+                  onPress={() => {
+                    setShowEndDatePicker(!showEndDatePicker);
+                    setShowStartDatePicker(false);
+                  }}
                 >
                   <Ionicons name="calendar-outline" size={20} color={Colors.primary} />
                   <ThemedText style={styles.dateTimeText}>
                     {endDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
                   </ThemedText>
+                  <Ionicons name={showEndDatePicker ? "chevron-up" : "chevron-down"} size={16} color={Colors.text.secondary} />
                 </TouchableOpacity>
 
                 {showEndDatePicker && (
-                  <DateTimePicker
-                    value={endDate}
-                    mode="date"
-                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                    onChange={(event, date) => {
-                      setShowEndDatePicker(Platform.OS === 'ios');
-                      if (date) setEndDate(date);
-                    }}
-                  />
+                  <View style={styles.calendarContainer}>
+                    <DateTimePicker
+                      value={endDate}
+                      mode="date"
+                      display="inline"
+                      minimumDate={startDate}
+                      onChange={(event, date) => {
+                        if (date) {
+                          setEndDate(date);
+                          // Close calendar after selection
+                          setShowEndDatePicker(false);
+                        }
+                      }}
+                      style={{ height: 320 }}
+                    />
+                  </View>
                 )}
 
                 {/* Auto Check-In Toggle */}
@@ -2595,6 +2715,13 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: Colors.text.primary,
     flex: 1,
+  },
+  calendarContainer: {
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    marginBottom: 12,
+    overflow: 'hidden',
+    alignItems: 'center',
   },
   datePickerRow: {
     flexDirection: 'row',

@@ -8,15 +8,24 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "channel": "development"
+      "channel": "development",
+      "env": {
+        "EXPO_PUBLIC_GOOGLE_PLACES_API_KEY": "AIzaSyBE817VQiJc9EVnUoxEOrcdX9RJmBVTwjs"
+      }
     },
     "preview": {
       "distribution": "internal",
-      "channel": "preview"
+      "channel": "preview",
+      "env": {
+        "EXPO_PUBLIC_GOOGLE_PLACES_API_KEY": "AIzaSyBE817VQiJc9EVnUoxEOrcdX9RJmBVTwjs"
+      }
     },
     "production": {
       "autoIncrement": true,
-      "channel": "production"
+      "channel": "production",
+      "env": {
+        "EXPO_PUBLIC_GOOGLE_PLACES_API_KEY": "AIzaSyBE817VQiJc9EVnUoxEOrcdX9RJmBVTwjs"
+      }
     }
   },
   "submit": {

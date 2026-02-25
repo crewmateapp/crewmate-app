@@ -10,6 +10,8 @@ import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Ionicons } from '@expo/vector-icons';
+import { Text, View } from 'react-native';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
@@ -53,14 +55,16 @@ export default function TabLayout() {
     return () => unsubscribe();
   }, [user]);
 
-  // Listen for unread messages - FIXED: use connections with userIds
+  // Listen for unread messages — uses `conversations` collection (same as ProfileMenu)
+  // FIX: Previously queried `connections` which was a different collection and caused
+  // badge count mismatches between the tab bar and the profile menu.
   useEffect(() => {
     if (!user?.uid) return;
 
-    const connectionsRef = collection(db, 'connections');
+    const conversationsRef = collection(db, 'conversations');
     const q = query(
-      connectionsRef,
-      where('userIds', 'array-contains', user.uid)
+      conversationsRef,
+      where('participantIds', 'array-contains', user.uid)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -75,8 +79,8 @@ export default function TabLayout() {
     return () => unsubscribe();
   }, [user]);
 
-  // Combine all notification counts
-  const totalUnreadCount = connectionRequestCount + planNotificationCount + messageCount;
+  // Total badge for Messages tab = unread messages + connection requests
+  const messageBadgeCount = messageCount + connectionRequestCount;
 
   return (
     <>
@@ -92,7 +96,6 @@ export default function TabLayout() {
           header: () => (
             <AppHeader
               onMenuPress={() => setDrawerVisible(true)}
-              unreadCount={totalUnreadCount}
             />
           ),
           tabBarButton: HapticTab,
@@ -122,29 +125,62 @@ export default function TabLayout() {
             tabBarIcon: ({ color }) => <IconSymbol size={28} name="square.grid.2x2.fill" color={color} />,
           }}
         />
-        {/* Hidden tabs - accessible via routes but not in tab bar */}
         <Tabs.Screen
           name="messages"
           options={{
-            href: null, // Hides from tab bar
+            title: 'Messages',
+            tabBarIcon: ({ color, focused }) => (
+              <View style={{ position: 'relative' }}>
+                <Ionicons 
+                  name={focused ? "chatbubbles" : "chatbubbles-outline"} 
+                  size={26} 
+                  color={color} 
+                />
+                {messageBadgeCount > 0 && (
+                  <View style={{
+                    position: 'absolute',
+                    top: -4,
+                    right: -8,
+                    backgroundColor: Colors.error,
+                    borderRadius: 9,
+                    minWidth: 18,
+                    height: 18,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    paddingHorizontal: 4,
+                    borderWidth: 2,
+                    borderColor: Colors.white,
+                  }}>
+                    <Text style={{ 
+                      fontSize: 10, 
+                      fontWeight: '700', 
+                      color: Colors.white,
+                    }}>
+                      {messageBadgeCount > 9 ? '9+' : messageBadgeCount}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            ),
           }}
         />
+        {/* Hidden tabs - accessible via routes but not in tab bar */}
         <Tabs.Screen
           name="plans"
           options={{
-            href: null, // Hides from tab bar
+            href: null,
           }}
         />
         <Tabs.Screen
           name="connections"
           options={{
-            href: null, // Hides from tab bar
+            href: null,
           }}
         />
         <Tabs.Screen
           name="profile"
           options={{
-            href: null, // Hides from tab bar - accessible via ProfileDropdown
+            href: null,
           }}
         />
       </Tabs>

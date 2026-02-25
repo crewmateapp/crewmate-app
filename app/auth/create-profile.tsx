@@ -11,9 +11,9 @@ import { getPendingReferrer, clearPendingReferrer } from '@/utils/pendingReferra
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -41,11 +41,33 @@ export default function CreateProfileScreen() {
   const [firstName, setFirstName] = useState('');
   const [lastInitial, setLastInitial] = useState('');
   const [position, setPosition] = useState('');
-  const [airline, setAirline] = useState(getAirlineFromEmail(user?.email || ''));
+  const [airline, setAirline] = useState(getAirlineFromEmail(user?.email || '') || '');
   const [base, setBase] = useState('');
   const [bio, setBio] = useState('');
   const [loading, setLoading] = useState(false);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
+
+  // For social sign-in users, fetch airline from Firestore verification
+  useEffect(() => {
+    const fetchVerifiedAirline = async () => {
+      if (!user?.uid) return;
+      try {
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (userDoc.exists()) {
+          const data = userDoc.data();
+          if (data?.verifiedAirlineName && !airline) {
+            setAirline(data.verifiedAirlineName);
+          }
+        }
+      } catch (error) {
+        console.log('Could not fetch verified airline:', error);
+      }
+    };
+    fetchVerifiedAirline();
+  }, [user]);
+
+  // Check if this user came via a referral link
+  const wasReferred = !!getPendingReferrer();
 
   // Base picker modal
   const [baseModalVisible, setBaseModalVisible] = useState(false);
@@ -268,6 +290,16 @@ const uploadPhoto = async (): Promise<string | null> => {
             Let's set up your CrewMate profile
           </ThemedText>
 
+          {/* Referral banner — encourage profile completion */}
+          {wasReferred && (
+            <View style={styles.referralBanner}>
+              <Ionicons name="people" size={18} color={Colors.primary} />
+              <ThemedText style={styles.referralBannerText}>
+                A crew member invited you! Add your photo, airline, and base to complete your referral and help them earn a badge. 🎖
+              </ThemedText>
+            </View>
+          )}
+
           {/* Photo Picker */}
           <TouchableOpacity style={styles.photoContainer} onPress={pickImage}>
             {photoUri ? (
@@ -279,6 +311,11 @@ const uploadPhoto = async (): Promise<string | null> => {
               </View>
             )}
           </TouchableOpacity>
+          {!photoUri && (
+            <ThemedText style={styles.photoHint}>
+              Crew are more likely to connect with profiles that have a photo
+            </ThemedText>
+          )}
 
           <View style={styles.form}>
             <View style={styles.inputContainer}>
@@ -471,6 +508,23 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     color: Colors.text.secondary,
   },
+  referralBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: Colors.primary + '08',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: Colors.primary + '20',
+  },
+  referralBannerText: {
+    flex: 1,
+    fontSize: 13,
+    color: Colors.text.primary,
+    lineHeight: 19,
+  },
   photoContainer: {
     alignSelf: 'center',
     marginBottom: 20,
@@ -495,6 +549,13 @@ const styles = StyleSheet.create({
     color: Colors.White,
     fontSize: 14,
     marginTop: 5,
+  },
+  photoHint: {
+    fontSize: 12,
+    color: Colors.text.secondary,
+    textAlign: 'center',
+    marginTop: -12,
+    marginBottom: 12,
   },
   form: {
     gap: 20,

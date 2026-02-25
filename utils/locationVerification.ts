@@ -2,14 +2,89 @@
  * GPS Location Verification Utility
  * Verifies user is physically at a location before allowing check-in
  * Uses Expo Location API for React Native
+ * 
+ * UPDATED: Now queries Firestore cities collection for coordinates
+ * instead of using a hardcoded city list. Unknown cities are BLOCKED.
  */
 
 import * as Location from 'expo-location';
+import { collection, getDocs } from 'firebase/firestore';
+import { db } from '@/config/firebase';
 
 export interface Coordinates {
   latitude: number;
   longitude: number;
 }
+
+// ─── City Coordinates Cache ─────────────────────────────────────────────────
+// Caches city coordinates from Firestore to avoid repeated reads
+
+type CityCoordEntry = {
+  lat: number;
+  lng: number;
+  name: string;
+};
+
+let cityCoordCache: Record<string, CityCoordEntry> = {};
+let cacheLoadedAt = 0;
+const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
+/**
+ * Load all city coordinates from Firestore into cache
+ */
+async function loadCityCoordinates(): Promise<void> {
+  try {
+    const snapshot = await getDocs(collection(db, 'cities'));
+    const newCache: Record<string, CityCoordEntry> = {};
+
+    snapshot.forEach((doc) => {
+      const data = doc.data();
+      if (data.name && data.lat && data.lng) {
+        // Key by city name (e.g., "Tampa, FL")
+        newCache[data.name] = {
+          lat: data.lat,
+          lng: data.lng,
+          name: data.name,
+        };
+      }
+    });
+
+    cityCoordCache = newCache;
+    cacheLoadedAt = Date.now();
+    console.log(`📍 Loaded ${Object.keys(newCache).length} city coordinates for GPS verification`);
+  } catch (error) {
+    console.error('Error loading city coordinates:', error);
+    // Don't clear existing cache on error — stale data is better than none
+  }
+}
+
+/**
+ * Get coordinates for a city, loading from Firestore if needed
+ */
+async function getCityCoords(cityName: string): Promise<CityCoordEntry | null> {
+  // Refresh cache if stale or empty
+  if (Date.now() - cacheLoadedAt > CACHE_TTL || Object.keys(cityCoordCache).length === 0) {
+    await loadCityCoordinates();
+  }
+
+  // Exact match first
+  if (cityCoordCache[cityName]) {
+    return cityCoordCache[cityName];
+  }
+
+  // Try matching by prefix (e.g., "Tampa" matches "Tampa, FL")
+  const normalizedSearch = cityName.trim().toLowerCase();
+  for (const [key, value] of Object.entries(cityCoordCache)) {
+    const normalizedKey = key.toLowerCase();
+    if (normalizedKey === normalizedSearch) return value;
+    if (normalizedKey.startsWith(normalizedSearch + ',')) return value;
+    if (normalizedSearch.startsWith(normalizedKey.split(',')[0].toLowerCase())) return value;
+  }
+
+  return null;
+}
+
+// ─── Distance Calculation ───────────────────────────────────────────────────
 
 /**
  * Calculate distance between two coordinates using Haversine formula
@@ -54,6 +129,8 @@ export function verifyUserAtLocation(
   const distance = calculateDistance(userCoords, targetCoords);
   return distance <= radiusMeters;
 }
+
+// ─── Location Access ────────────────────────────────────────────────────────
 
 /**
  * Get user's current GPS location using Expo Location
@@ -129,6 +206,8 @@ export function formatDistance(meters: number): string {
   return `${(meters / 1000).toFixed(1)}km`;
 }
 
+// ─── Check-In Verification ──────────────────────────────────────────────────
+
 /**
  * Check-in verification with user-friendly error messages
  */
@@ -157,7 +236,7 @@ export async function verifyCheckInLocation(
       }
     }
 
-    // Get current location using new signature
+    // Get current location
     const locationResult = await getCurrentLocation();
     
     if (!locationResult.success || !locationResult.latitude || !locationResult.longitude) {
@@ -195,12 +274,24 @@ export async function verifyCheckInLocation(
   }
 }
 
+// ─── City-Level Verification ────────────────────────────────────────────────
+
+/**
+ * Default radius for city verification (50km / ~31 miles)
+ * Generous enough to cover major metro areas and surrounding airports,
+ * but tight enough to prevent cross-city gaming.
+ */
+const DEFAULT_CITY_RADIUS = 50000; // 50km in meters
+
 /**
  * Verify if user's location is within a specific city
- * Uses a generous radius to account for large metropolitan areas
+ * Pulls coordinates from Firestore cities collection (cached).
+ * 
+ * SECURITY: Unknown cities are BLOCKED, not allowed.
+ * 
  * @param latitude User's current latitude
  * @param longitude User's current longitude
- * @param cityName Name of the city to verify
+ * @param cityName Name of the city to verify (as stored in layovers)
  * @returns Object with verified flag and message
  */
 export async function verifyCityLocation(
@@ -213,47 +304,25 @@ export async function verifyCityLocation(
   distance?: number;
 }> {
   try {
-    // For now, we'll use a generous radius approach
-    // TODO: Could integrate with city boundaries API for more accuracy
-    
-    // Major city approximate coordinates (can be expanded)
-    const cityCoordinates: { [key: string]: { lat: number; lon: number; radius: number } } = {
-      'Charlotte': { lat: 35.2271, lon: -80.8431, radius: 25000 }, // 25km radius
-      'New York': { lat: 40.7128, lon: -74.0060, radius: 30000 },
-      'Los Angeles': { lat: 34.0522, lon: -118.2437, radius: 35000 },
-      'San Francisco': { lat: 37.7749, lon: -122.4194, radius: 25000 },
-      'Miami': { lat: 25.7617, lon: -80.1918, radius: 20000 },
-      'Chicago': { lat: 41.8781, lon: -87.6298, radius: 30000 },
-      'Dallas': { lat: 32.7767, lon: -96.7970, radius: 30000 },
-      'Philadelphia': { lat: 39.9526, lon: -75.1652, radius: 25000 },
-      'Atlanta': { lat: 33.7490, lon: -84.3880, radius: 25000 },
-      'Phoenix': { lat: 33.4484, lon: -112.0740, radius: 30000 },
-      'Seattle': { lat: 47.6062, lon: -122.3321, radius: 25000 },
-      'Las Vegas': { lat: 36.1699, lon: -115.1398, radius: 20000 },
-      'Orlando': { lat: 28.5383, lon: -81.3792, radius: 20000 },
-      'Boston': { lat: 42.3601, lon: -71.0589, radius: 20000 },
-      'Denver': { lat: 39.7392, lon: -104.9903, radius: 25000 },
-    };
+    // Look up city coordinates from Firestore (cached)
+    const cityData = await getCityCoords(cityName);
 
-    const cityData = cityCoordinates[cityName];
-    
     if (!cityData) {
-      // If city not in our list, allow check-in (benefit of the doubt)
-      // TODO: Integrate with a proper city boundaries API
-      console.warn(`City ${cityName} not in verification database - allowing check-in`);
+      // City not found — BLOCK check-in (do NOT allow by default)
+      console.warn(`⚠️ City "${cityName}" not found in cities collection — blocking check-in`);
       return {
-        verified: true,
-        message: `Checked in to ${cityName}`,
+        verified: false,
+        message: `Unable to verify location for ${cityName}. This city may not be in our system yet. Please contact support at hello@crewmateapp.dev if this is an error.`,
       };
     }
 
     // Calculate distance from city center
     const distance = calculateDistance(
       { latitude, longitude },
-      { latitude: cityData.lat, longitude: cityData.lon }
+      { latitude: cityData.lat, longitude: cityData.lng }
     );
 
-    if (distance <= cityData.radius) {
+    if (distance <= DEFAULT_CITY_RADIUS) {
       return {
         verified: true,
         message: `You're in ${cityName}!`,
@@ -261,17 +330,18 @@ export async function verifyCityLocation(
       };
     }
 
-    const distanceKm = (distance / 1000).toFixed(1);
+    const distanceMi = (distance / 1609.34).toFixed(0);
     return {
       verified: false,
-      message: `You appear to be ${distanceKm}km from ${cityName}. Please check in when you arrive.`,
+      message: `You appear to be ${distanceMi} miles from ${cityName}. Please check in when you arrive.`,
       distance,
     };
   } catch (error) {
     console.error('Error verifying city location:', error);
+    // On error, BLOCK check-in for safety
     return {
       verified: false,
-      message: 'Unable to verify your location. Please try again.',
+      message: 'Unable to verify your location. Please check your connection and try again.',
     };
   }
 }

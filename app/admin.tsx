@@ -22,6 +22,9 @@ import { migratePositionData } from '@/utils/migratePositionData';
 import { migrateCitiesVisited } from '@/utils/migrateCitiesVisited';
 import { migrateUserStats } from '@/utils/migrateUserStats';
 import { cleanupStuckLayovers } from '@/utils/cleanupStuckLayovers';
+import { backfillReferrals, recountReferrals, type BackfillResult, type RecountResult } from '@/utils/backfillReferrals';
+import { sendProfileNudgeCampaign, scanIncompleteProfiles, type NudgeCampaignResult, type IncompleteUser } from '@/utils/sendProfileNudges';
+import { seedWhatToBuy, type SeedResult } from '@/utils/seedWhatToBuy';
 import { SkylineManager } from '@/components/SkylineManager';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -191,6 +194,12 @@ export default function AdminScreen() {
   const [baseMigrationPreview, setBaseMigrationPreview] = useState<UserBaseMigrationResult | null>(null);
   const [baseMigrationResult, setBaseMigrationResult] = useState<UserBaseMigrationResult | null>(null);
 
+  // Referral Backfill
+  const [runningReferralBackfill, setRunningReferralBackfill] = useState(false);
+  const [referralBackfillResult, setReferralBackfillResult] = useState<BackfillResult | null>(null);
+  const [runningRecount, setRunningRecount] = useState(false);
+  const [recountResult, setRecountResult] = useState<RecountResult | null>(null);
+
   // Skyline City Names Migration
   const [migratingSkylineCityNames, setMigratingSkylineCityNames] = useState(false);
   const [skylineCityNameResult, setSkylineCityNameResult] = useState<any>(null);
@@ -210,6 +219,14 @@ export default function AdminScreen() {
   // Stuck Layover Cleanup
   const [cleaningLayovers, setCleaningLayovers] = useState(false);
   const [layoverCleanupResult, setLayoverCleanupResult] = useState<any>(null);
+
+  // Profile Nudge Campaign
+  const [sendingNudges, setSendingNudges] = useState(false);
+  const [nudgeCampaignResult, setNudgeCampaignResult] = useState<NudgeCampaignResult | null>(null);
+
+  // What to Buy Seeding
+  const [seedingBuyItems, setSeedingBuyItems] = useState(false);
+  const [seedBuyResult, setSeedBuyResult] = useState<SeedResult | null>(null);
 
   // Analytics data
   const [stats, setStats] = useState({
@@ -1766,6 +1783,145 @@ const handleFixOrphanedUsers = async () => {
     );
   };
 
+  // Backfill Referrals - Credit admin as referrer for all existing users
+  const handleBackfillReferrals = async () => {
+    if (!user?.uid) return;
+
+    Alert.alert(
+      '🔗 Backfill Referrals',
+      'This will set you as the referrer for all existing users who don\'t already have one, and update your referral stats + badges.\n\nSafe to run multiple times — skips users who already have referredBy set.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Run Backfill',
+          onPress: async () => {
+            try {
+              setRunningReferralBackfill(true);
+              const result = await backfillReferrals(user.uid);
+              setReferralBackfillResult(result);
+
+              Alert.alert(
+                '✅ Backfill Complete!',
+                `Total users: ${result.totalUsers}\n` +
+                `Updated: ${result.updated}\n` +
+                `Successful referrals: ${result.successfulReferrals}\n` +
+                `Already had referrer: ${result.alreadyReferred}\n` +
+                `Badges awarded: ${result.badgesAwarded.length > 0 ? result.badgesAwarded.join(', ') : 'none (may already be earned)'}`
+              );
+            } catch (error: any) {
+              console.error('❌ Backfill failed:', error);
+              Alert.alert('Backfill Failed', error.message || 'An error occurred');
+            } finally {
+              setRunningReferralBackfill(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // Recount Referrals - Recalculate completions with current criteria
+  const handleRecountReferrals = async () => {
+    if (!user?.uid) return;
+
+    Alert.alert(
+      '🔄 Recount Referrals',
+      'This will scan all users you referred and recount completions using current criteria (photo + airline + base). It will update your stats and award any new badges.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Run Recount',
+          onPress: async () => {
+            try {
+              setRunningRecount(true);
+              const result = await recountReferrals(user.uid);
+              setRecountResult(result);
+
+              Alert.alert(
+                '✅ Recount Complete!',
+                `Total referred: ${result.totalReferred}\n` +
+                `Completed: ${result.completed}\n` +
+                `Pending: ${result.pending}\n` +
+                `Badges awarded: ${result.badgesAwarded.length > 0 ? result.badgesAwarded.join(', ') : 'none new'}`
+              );
+            } catch (error: any) {
+              console.error('❌ Recount failed:', error);
+              Alert.alert('Recount Failed', error.message || 'An error occurred');
+            } finally {
+              setRunningRecount(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // Send Profile Completion Nudge Campaign
+  const handleSendProfileNudges = async () => {
+    Alert.alert(
+      '📣 Profile Completion Nudge',
+      'This will send push notifications to all users missing a profile photo, airline, or base.\n\nUsers without push tokens will be skipped.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Send Nudges',
+          onPress: async () => {
+            try {
+              setSendingNudges(true);
+              const result = await sendProfileNudgeCampaign();
+              setNudgeCampaignResult(result);
+
+              Alert.alert(
+                '✅ Nudge Campaign Sent!',
+                `Incomplete profiles: ${result.incompleteUsers}\n` +
+                `Notifications sent: ${result.notificationsSent}\n` +
+                `No push token: ${result.noPushToken}\n` +
+                `Failed: ${result.notificationsFailed}`
+              );
+            } catch (error: any) {
+              console.error('❌ Nudge campaign failed:', error);
+              Alert.alert('Campaign Failed', error.message || 'An error occurred');
+            } finally {
+              setSendingNudges(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // Seed What to Buy data
+  const handleSeedWhatToBuy = async () => {
+    if (!user) return;
+    Alert.alert(
+      '🛒 Seed What to Buy',
+      'This will add crew-recommended "What to Buy" items for San Francisco.\n\nSkips cities that already have 5+ items. Safe to run multiple times.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Seed Data',
+          onPress: async () => {
+            try {
+              setSeedingBuyItems(true);
+              const result = await seedWhatToBuy(user.uid, 'CrewMate Team');
+              setSeedBuyResult(result);
+
+              Alert.alert(
+                '✅ Seeding Complete!',
+                `Added: ${result.added}\nSkipped (existing): ${result.skipped}\nErrors: ${result.errors}`
+              );
+            } catch (error: any) {
+              console.error('❌ Seed failed:', error);
+              Alert.alert('Seed Failed', error.message || 'An error occurred');
+            } finally {
+              setSeedingBuyItems(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   // Migrate Skyline City Names
   const handleMigrateSkylineCityNames = async () => {
     if (!isSuperAdmin(role)) {
@@ -2825,6 +2981,204 @@ const handleFixOrphanedUsers = async () => {
             </View>
             
             {/* Normalize User Bases Card - NEW! */}
+            <View style={[styles.card, { marginTop: 20, backgroundColor: '#E8F5E9', borderColor: '#4CAF50' }]}>
+              <ThemedText style={[styles.cardTitle, { color: '#1B5E20' }]}>
+                🔗 Backfill Referrals
+              </ThemedText>
+              <ThemedText style={[styles.cardDescription, { color: '#1B5E20' }]}>
+                Credit yourself as the referrer for all existing alpha users.{'\n'}
+                {'\n'}
+                • Sets referredBy on all users to your UID{'\n'}
+                • Counts users with photos as successful referrals{'\n'}
+                • Awards any earned recruiter badges{'\n'}
+                {'\n'}
+                Safe to run multiple times — skips users already referred.
+              </ThemedText>
+              
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: '#2A4E9D' }, runningReferralBackfill && styles.buttonDisabled]}
+                onPress={handleBackfillReferrals}
+                disabled={runningReferralBackfill}
+              >
+                {runningReferralBackfill ? (
+                  <ActivityIndicator color={Colors.white} />
+                ) : (
+                  <ThemedText style={styles.buttonText}>🔗 Run Referral Backfill</ThemedText>
+                )}
+              </TouchableOpacity>
+              
+              {referralBackfillResult && (
+                <View style={[styles.card, { marginTop: 12, backgroundColor: '#D4EDDA', borderColor: '#28A745' }]}>
+                  <ThemedText style={[styles.cardDescription, { color: '#1B5E20' }]}>
+                    ✅ Updated: {referralBackfillResult.updated}{'\n'}
+                    📊 Successful referrals: {referralBackfillResult.successfulReferrals}{'\n'}
+                    ⏭️ Already referred: {referralBackfillResult.alreadyReferred}{'\n'}
+                    🎖 Badges: {referralBackfillResult.badgesAwarded.length > 0 
+                      ? referralBackfillResult.badgesAwarded.join(', ') 
+                      : 'none new'}
+                  </ThemedText>
+                </View>
+              )}
+            </View>
+            
+            {/* Recount Referrals Card */}
+            <View style={[styles.card, { marginTop: 20, backgroundColor: '#E3F2FD', borderColor: '#1976D2' }]}>
+              <ThemedText style={[styles.cardTitle, { color: '#0D47A1' }]}>
+                🔄 Recount Referrals
+              </ThemedText>
+              <ThemedText style={[styles.cardDescription, { color: '#0D47A1' }]}>
+                Rescans all users you referred and recounts completions using{'\n'}
+                current criteria (photo + airline + base).{'\n'}
+                {'\n'}
+                Run this after changing completion criteria or if your{'\n'}
+                leaderboard stats seem off.
+              </ThemedText>
+              
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: '#1976D2' }, runningRecount && styles.buttonDisabled]}
+                onPress={handleRecountReferrals}
+                disabled={runningRecount}
+              >
+                {runningRecount ? (
+                  <ActivityIndicator color={Colors.white} />
+                ) : (
+                  <ThemedText style={styles.buttonText}>🔄 Run Recount</ThemedText>
+                )}
+              </TouchableOpacity>
+              
+              {recountResult && (
+                <View style={[styles.card, { marginTop: 12, backgroundColor: '#D4EDDA', borderColor: '#28A745' }]}>
+                  <ThemedText style={[styles.cardDescription, { color: '#1B5E20' }]}>
+                    ✅ Completed: {recountResult.completed}{'\n'}
+                    ⏳ Pending: {recountResult.pending}{'\n'}
+                    📊 Total referred: {recountResult.totalReferred}{'\n'}
+                    🎖 Badges: {recountResult.badgesAwarded.length > 0 
+                      ? recountResult.badgesAwarded.join(', ') 
+                      : 'none new'}
+                  </ThemedText>
+                  {recountResult.pendingDetails.length > 0 && (
+                    <View style={{ marginTop: 8 }}>
+                      <ThemedText style={[styles.cardDescription, { color: '#1B5E20', fontWeight: '600' }]}>
+                        Missing profiles:
+                      </ThemedText>
+                      {recountResult.pendingDetails.slice(0, 10).map((p, i) => (
+                        <ThemedText key={i} style={[styles.cardDescription, { color: '#1B5E20', fontSize: 12 }]}>
+                          • {p.name} — needs: {p.missing.join(', ')}
+                        </ThemedText>
+                      ))}
+                      {recountResult.pendingDetails.length > 10 && (
+                        <ThemedText style={[styles.cardDescription, { color: '#1B5E20', fontSize: 12, fontStyle: 'italic' }]}>
+                          ...and {recountResult.pendingDetails.length - 10} more (check console)
+                        </ThemedText>
+                      )}
+                    </View>
+                  )}
+                </View>
+              )}
+            </View>
+            
+            {/* Profile Completion Nudge Campaign */}
+            <View style={[styles.card, { marginTop: 20, backgroundColor: '#FFF3E0', borderColor: '#FF9800' }]}>
+              <ThemedText style={[styles.cardTitle, { color: '#E65100' }]}>
+                📣 Profile Completion Nudges
+              </ThemedText>
+              <ThemedText style={[styles.cardDescription, { color: '#E65100' }]}>
+                Send push notifications to users with incomplete profiles{'\n'}
+                (missing photo, airline, or base).{'\n'}
+                {'\n'}
+                Users also see an in-app banner reminding them{'\n'}
+                to complete their profile when they open the app.
+              </ThemedText>
+              
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: '#FF9800' }, sendingNudges && styles.buttonDisabled]}
+                onPress={handleSendProfileNudges}
+                disabled={sendingNudges}
+              >
+                {sendingNudges ? (
+                  <ActivityIndicator color={Colors.white} />
+                ) : (
+                  <ThemedText style={styles.buttonText}>📣 Send Nudge Campaign</ThemedText>
+                )}
+              </TouchableOpacity>
+              
+              {nudgeCampaignResult && (
+                <View style={[styles.card, { marginTop: 12, backgroundColor: '#D4EDDA', borderColor: '#28A745' }]}>
+                  <ThemedText style={[styles.cardDescription, { color: '#1B5E20' }]}>
+                    📊 Total users: {nudgeCampaignResult.totalUsers}{'\n'}
+                    ⚠️ Incomplete: {nudgeCampaignResult.incompleteUsers}{'\n'}
+                    ✅ Notifications sent: {nudgeCampaignResult.notificationsSent}{'\n'}
+                    📵 No push token: {nudgeCampaignResult.noPushToken}{'\n'}
+                    ❌ Failed: {nudgeCampaignResult.notificationsFailed}
+                  </ThemedText>
+                  {nudgeCampaignResult.details.length > 0 && (
+                    <View style={{ marginTop: 8 }}>
+                      <ThemedText style={[styles.cardDescription, { color: '#1B5E20', fontWeight: '600' }]}>
+                        Incomplete profiles:
+                      </ThemedText>
+                      {nudgeCampaignResult.details.slice(0, 10).map((u, i) => (
+                        <ThemedText key={i} style={[styles.cardDescription, { color: '#1B5E20', fontSize: 12 }]}>
+                          • {u.displayName} — needs: {u.missing.join(', ')} {!u.hasPushToken ? '(no token)' : ''}
+                        </ThemedText>
+                      ))}
+                      {nudgeCampaignResult.details.length > 10 && (
+                        <ThemedText style={[styles.cardDescription, { color: '#1B5E20', fontSize: 12, fontStyle: 'italic' }]}>
+                          ...and {nudgeCampaignResult.details.length - 10} more
+                        </ThemedText>
+                      )}
+                    </View>
+                  )}
+                </View>
+              )}
+            </View>
+
+            {/* Seed What to Buy Data */}
+            <View style={[styles.card, { marginTop: 20, backgroundColor: '#E3F2FD', borderColor: '#2196F3' }]}>
+              <ThemedText style={[styles.cardTitle, { color: '#0D47A1' }]}>
+                🛒 Seed What to Buy
+              </ThemedText>
+              <ThemedText style={[styles.cardDescription, { color: '#0D47A1' }]}>
+                Add crew-recommended items for San Francisco.{'\n'}
+                Includes wine, skincare, groceries, snacks, drinks,{'\n'}
+                souvenirs, fashion, and wellness picks.{'\n'}
+                {'\n'}
+                Skips cities that already have 5+ items.
+              </ThemedText>
+              
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: '#2196F3' }, seedingBuyItems && styles.buttonDisabled]}
+                onPress={handleSeedWhatToBuy}
+                disabled={seedingBuyItems}
+              >
+                {seedingBuyItems ? (
+                  <ActivityIndicator color={Colors.white} />
+                ) : (
+                  <ThemedText style={styles.buttonText}>🛒 Seed What to Buy</ThemedText>
+                )}
+              </TouchableOpacity>
+              
+              {seedBuyResult && (
+                <View style={[styles.card, { marginTop: 12, backgroundColor: '#D4EDDA', borderColor: '#28A745' }]}>
+                  <ThemedText style={[styles.cardDescription, { color: '#1B5E20' }]}>
+                    ✅ Added: {seedBuyResult.added}{'\n'}
+                    ⏭️ Skipped: {seedBuyResult.skipped}{'\n'}
+                    ❌ Errors: {seedBuyResult.errors}
+                  </ThemedText>
+                  {seedBuyResult.details.slice(0, 10).map((d, i) => (
+                    <ThemedText key={i} style={[styles.cardDescription, { color: '#1B5E20', fontSize: 12 }]}>
+                      • {d.item} ({d.city}) — {d.status}
+                    </ThemedText>
+                  ))}
+                  {seedBuyResult.details.length > 10 && (
+                    <ThemedText style={[styles.cardDescription, { color: '#1B5E20', fontSize: 12, fontStyle: 'italic' }]}>
+                      ...and {seedBuyResult.details.length - 10} more
+                    </ThemedText>
+                  )}
+                </View>
+              )}
+            </View>
+
+            {/* Normalize User Bases Card */}
             <View style={[styles.card, { marginTop: 20, backgroundColor: '#E8F5E9', borderColor: '#4CAF50' }]}>
               <ThemedText style={[styles.cardTitle, { color: '#1B5E20' }]}>
                 🔄 Normalize User Bases

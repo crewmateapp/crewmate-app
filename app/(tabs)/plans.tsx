@@ -1,5 +1,6 @@
 // app/(tabs)/plans.tsx - Shows plans from ALL layovers
 import { PlanCard } from '@/components/PlanCard';
+import { SharingNudge } from '@/components/SharingNudge';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import CreatePlanWizard from '@/components/CreatePlanWizard';
@@ -425,6 +426,11 @@ export default function PlansScreen() {
             )}
           </View>
         )}
+
+        {/* Sharing Nudge */}
+        <View style={{ paddingHorizontal: 16, marginTop: 8 }}>
+          <SharingNudge context="home" compact />
+        </View>
 
         {/* ✅ View Past Plans link - always visible in My Plans tab */}
         {activeTab === 'my' && (

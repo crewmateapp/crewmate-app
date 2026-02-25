@@ -10,6 +10,7 @@
 //
 // Sections:
 //   • Spot & City (approvals/rejections)
+//   • Reviews (received, reply)
 //   • Social (connections, messages, crewfie likes & comments)
 //   • Nearby (crew on layover)
 //   • Badges
@@ -147,6 +148,108 @@ export async function notifyCityRejected(
     });
   } catch (error) {
     console.error('Error creating city rejected notification:', error);
+  }
+}
+
+// ==========================================
+// REVIEW NOTIFICATIONS
+// ==========================================
+
+// ─── Review Received ─────────────────────────────────────────────────
+// Notify the spot submitter when someone leaves a review on their spot.
+// Call this after a review is successfully added to Firestore.
+
+export async function notifyReviewReceived(
+  spotOwnerUserId: string,
+  reviewerId: string,
+  reviewerName: string,
+  spotId: string,
+  spotName: string,
+  rating: number,
+  reviewPreview?: string
+): Promise<void> {
+  try {
+    // Don't notify if the owner reviewed their own spot
+    if (spotOwnerUserId === reviewerId) return;
+
+    const stars = '⭐'.repeat(Math.min(rating, 5));
+    const truncated = reviewPreview
+      ? reviewPreview.length > 60
+        ? reviewPreview.slice(0, 57) + '...'
+        : reviewPreview
+      : '';
+
+    const message = truncated
+      ? `${reviewerName} left a ${rating}-star review on "${spotName}": "${truncated}"`
+      : `${reviewerName} left a ${rating}-star review on "${spotName}"`;
+
+    await addDoc(collection(db, 'notifications'), {
+      userId: spotOwnerUserId,
+      type: 'review_received',
+      reviewerId,
+      reviewerName,
+      spotId,
+      spotName,
+      rating,
+      reviewPreview: truncated,
+      message,
+      read: false,
+      createdAt: serverTimestamp(),
+    });
+
+    await sendPushNotification(spotOwnerUserId, {
+      title: `${stars} New Review`,
+      body: message,
+      data: { type: 'review_received', spotId, reviewerId },
+    });
+  } catch (error) {
+    console.error('Error creating review received notification:', error);
+  }
+}
+
+// ─── Spot Review Reply ───────────────────────────────────────────────
+// Notify the reviewer when the spot owner (or another user) replies
+// to their review. Call this after a reply is saved to Firestore.
+
+export async function notifySpotReviewReply(
+  reviewerUserId: string,
+  replierId: string,
+  replierName: string,
+  spotId: string,
+  spotName: string,
+  replyPreview: string
+): Promise<void> {
+  try {
+    // Don't notify if replying to your own review
+    if (reviewerUserId === replierId) return;
+
+    const truncated =
+      replyPreview.length > 60
+        ? replyPreview.slice(0, 57) + '...'
+        : replyPreview;
+
+    const message = `${replierName} replied to your review on "${spotName}": "${truncated}"`;
+
+    await addDoc(collection(db, 'notifications'), {
+      userId: reviewerUserId,
+      type: 'spot_review_reply',
+      replierId,
+      replierName,
+      spotId,
+      spotName,
+      replyPreview: truncated,
+      message,
+      read: false,
+      createdAt: serverTimestamp(),
+    });
+
+    await sendPushNotification(reviewerUserId, {
+      title: `💬 Reply on "${spotName}"`,
+      body: message,
+      data: { type: 'spot_review_reply', spotId, replierId },
+    });
+  } catch (error) {
+    console.error('Error creating spot review reply notification:', error);
   }
 }
 
@@ -411,11 +514,6 @@ export async function notifyBadgeEarned(
 
 // ─── Plan Starting ───────────────────────────────────────────────────
 // Notify every crew member who RSVPed that a plan is about to happen.
-// Call this from a scheduled check (e.g. a background task or a cron-like
-// setup) that runs before plan start times.
-//
-// rsvpedUserIds should be the array of user IDs who have RSVPed "yes" —
-// excludes the plan creator so they don't get notified about their own plan.
 
 export async function notifyPlanStarting(
   planId: string,
@@ -496,11 +594,7 @@ export async function notifyPlanJoin(
 
 // ─── Message in a Plan ───────────────────────────────────────────────
 // Notify all other RSVPed crew (and the creator) when someone posts
-// a message in the plan's chat. The sender is excluded from the list.
-//
-// recipientIds should be everyone on the plan EXCEPT the person who
-// just sent the message.
-// messagePreview is the text of the message — this function truncates it.
+// a message in the plan's chat.
 
 export async function notifyPlanMessage(
   planId: string,

@@ -2,6 +2,7 @@ import { ThemedText } from '@/components/themed-text';
 import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
+import { notifyCrewfikeLike, notifyCrewfieComment } from '@/utils/notifications';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import {
@@ -10,6 +11,7 @@ import {
   arrayUnion,
   collection,
   doc,
+  getDoc,
   getDocs,
   limit,
   onSnapshot,
@@ -91,6 +93,20 @@ export default function CrewfiesFeed({ initialLimit }: CrewfiesFeedProps) {
   const [commentText, setCommentText] = useState('');
   const [loadingComments, setLoadingComments] = useState<{ [postId: string]: boolean }>({});
   const [showingAll, setShowingAll] = useState(!initialLimit);
+  const [currentUserName, setCurrentUserName] = useState('');
+
+  // ─── Fetch current user's display name (needed for notifications) ──
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    const unsubscribe = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
+      if (docSnap.exists()) {
+        setCurrentUserName(docSnap.data().displayName || 'Unknown');
+      }
+    });
+
+    return () => unsubscribe();
+  }, [user]);
 
   useEffect(() => {
     const postsQuery = query(
@@ -155,11 +171,12 @@ export default function CrewfiesFeed({ initialLimit }: CrewfiesFeedProps) {
     setRefreshing(true);
   };
 
-  const handleLike = async (postId: string, currentLikes: string[]) => {
+  // ─── Like handler — now sends push notification on new likes ───────
+  const handleLike = async (post: Post) => {
     if (!user) return;
 
-    const postRef = doc(db, 'posts', postId);
-    const isLiked = currentLikes.includes(user.uid);
+    const postRef = doc(db, 'posts', post.id);
+    const isLiked = post.likes.includes(user.uid);
 
     try {
       if (isLiked) {
@@ -170,6 +187,15 @@ export default function CrewfiesFeed({ initialLimit }: CrewfiesFeedProps) {
         await updateDoc(postRef, {
           likes: arrayUnion(user.uid)
         });
+
+        // Send notification to post owner (function handles self-like guard)
+        await notifyCrewfikeLike(
+          post.userId,
+          user.uid,
+          currentUserName,
+          post.id,
+          post.content?.slice(0, 40) || undefined
+        );
       }
     } catch (error) {
       console.error('Error liking post:', error);
@@ -220,20 +246,31 @@ export default function CrewfiesFeed({ initialLimit }: CrewfiesFeedProps) {
     }
   };
 
-  const handleAddComment = async (postId: string) => {
+  // ─── Comment handler — now sends push notification ─────────────────
+  const handleAddComment = async (postId: string, postOwnerId: string) => {
     if (!user || !commentText.trim()) return;
 
     try {
       const userDoc = await getDocs(query(collection(db, 'users'), where('__name__', '==', user.uid)));
       const userData = userDoc.docs[0]?.data();
+      const userName = userData?.displayName || 'Unknown';
 
       await addDoc(collection(db, 'posts', postId, 'comments'), {
         userId: user.uid,
-        userName: userData?.displayName || 'Unknown',
+        userName,
         userPhoto: userData?.photoURL || null,
         text: commentText.trim(),
         createdAt: serverTimestamp(),
       });
+
+      // Send notification to post owner (function handles self-comment guard)
+      await notifyCrewfieComment(
+        postOwnerId,
+        user.uid,
+        userName,
+        postId,
+        commentText.trim()
+      );
 
       setCommentText('');
     } catch (error) {
@@ -295,7 +332,7 @@ export default function CrewfiesFeed({ initialLimit }: CrewfiesFeedProps) {
         <View style={styles.postActions}>
           <TouchableOpacity 
             style={styles.actionButton}
-            onPress={() => handleLike(item.id, item.likes)}
+            onPress={() => handleLike(item)}
           >
             <Ionicons 
               name={isLiked ? "heart" : "heart-outline"} 
@@ -364,7 +401,7 @@ export default function CrewfiesFeed({ initialLimit }: CrewfiesFeedProps) {
                       multiline
                     />
                     <TouchableOpacity 
-                      onPress={() => handleAddComment(item.id)}
+                      onPress={() => handleAddComment(item.id, item.userId)}
                       disabled={!commentText.trim()}
                     >
                       <Ionicons 

@@ -196,15 +196,15 @@ export default function LayoverDetailScreen() {
         return;
       }
       
-      // Then fetch everything else in parallel
-      await Promise.all([
+      // Then fetch connections and plans in parallel
+      const [_, connectionData] = await Promise.all([
         fetchMyPlans(),
         fetchConnections(),
       ]);
       
-      // Now fetch data that depends on layover
+      // Now fetch data that depends on layover — pass connection data directly
       await Promise.all([
-        fetchCrewMembers(),
+        fetchCrewMembers(layoverData, connectionData),
         fetchAllCityPlans(layoverData),
         fetchRecommendedSpots(layoverData),
         fetchWeather(layoverData),
@@ -445,36 +445,62 @@ export default function LayoverDetailScreen() {
     }
   };
 
-  const fetchConnections = async () => {
-    if (!user?.uid) return;
+  const [connectionDocMap, setConnectionDocMap] = useState<Map<string, string>>(new Map());
+
+  const fetchConnections = async (): Promise<{ connectedIds: Set<string>, docMap: Map<string, string>, pendingIds: Set<string> } | null> => {
+    if (!user?.uid) return null;
 
     try {
-      const userDoc = await getDoc(doc(db, 'users', user.uid));
-      if (userDoc.exists()) {
-        const userData = userDoc.data();
-        const connectedIds = new Set(userData.connections || []);
-        setConnections(connectedIds);
+      // Get connection doc IDs from the connections collection
+      const connectionsQuery = query(
+        collection(db, 'connections'),
+        where('userIds', 'array-contains', user.uid)
+      );
+      const connectionsSnap = await getDocs(connectionsQuery);
+      
+      const connectedIds = new Set<string>();
+      const docMap = new Map<string, string>();
+      
+      connectionsSnap.docs.forEach((connDoc) => {
+        const data = connDoc.data();
+        const otherUserId = data.userIds?.find((id: string) => id !== user.uid);
+        if (otherUserId) {
+          connectedIds.add(otherUserId);
+          docMap.set(otherUserId, connDoc.id);
+        }
+      });
+      
+      setConnections(connectedIds);
+      setConnectionDocMap(docMap);
 
-        const pendingQuery = query(
-          collection(db, 'connectionRequests'),
-          where('fromUserId', '==', user.uid),
-          where('status', '==', 'pending')
-        );
-        const pendingSnap = await getDocs(pendingQuery);
-        const pending = new Set(pendingSnap.docs.map(doc => doc.data().toUserId));
-        setPendingRequests(pending);
-      }
+      // Also check pending outgoing requests
+      const pendingQuery = query(
+        collection(db, 'connectionRequests'),
+        where('fromUserId', '==', user.uid),
+        where('status', '==', 'pending')
+      );
+      const pendingSnap = await getDocs(pendingQuery);
+      const pendingIds = new Set(pendingSnap.docs.map(doc => doc.data().toUserId));
+      setPendingRequests(pendingIds);
+
+      return { connectedIds, docMap, pendingIds };
     } catch (error) {
       console.error('Error fetching connections:', error);
+      return null;
     }
   };
 
-  const fetchCrewMembers = async () => {
-    if (!layover) return;
+  const fetchCrewMembers = async (layoverData?: Layover, connectionData?: { connectedIds: Set<string>, docMap: Map<string, string>, pendingIds: Set<string> } | null) => {
+    const targetLayover = layoverData || layover;
+    if (!targetLayover) return;
+
+    // Use passed data (fresh) or fall back to state
+    const activeConnections = connectionData?.connectedIds || connections;
+    const activePending = connectionData?.pendingIds || pendingRequests;
 
     try {
-      const startDate = layover.startDate?.toDate ? layover.startDate.toDate() : new Date(layover.startDate);
-      const endDate = layover.endDate?.toDate ? layover.endDate.toDate() : new Date(layover.endDate);
+      const startDate = targetLayover.startDate?.toDate ? targetLayover.startDate.toDate() : new Date(targetLayover.startDate);
+      const endDate = targetLayover.endDate?.toDate ? targetLayover.endDate.toDate() : new Date(targetLayover.endDate);
 
       const usersQuery = query(collection(db, 'users'));
       const usersSnap = await getDocs(usersQuery);
@@ -485,26 +511,42 @@ export default function LayoverDetailScreen() {
         if (userDoc.id === user?.uid) return;
 
         const userData = userDoc.data();
-        const upcomingLayovers = userData.upcomingLayovers || [];
+        let isCrewInCity = false;
 
-        const matchingLayover = upcomingLayovers.find((l: any) => {
-          if (l.city !== layover.city) return false;
-          
-          const lStart = l.startDate?.toDate ? l.startDate.toDate() : new Date(l.startDate);
-          const lEnd = l.endDate?.toDate ? l.endDate.toDate() : new Date(l.endDate);
-          
-          return (lStart <= endDate && lEnd >= startDate);
-        });
+        // Check 1: Is this user currently live in this city?
+        const currentLayoverData = userData.currentLayover;
+        if (currentLayoverData && 
+            currentLayoverData.city === targetLayover.city && 
+            currentLayoverData.isLive) {
+          isCrewInCity = true;
+        }
 
-        if (matchingLayover && matchingLayover.preDiscoverable) {
+        // Check 2: Do they have an upcoming layover in this city with overlapping dates?
+        if (!isCrewInCity) {
+          const upcomingLayovers = userData.upcomingLayovers || [];
+          const matchingLayover = upcomingLayovers.find((l: any) => {
+            if (l.city !== targetLayover.city) return false;
+            
+            const lStart = l.startDate?.toDate ? l.startDate.toDate() : new Date(l.startDate);
+            const lEnd = l.endDate?.toDate ? l.endDate.toDate() : new Date(l.endDate);
+            
+            return (lStart <= endDate && lEnd >= startDate);
+          });
+
+          if (matchingLayover && matchingLayover.preDiscoverable) {
+            isCrewInCity = true;
+          }
+        }
+
+        if (isCrewInCity) {
           crew.push({
             id: userDoc.id,
             displayName: userData.displayName || 'Crew Member',
             photoURL: userData.photoURL,
             airline: userData.airline,
             base: userData.base,
-            isConnected: connections.has(userDoc.id),
-            connectionPending: pendingRequests.has(userDoc.id),
+            isConnected: activeConnections.has(userDoc.id),
+            connectionPending: activePending.has(userDoc.id),
           });
         }
       });
@@ -519,6 +561,34 @@ export default function LayoverDetailScreen() {
     if (!user?.uid) return;
 
     try {
+      // Safety check: if already connected, go to messages instead
+      const existingConnectionId = connectionDocMap.get(crewMember.id);
+      if (existingConnectionId) {
+        router.push({
+          pathname: '/chat/[id]',
+          params: { 
+            id: existingConnectionId, 
+            name: crewMember.displayName,
+          }
+        });
+        return;
+      }
+
+      // Check for existing pending request to avoid duplicates
+      const existingQuery = query(
+        collection(db, 'connectionRequests'),
+        where('fromUserId', '==', user.uid),
+        where('toUserId', '==', crewMember.id),
+        where('status', '==', 'pending')
+      );
+      const existingSnap = await getDocs(existingQuery);
+      
+      if (!existingSnap.empty) {
+        Alert.alert('Already Sent', `You already have a pending request to ${crewMember.displayName}.`);
+        setPendingRequests(prev => new Set([...prev, crewMember.id]));
+        return;
+      }
+
       await addDoc(collection(db, 'connectionRequests'), {
         fromUserId: user.uid,
         toUserId: crewMember.id,
@@ -1043,12 +1113,28 @@ export default function LayoverDetailScreen() {
                   </View>
 
                   {member.isConnected ? (
-                    <View style={[styles.connectedBadge, { backgroundColor: Colors.success + '10' }]}>
-                      <Ionicons name="checkmark-circle" size={14} color={Colors.success} />
-                      <ThemedText style={[styles.connectedText, { color: Colors.success }]}>
-                        Connected
-                      </ThemedText>
-                    </View>
+                    <TouchableOpacity
+                      style={[styles.messageButton, { backgroundColor: Colors.primary }]}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        const connectionId = connectionDocMap.get(member.id);
+                        if (connectionId) {
+                          router.push({
+                            pathname: '/chat/[id]',
+                            params: { 
+                              id: connectionId, 
+                              name: member.displayName,
+                            }
+                          });
+                        } else {
+                          // Fallback to profile if connection doc not found
+                          router.push(`/profile/${member.id}`);
+                        }
+                      }}
+                    >
+                      <Ionicons name="chatbubble" size={14} color="#FFFFFF" />
+                      <Text style={styles.messageButtonText}>Message</Text>
+                    </TouchableOpacity>
                   ) : member.connectionPending ? (
                     <View style={[styles.pendingBadge, { 
                       backgroundColor: colors.text.secondary + '20' 
@@ -1059,16 +1145,16 @@ export default function LayoverDetailScreen() {
                     </View>
                   ) : (
                     <TouchableOpacity
-                      style={[styles.connectButton, {
-                        backgroundColor: colors.background,
-                        borderColor: colors.border
+                      style={[styles.connectActionButton, {
+                        borderColor: Colors.primary
                       }]}
                       onPress={(e) => {
                         e.stopPropagation();
                         handleConnect(member);
                       }}
                     >
-                      <Ionicons name="person-add-outline" size={16} color={Colors.primary} />
+                      <Ionicons name="person-add-outline" size={14} color={Colors.primary} />
+                      <Text style={[styles.connectActionText, { color: Colors.primary }]}>Connect</Text>
                     </TouchableOpacity>
                   )}
                 </TouchableOpacity>
@@ -1522,6 +1608,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
   },
+  connectActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 16,
+    borderWidth: 1.5,
+  },
+  connectActionText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
   connectedBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1533,6 +1632,19 @@ const styles = StyleSheet.create({
   connectedText: {
     fontSize: 12,
     fontWeight: '600',
+  },
+  messageButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 16,
+  },
+  messageButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
   pendingBadge: {
     paddingHorizontal: 10,

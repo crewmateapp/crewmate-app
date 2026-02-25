@@ -3,7 +3,7 @@
     "name": "CrewMate",
     "slug": "CrewMate-App",
     "owner": "crewmate-app",
-    "version": "1.2.0",
+    "version": "1.3.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "crewmateapp",
@@ -12,7 +12,9 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.crewmateapp.CrewMateApp",
-      "buildNumber": "20",
+      "buildNumber": "22",
+      "usesAppleSignIn": true,
+      "googleServicesFile": "./GoogleService-Info.plist",
       "config": {
         "googleMapsApiKey": "AIzaSyAo_wJxot0rxpjXZmxP3a_aYjIaT5W6TbU"
       },
@@ -21,17 +23,17 @@
         "NSLocationWhenInUseUsageDescription": "CrewMate needs your location to verify you're in your layover city and connect you with nearby crew.",
         "NSLocationAlwaysUsageDescription": "CrewMate uses your location to connect you with nearby crew members during your layovers.",
         "UIBackgroundModes": [
-          "remote-notification",
           "remote-notification"
         ]
       },
       "associatedDomains": [
-        "applinks:crewmate.app",
-        "applinks:www.crewmate.app"
+        "applinks:crewmateapp.dev",
+        "applinks:www.crewmateapp.dev"
       ]
     },
     "android": {
-      "versionCode": 16,
+      "versionCode": 18,
+      "googleServicesFile": "./google-services.json",
       "config": {
         "googleMaps": {
           "apiKey": "AIzaSyD9SoERup6vjlVnlVvG89Bz2-YrZXGnMkI"
@@ -61,32 +63,32 @@
           "data": [
             {
               "scheme": "https",
-              "host": "crewmate.app",
+              "host": "crewmateapp.dev",
               "pathPrefix": "/plan"
             },
             {
               "scheme": "https",
-              "host": "www.crewmate.app",
+              "host": "www.crewmateapp.dev",
               "pathPrefix": "/plan"
             },
             {
               "scheme": "https",
-              "host": "crewmate.app",
+              "host": "crewmateapp.dev",
               "pathPrefix": "/connect"
             },
             {
               "scheme": "https",
-              "host": "www.crewmate.app",
+              "host": "www.crewmateapp.dev",
               "pathPrefix": "/connect"
             },
             {
               "scheme": "https",
-              "host": "crewmate.app",
+              "host": "crewmateapp.dev",
               "pathPrefix": "/refer"
             },
             {
               "scheme": "https",
-              "host": "www.crewmate.app",
+              "host": "www.crewmateapp.dev",
               "pathPrefix": "/refer"
             }
           ],
@@ -129,7 +131,9 @@
           "color": "#2A4E9D",
           "sounds": []
         }
-      ]
+      ],
+      "expo-apple-authentication",
+      "@react-native-google-signin/google-signin"
     ],
     "experiments": {
       "typedRoutes": true,

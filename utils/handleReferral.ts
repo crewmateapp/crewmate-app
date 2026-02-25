@@ -10,7 +10,7 @@ import {
 } from 'firebase/firestore';
 
 // ─── Called at signup ─────────────────────────────────────────────────────────
-// If the user signed up via a referral link (crewmateapp://refer/{referrerId}),
+// If the user signed up via a referral link (https://crewmateapp.dev/refer/{referrerId}),
 // store the referrer's UID on the new user's doc. This is set once and never changes.
 //
 // Call this AFTER the user doc is created in Firestore during onboarding:
@@ -42,19 +42,18 @@ export async function storeReferral(newUserId: string, referrerId: string): Prom
   }
 }
 
-// ─── Called when a user uploads their first profile photo ─────────────────────
-// This is the "completion" trigger. Check if this user was referred,
-// and if so, credit the referrer.
+// ─── Called when a user completes their profile ──────────────────────────────
+// A referral is "complete" when the referred user has:
+//   ✅ Profile photo uploaded
+//   ✅ Airline filled in
+//   ✅ Base filled in
 //
-// Call this from wherever you handle profile photo upload, but ONLY
-// when it's the user's first photo (i.e. they didn't have a photoURL before):
-//   if (!previousPhotoURL && newPhotoURL) {
-//     await creditReferrer(userId);
-//   }
+// Call this from profile photo upload AND profile save, since the user
+// might complete these in any order. A `referralCredited` flag on the
+// user doc prevents double-counting.
 //
 export async function creditReferrer(userId: string): Promise<void> {
   try {
-    // Load the user who just uploaded a photo
     const userDoc = await getDoc(doc(db, 'users', userId));
     if (!userDoc.exists()) return;
 
@@ -64,12 +63,23 @@ export async function creditReferrer(userId: string): Promise<void> {
     // If they weren't referred by anyone, nothing to do
     if (!referrerId) return;
 
-    // TEMP: Email verification check bypassed to match _layout.tsx test config.
-    // Re-enable this when email verification is turned back on in production.
-    // if (!userData.emailVerified) {
-    //   console.log('creditReferrer: user not email verified yet, skipping', userId);
-    //   return;
-    // }
+    // Already credited — don't double-count
+    if (userData.referralCredited === true) return;
+
+    // Check profile completeness: photo + airline + base
+    const hasPhoto = !!userData.photoURL;
+    const hasAirline = !!userData.airline && userData.airline.trim() !== '';
+    const hasBase = !!userData.base && userData.base.trim() !== '';
+
+    if (!hasPhoto || !hasAirline || !hasBase) {
+      console.log(`creditReferrer: profile incomplete for ${userId} (photo: ${hasPhoto}, airline: ${hasAirline}, base: ${hasBase})`);
+      return;
+    }
+
+    // Mark this user's referral as credited so we never double-count
+    await updateDoc(doc(db, 'users', userId), {
+      referralCredited: true,
+    });
 
     // Increment the referrer's successfulReferrals stat
     await updateDoc(doc(db, 'users', referrerId), {

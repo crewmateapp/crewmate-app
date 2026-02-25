@@ -96,7 +96,7 @@ User ID: ${user?.uid}
 Device: ${Platform.OS} ${Platform.Version}
     `.trim();
 
-    const emailUrl = `mailto:crewmateapphq@gmail.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    const emailUrl = `mailto:hello@crewmateapp.dev?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     
     try {
       const canOpen = await Linking.canOpenURL(emailUrl);
@@ -105,14 +105,14 @@ Device: ${Platform.OS} ${Platform.Version}
       } else {
         Alert.alert(
           'Email Not Available',
-          'Please email us at crewmateapphq@gmail.com',
+          'Please email us at hello@crewmateapp.dev',
           [{ text: 'OK' }]
         );
       }
     } catch (error) {
       Alert.alert(
         'Error',
-        'Could not open email. Please contact crewmateapphq@gmail.com',
+        'Could not open email. Please contact hello@crewmateapp.dev',
         [{ text: 'OK' }]
       );
     }
@@ -212,6 +212,22 @@ Device: ${Platform.OS} ${Platform.Version}
 
             {/* Menu Items */}
             <View style={styles.menuSection}>
+              {/* ADD CREW — Prominent action button */}
+              <TouchableOpacity 
+                style={[styles.menuItem, {
+                  backgroundColor: colors.primary + '0D',
+                  borderRadius: 12,
+                  marginBottom: 8,
+                  borderWidth: 1,
+                  borderColor: colors.primary + '20',
+                }]}
+                onPress={() => handleNavigation('/qr-code')}
+              >
+                <Ionicons name="person-add" size={24} color={colors.primary} />
+                <ThemedText style={[styles.menuText, { color: colors.primary, fontWeight: '600' }]}>Add Crew</ThemedText>
+                <Ionicons name="chevron-forward" size={20} color={colors.primary} />
+              </TouchableOpacity>
+
               {/* Profile */}
               <TouchableOpacity 
                 style={styles.menuItem}
@@ -300,6 +316,16 @@ Device: ${Platform.OS} ${Platform.Version}
               >
                 <Ionicons name="paper-plane-outline" size={24} color={colors.text.primary} />
                 <ThemedText style={styles.menuText}>Invite Crew</ThemedText>
+                <Ionicons name="chevron-forward" size={20} color={colors.text.secondary} />
+              </TouchableOpacity>
+
+              {/* My Referrals */}
+              <TouchableOpacity 
+                style={styles.menuItem}
+                onPress={() => handleNavigation('/referrals')}
+              >
+                <Ionicons name="git-network-outline" size={24} color={colors.text.primary} />
+                <ThemedText style={styles.menuText}>My Referrals</ThemedText>
                 <Ionicons name="chevron-forward" size={20} color={colors.text.secondary} />
               </TouchableOpacity>
 

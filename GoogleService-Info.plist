@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CLIENT_ID</key>
+	<string>224833054920-r79q18g6kftka6j0012msuof79ldavka.apps.googleusercontent.com</string>
+	<key>REVERSED_CLIENT_ID</key>
+	<string>com.googleusercontent.apps.224833054920-r79q18g6kftka6j0012msuof79ldavka</string>
+	<key>ANDROID_CLIENT_ID</key>
+	<string>224833054920-daic5eaelnvtnlgvil7r5rsjambvjqm9.apps.googleusercontent.com</string>
+	<key>API_KEY</key>
+	<string>AIzaSyCy5vdUq-5Y-zLuaHcVEY0lN9Pp3gB_sHk</string>
+	<key>GCM_SENDER_ID</key>
+	<string>224833054920</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>com.crewmateapp.CrewMateApp</string>
+	<key>PROJECT_ID</key>
+	<string>crewmate-4399c</string>
+	<key>STORAGE_BUCKET</key>
+	<string>crewmate-4399c.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:224833054920:ios:2e6f87cea399ad00aa1dfd</string>
+</dict>
+</plist>

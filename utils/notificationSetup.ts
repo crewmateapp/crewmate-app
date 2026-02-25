@@ -43,21 +43,30 @@ const NOTIFICATION_ROUTES: Record<string, (data: Record<string, any>) => string>
   message: (data) =>
     data.conversationId ? `/chat/${data.conversationId}` : '/(tabs)/connections',
 
-  // Crewfies
-  crewfie_like: () => '/(tabs)/feed',
-  crewfie_comment: () => '/(tabs)/feed',
+  // Crewfies — deep-link to the specific post when postId is available
+  crewfie_like: (data) =>
+    data.postId ? `/crewfie/${data.postId}` : '/(tabs)/feed',
+  crewfie_comment: (data) =>
+    data.postId ? `/crewfie/${data.postId}` : '/(tabs)/feed',
 
-  // Spots & Cities
-  spot_approved: () => '/(tabs)/explore',
+  // Spots & Cities — deep-link to the specific spot when spotId is available
+  spot_approved: (data) =>
+    data.spotId ? `/spot/${data.spotId}` : '/(tabs)/explore',
   spot_rejected: () => '/(tabs)/explore',
   city_approved: () => '/(tabs)/explore',
   city_rejected: () => '/(tabs)/explore',
 
+  // Reviews — deep-link to the specific spot
+  review_received: (data) =>
+    data.spotId ? `/spot/${data.spotId}` : '/(tabs)/explore',
+  spot_review_reply: (data) =>
+    data.spotId ? `/spot/${data.spotId}` : '/(tabs)/explore',
+
   // Nearby
   nearby_crew: () => '/(tabs)/explore',
 
-  // Badges
-  badge_earned: () => '/(tabs)/profile',
+  // Badges — deep-link to the badges screen, not generic profile
+  badge_earned: () => '/badges',
 
   // Plans — all plan notifications deep-link straight into that plan.
   // Falls back to the plans tab if somehow planId is missing.
@@ -69,7 +78,16 @@ const NOTIFICATION_ROUTES: Record<string, (data: Record<string, any>) => string>
 
 function getRouteForNotification(data: Record<string, any>): string | null {
   const routeFn = NOTIFICATION_ROUTES[data?.type];
-  return routeFn ? routeFn(data) : null;
+  if (routeFn) return routeFn(data);
+
+  // Fallback: if there's an unknown type but it has a recognizable ID field,
+  // try to route intelligently rather than silently dropping the tap.
+  if (data?.spotId) return `/spot/${data.spotId}`;
+  if (data?.planId) return `/plan/${data.planId}`;
+  if (data?.conversationId) return `/chat/${data.conversationId}`;
+
+  console.warn('[CrewMate] Unknown notification type with no fallback route:', data?.type);
+  return null;
 }
 
 // ─── Permission ──────────────────────────────────────────────────────
@@ -115,7 +133,7 @@ export async function registerPushToken(userId: string): Promise<string | null> 
       pushTokenUpdatedAt: new Date(),
     });
 
-    console.log('[CrewMate] Push token registered');
+    console.log('[CrewMate] Push token registered:', token);
     return token;
   } catch (error) {
     console.error('[CrewMate] Failed to register push token:', error);
@@ -154,13 +172,15 @@ export function useNotifications(userId: string | null) {
       }
     })();
 
-    // 2. Foreground listener
+    // 2. Foreground listener — log and optionally reset badge count
     foregroundRef.current = Notifications.addNotificationReceivedListener(
       (notification) => {
         console.log(
           '[CrewMate] Notification received in foreground:',
           notification.request.content.title
         );
+        // Reset the app badge count when a notification arrives while app is open
+        Notifications.setBadgeCountAsync(0);
       }
     );
 
@@ -170,14 +190,15 @@ export function useNotifications(userId: string | null) {
         const data = response.notification.request.content.data;
         const route = getRouteForNotification(data);
         if (route) {
-          router.push(route as any);
+          // Small delay ensures the navigator is mounted before pushing
+          setTimeout(() => router.push(route as any), 100);
         }
       }
     );
 
     // 4. Cold launch check — if the app was opened BY tapping a notification
     //    (i.e. it wasn't running at all), getLastNotificationResponseAsync
-    //    returns that notification. Small delay so the navigator is ready.
+    //    returns that notification. Larger delay so the navigator is ready.
     Notifications.getLastNotificationResponseAsync().then((response) => {
       if (response) {
         const data = response.notification.request.content.data;

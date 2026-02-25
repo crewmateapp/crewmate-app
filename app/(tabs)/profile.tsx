@@ -1,6 +1,8 @@
 // app/(tabs)/profile.tsx
 import { BadgeShowcase } from '@/components/BadgeShowcase';
 import { LevelProgressBar } from '@/components/LevelProgressBar';
+import { SharingNudge } from '@/components/SharingNudge';
+import { ProfileCompletionBanner } from '@/components/ProfileCompletionBanner';
 import { StatsGrid } from '@/components/StatsGrid';
 import { ThemedView } from '@/components/themed-view';
 import { db } from '@/config/firebase';
@@ -376,6 +378,16 @@ export default function ProfileScreen() {
 
       {/* Stats Grid (Interactive) */}
       <StatsGrid stats={statsData} />
+
+      {/* Sharing Nudge */}
+      <View style={{ paddingHorizontal: 20, marginTop: 4 }}>
+        <SharingNudge context="profile" compact />
+      </View>
+
+      {/* Profile Completion Reminder */}
+      <View style={{ paddingHorizontal: 20, marginTop: 4 }}>
+        <ProfileCompletionBanner compact />
+      </View>
 
       {/* Notification Test Panel — super admin only, TEMPORARY */}
       {profile?.adminRole === 'super' && (

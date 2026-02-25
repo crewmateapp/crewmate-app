@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "224833054920",
+    "project_id": "crewmate-4399c",
+    "storage_bucket": "crewmate-4399c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:224833054920:android:d18b4a596118b766aa1dfd",
+        "android_client_info": {
+          "package_name": "com.crewmateapp.CrewMateApp"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "224833054920-2tc4n359fhfumlnj0dpgtsfrqpblpdpp.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDH7lVc0JRFUzQpO5TCdXd6mA4WBP5UX78"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "224833054920-2tc4n359fhfumlnj0dpgtsfrqpblpdpp.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,5 +1,10 @@
 // app/+link-handler.tsx
-// This file handles incoming deep links to plans, connections, and referrals
+// Handles incoming deep links to plans, connections, and referrals.
+//
+// Supports TWO formats:
+//   Custom scheme:  crewmateapp://refer/{id}   (app already installed)
+//   Universal link: https://crewmateapp.dev/refer/{id}  (works even if app not installed)
+//
 import { useAuth } from '@/contexts/AuthContext';
 import { setPendingReferrer } from '@/utils/pendingReferral';
 import * as Linking from 'expo-linking';
@@ -30,6 +35,39 @@ export default function LinkHandler() {
     };
   }, [user, loading]);
 
+  // ─── Parse any link format into { type, id } ──────────────────────────
+  // Custom scheme:  crewmateapp://refer/abc123
+  //   → Linking.parse → hostname="refer", path="abc123"
+  //
+  // Universal link:  https://crewmateapp.dev/refer/abc123
+  //   → Linking.parse → hostname="crewmateapp.dev", path="/refer/abc123"
+  //
+  const parseLinkType = (url: string): { type: string; id: string } | null => {
+    try {
+      const parsed = Linking.parse(url);
+
+      // Custom scheme: hostname is the type (refer, plan, connect)
+      if (parsed.hostname && parsed.hostname !== 'crewmateapp.dev' && parsed.hostname !== 'www.crewmateapp.dev') {
+        const type = parsed.hostname;
+        const id = parsed.path?.split('/')[0] || '';
+        if (type && id) return { type, id };
+      }
+
+      // Universal link: parse type from path
+      const path = parsed.path || '';
+      const segments = path.split('/').filter(Boolean);
+      // segments for /refer/abc123 → ["refer", "abc123"]
+      if (segments.length >= 2) {
+        return { type: segments[0], id: segments[1] };
+      }
+
+      return null;
+    } catch {
+      console.error('📱 Failed to parse link:', url);
+      return null;
+    }
+  };
+
   const handleDeepLink = (url: string) => {
     // Don't process if still loading auth
     if (loading) {
@@ -39,81 +77,63 @@ export default function LinkHandler() {
 
     console.log('📱 Received deep link:', url);
 
-    // Parse the URL
-    const { hostname, path, queryParams } = Linking.parse(url);
+    const link = parseLinkType(url);
+    if (!link) {
+      console.log('📱 Could not parse link, ignoring');
+      return;
+    }
 
-    // Handle plan links: crewmateapp://plan/{id}
-    if (hostname === 'plan' && path) {
-      const planId = path.split('/')[0]; // Get first segment after /plan/
+    console.log(`📱 Parsed: type=${link.type}, id=${link.id}`);
+
+    // Handle plan links
+    if (link.type === 'plan') {
+      console.log('🎯 Navigating to plan:', link.id);
       
-      if (planId) {
-        console.log('🎯 Navigating to plan:', planId);
-        
-        // If user is logged in, go to plan
-        if (user) {
-          router.push({
-            pathname: '/plan/[id]',
-            params: { id: planId }
-          });
-        } else {
-          // Store the plan ID and redirect after login
-          console.log('⏳ User not logged in, storing plan ID for after auth');
-          router.push({
-            pathname: '/plan/[id]',
-            params: { id: planId }
-          });
-        }
+      if (user) {
+        router.push({
+          pathname: '/plan/[id]',
+          params: { id: link.id }
+        });
+      } else {
+        console.log('⏳ User not logged in, storing plan ID for after auth');
+        router.push({
+          pathname: '/plan/[id]',
+          params: { id: link.id }
+        });
       }
     }
     
-    // Handle connection links: crewmateapp://connect/{userId}
-    if (hostname === 'connect' && path) {
-      const userId = path.split('/')[0]; // Get user ID from path
+    // Handle connection links
+    if (link.type === 'connect') {
+      console.log('👥 Navigating to connect screen:', link.id);
       
-      if (userId) {
-        console.log('👥 Navigating to user profile:', userId);
-        
-        // Navigate to friend profile
-        if (user) {
-          router.push({
-            pathname: '/profile/friend/[userId]',
-            params: { userId: userId }
-          });
-        } else {
-          // Not logged in - redirect to sign in, then to profile
-          console.log('⏳ User not logged in, redirecting to sign in first');
-          // For now, navigate to sign in - they can try the link again after auth
-          router.push('/auth/signin');
-        }
+      if (user) {
+        router.push({
+          pathname: '/connect/[userID]',
+          params: { userID: link.id }
+        });
+      } else {
+        console.log('⏳ User not logged in, redirecting to sign in first');
+        router.push('/auth/signin');
       }
     }
 
-    // Handle referral links: crewmateapp://refer/{referrerId}
-    // This is tapped by someone who doesn't have an account yet.
-    // We store the referrer ID so create-profile can pick it up after signup.
-    if (hostname === 'refer' && path) {
-      const referrerId = path.split('/')[0];
+    // Handle referral links
+    if (link.type === 'refer') {
+      console.log('🎁 Referral link received, referrer:', link.id);
 
-      if (referrerId) {
-        console.log('🎁 Referral link received, referrer:', referrerId);
+      // Store the referrer ID — survives through signup → create-profile
+      setPendingReferrer(link.id);
 
-        // Store the referrer ID — survives through signup → create-profile
-        setPendingReferrer(referrerId);
-
-        if (user) {
-          // Already signed in — edge case (existing user tapping a referral link).
-          // Nothing to do, they're already on the app.
-          console.log('📝 User already signed in, referral link ignored');
-        } else {
-          // Not signed in — send them to signup
-          console.log('➡️ Redirecting to signup');
-          router.push('/auth/signup');
-        }
+      if (user) {
+        // Already signed in — edge case (existing user tapping a referral link).
+        console.log('📝 User already signed in, referral link ignored');
+      } else {
+        // Not signed in — send them to signup
+        console.log('➡️ Redirecting to signup');
+        router.push('/auth/signup');
       }
     }
-    
-    // Add more deep link handlers here as needed
-    // e.g., crewmateapp://spot/{id}, crewmateapp://layover/{id}, etc.
   };
 
   // This component doesn't render anything

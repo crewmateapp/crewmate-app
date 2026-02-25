@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>CrewMate — Newsletter Migration</title>
+  <style>
+    body { font-family: sans-serif; max-width: 500px; margin: 60px auto; padding: 20px; }
+    h1 { font-size: 22px; margin-bottom: 8px; }
+    p { color: #666; margin-bottom: 24px; }
+    button { padding: 16px 32px; background: #1B2E58; color: white; border: none; border-radius: 12px; font-size: 16px; font-weight: 700; cursor: pointer; }
+    button:disabled { background: #999; }
+    #log { margin-top: 20px; background: #f5f5f5; padding: 16px; border-radius: 10px; font-family: monospace; font-size: 13px; white-space: pre-wrap; display: none; }
+  </style>
+</head>
+<body>
+  <h1>📧 Newsletter Migration</h1>
+  <p>This will import 28 Beehiiv subscribers into your Firestore <code>newsletterSignups</code> collection. Click the button to run.</p>
+  <button id="btn" onclick="runMigration()">Migrate 28 Subscribers</button>
+  <div id="log"></div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import { getFirestore, collection, addDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+    const app = initializeApp({
+      apiKey: "AIzaSyAYcqfRRjgL2Rp_uXQKTajWATcfGS4wvFc",
+      authDomain: "crewmate-4399c.firebaseapp.com",
+      projectId: "crewmate-4399c",
+      storageBucket: "crewmate-4399c.firebasestorage.app",
+      messagingSenderId: "224833054920",
+      appId: "1:224833054920:web:f748a0bb88f40a3daa1dfd"
+    });
+    const db = getFirestore(app);
+
+    const subscribers = [
+      { email: "zachtillmanbg@gmail.com", subscribedAt: "2025-12-24 17:59:46 UTC" },
+      { email: "welch8804@gmail.com", subscribedAt: "2025-12-30 03:00:51 UTC" },
+      { email: "daniellittle02@gmail.com", subscribedAt: "2025-12-30 03:34:01 UTC" },
+      { email: "daniel.little@aa.com", subscribedAt: "2025-12-30 03:35:11 UTC" },
+      { email: "alekdissan@gmail.com", subscribedAt: "2025-12-30 15:20:08 UTC" },
+      { email: "andrew.lemish@aa.com", subscribedAt: "2025-12-30 17:39:37 UTC" },
+      { email: "lissettenunez319@gmail.com", subscribedAt: "2025-12-30 17:49:17 UTC" },
+      { email: "jlugo25@yahoo.com", subscribedAt: "2025-12-30 18:12:41 UTC" },
+      { email: "legend1202@gmail.com", subscribedAt: "2025-12-30 18:48:40 UTC" },
+      { email: "domenictomassi@gmail.com", subscribedAt: "2025-12-30 19:11:11 UTC" },
+      { email: "jillperry64@gmail.com", subscribedAt: "2025-12-31 00:39:26 UTC" },
+      { email: "ppratt1995@gmail.com", subscribedAt: "2025-12-31 13:19:37 UTC" },
+      { email: "kyflyguy@outlook.com", subscribedAt: "2025-12-31 19:40:44 UTC" },
+      { email: "marlinbec@gmail.com", subscribedAt: "2026-01-03 21:13:09 UTC" },
+      { email: "timothy.nord@gmail.com", subscribedAt: "2026-01-04 18:11:47 UTC" },
+      { email: "benabenowski@gmail.com", subscribedAt: "2026-01-06 04:07:10 UTC" },
+      { email: "braynace@rcn.com", subscribedAt: "2026-01-07 13:45:22 UTC" },
+      { email: "phillipsavery04@gmail.com", subscribedAt: "2026-01-08 01:38:06 UTC" },
+      { email: "enriqueam18@gmail.com", subscribedAt: "2026-01-11 06:28:01 UTC" },
+      { email: "raleighhamilton@gmail.com", subscribedAt: "2026-01-11 06:28:20 UTC" },
+      { email: "kbmufn@hotmail.com", subscribedAt: "2026-01-11 15:08:51 UTC" },
+      { email: "yursi.h@gmail.com", subscribedAt: "2026-01-12 17:09:54 UTC" },
+      { email: "andrewkscheibe@gmail.com", subscribedAt: "2026-01-12 21:20:31 UTC" },
+      { email: "gwen.torvik@gmail.com", subscribedAt: "2026-01-13 13:17:52 UTC" },
+      { email: "ajsinkler@yahoo.com", subscribedAt: "2026-01-13 15:46:35 UTC" },
+      { email: "adi153r@gmail.com", subscribedAt: "2026-01-13 19:00:31 UTC" },
+      { email: "couture.ashlee@gmail.com", subscribedAt: "2026-01-17 21:25:04 UTC" },
+      { email: "ashleigh.nicholl97@gmail.com", subscribedAt: "2026-01-31 16:31:45 UTC" },
+    ];
+
+    window.runMigration = async function() {
+      const btn = document.getElementById('btn');
+      const log = document.getElementById('log');
+      log.style.display = 'block';
+      btn.disabled = true;
+      btn.textContent = 'Migrating...';
+      log.textContent = 'Starting migration...\n';
+
+      let success = 0;
+      for (const sub of subscribers) {
+        try {
+          await addDoc(collection(db, 'newsletterSignups'), {
+            email: sub.email,
+            source: 'beehiiv-migration',
+            subscribedAt: new Date(sub.subscribedAt),
+          });
+          success++;
+          log.textContent += '✅ ' + sub.email + '\n';
+        } catch (e) {
+          log.textContent += '❌ ' + sub.email + ' - ' + e.message + '\n';
+        }
+      }
+
+      log.textContent += '\nDone! ' + success + '/' + subscribers.length + ' migrated.';
+      btn.textContent = 'Complete!';
+    };
+  </script>
+</body>
+</html>

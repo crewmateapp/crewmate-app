@@ -40,7 +40,8 @@ type UserProfile = {
 };
 
 export default function ConnectDeepLinkScreen() {
-  const { userId } = useLocalSearchParams<{ userId: string }>();
+  const { userID } = useLocalSearchParams<{ userID: string }>();
+  const userId = userID; // Alias for readability below
   const { user } = useAuth();
   const [targetProfile, setTargetProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);

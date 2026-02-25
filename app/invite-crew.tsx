@@ -25,26 +25,29 @@ import {
 const TESTFLIGHT_LINK = 'https://testflight.apple.com/join/AxsKY8He';
 const GOOGLE_PLAY_LINK = 'https://play.google.com/apps/internaltest/4701523335266028546';
 const ANDROID_SIGNUP_LINK = 'https://crewmateapp.dev/android-signup';
-const FEEDBACK_EMAIL = 'crewmateapphq@gmail.com';
+const FEEDBACK_EMAIL = 'hello@crewmateapp.dev';
 
 // ─── Share Messages ───────────────────────────────────────────────────────────
 
-const getShareMessage = (firstName?: string) => {
+const getShareMessage = (firstName?: string, referralLink?: string) => {
   const name = firstName || 'A fellow crew member';
+  const referralLine = referralLink ? `\n🔗 Use my invite link to join: ${referralLink}\n` : '';
 
   return `Hey! ${name} invited you to test CrewMate — the app built by crew, for crew ✈️
 
 CrewMate helps airline crew connect during layovers, discover crew-recommended spots, and make plans together. We're currently in alpha testing and looking for crew to help shape the app!
-
+${referralLine}
 📱 Download & Join:
 • iPhone: ${TESTFLIGHT_LINK}
 • Android: Sign up here to get access → ${ANDROID_SIGNUP_LINK}
 
 📋 Quick Start:
 1. Download and sign up with your airline email
-2. Verification takes 1-2 min
+2. Add your profile photo, airline, and base to complete your profile
 3. Add a layover (future ones or use GPS when you're there)
 4. Explore! Connect with crew, check out spots, or create a plan
+
+✅ Pro tip: Complete your profile (photo + airline + base) so the crew member who invited you gets credit!
 
 🐛 Found a bug or have feedback?
 Use the feedback button in the app, or email ${FEEDBACK_EMAIL}
@@ -52,11 +55,15 @@ Use the feedback button in the app, or email ${FEEDBACK_EMAIL}
 Blue skies! ✈️`;
 };
 
-const getShortMessage = () => {
+const getShortMessage = (referralLink?: string) => {
+  const referralLine = referralLink ? `\n\nJoin with my link: ${referralLink}` : '';
+
   return `Hey! Come test CrewMate — the app built by crew, for crew ✈️ Connect during layovers, find crew-recommended spots & make plans together.
 
 iPhone: ${TESTFLIGHT_LINK}
-Android: ${ANDROID_SIGNUP_LINK}`;
+Android: ${ANDROID_SIGNUP_LINK}${referralLine}
+
+Make sure to add your photo, airline & base when you sign up! 📸`;
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -67,10 +74,13 @@ export default function InviteCrewScreen() {
   const { role } = useAdminRole();
   const [copied, setCopied] = useState(false);
 
+  // Generate referral link for tracking
+  const referralLink = user?.uid ? `https://crewmateapp.dev/refer/${user.uid}` : undefined;
+
   const handleShareFull = async (firstName?: string) => {
     try {
       await Share.share({
-        message: getShareMessage(firstName),
+        message: getShareMessage(firstName, referralLink),
         title: 'Join me on CrewMate!',
       });
     } catch (error) {
@@ -81,7 +91,7 @@ export default function InviteCrewScreen() {
   const handleShareShort = async () => {
     try {
       await Share.share({
-        message: getShortMessage(),
+        message: getShortMessage(referralLink),
         title: 'Join me on CrewMate!',
       });
     } catch (error) {
@@ -91,7 +101,8 @@ export default function InviteCrewScreen() {
 
   const handleCopyLinks = async () => {
     try {
-      const text = `CrewMate Alpha Testing\niPhone: ${TESTFLIGHT_LINK}\nAndroid: ${GOOGLE_PLAY_LINK}`;
+      const refLine = referralLink ? `\nReferral link: ${referralLink}` : '';
+      const text = `CrewMate Alpha Testing\niPhone: ${TESTFLIGHT_LINK}\nAndroid: ${GOOGLE_PLAY_LINK}${refLine}`;
       await Clipboard.setStringAsync(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
@@ -102,7 +113,7 @@ export default function InviteCrewScreen() {
 
   const handleEmailInvite = async () => {
     const subject = 'Come test CrewMate with me! ✈️';
-    const body = getShareMessage();
+    const body = getShareMessage(undefined, referralLink);
     const emailUrl = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 
     try {

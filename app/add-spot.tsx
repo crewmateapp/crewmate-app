@@ -276,12 +276,11 @@ export default function AddSpotScreen() {
       // FIX #1 (cont): Include session token in autocomplete request.
       // This bundles all keystrokes in one billing session.
       // ============================================================
-      const response = await fetch(
-        `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(
-          input
-        )}&types=establishment&sessiontoken=${sessionTokenRef.current}&key=${GOOGLE_PLACES_API_KEY}`
-      );
+      const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(
+        input
+      )}&types=establishment&sessiontoken=${sessionTokenRef.current}&key=${GOOGLE_PLACES_API_KEY}`;
 
+      const response = await fetch(url);
       const data = await response.json();
 
       if (data.status === 'OK' && data.predictions) {
@@ -612,7 +611,8 @@ export default function AddSpotScreen() {
       const spotDoc = await addDoc(collection(db, 'spots'), {
         name: name.trim(),
         ...(placeId && { placeId }), // Store Google Place ID for future reference
-        categories, // Now an array instead of single category
+        categories, // Array for multi-category support
+        category: categories[0] || 'other', // Primary category for backward compatibility
         city,
         area: area || '',
         description: description.trim(),

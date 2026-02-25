@@ -141,11 +141,11 @@ export default function EditProfileEnhancedScreen() {
         photoURL: downloadURL,
       });
 
-      // ─── Referral: if this is the user's first photo, credit their referrer ──
+      // ─── Referral: check if profile is now complete after photo upload ────
+      // creditReferrer is safe to call multiple times — it checks referralCredited flag
       if (!initialPhotoRef.current) {
         console.log('🎁 First photo uploaded, checking for referrer to credit');
         await creditReferrer(user.uid);
-        // Update the ref so we don't credit again if they change their photo
         initialPhotoRef.current = downloadURL;
       }
       // ────────────────────────────────────────────────────────────────────────
@@ -220,6 +220,11 @@ export default function EditProfileEnhancedScreen() {
         favoriteCities: favoriteCities.length > 0 ? favoriteCities : null,
         interests: selectedInterests.length > 0 ? selectedInterests : null,
       }, { merge: true });
+
+      // ─── Referral: check if profile is now complete (photo + airline + base) ──
+      // creditReferrer is safe to call multiple times — it checks referralCredited flag
+      await creditReferrer(user.uid);
+      // ──────────────────────────────────────────────────────────────────────────
 
       Alert.alert('Saved', 'Your profile has been updated.', [
         { text: 'OK', onPress: () => router.back() }

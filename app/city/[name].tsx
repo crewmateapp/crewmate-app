@@ -4,6 +4,17 @@ import { db } from '@/config/firebase';
 import { Colors } from '@/constants/Colors';
 import { useColors } from '@/hooks/use-theme-color';
 import { useAdminRole } from '@/hooks/useAdminRole';
+import { useAuth } from '@/contexts/AuthContext';
+import {
+  fetchWhatToBuy,
+  addBuyItem,
+  toggleUpvote,
+  deleteBuyItem,
+  BUY_CATEGORIES,
+  getCategoryMeta,
+  type BuyItem,
+  type BuyCategory,
+} from '@/utils/whatToBuy';
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { collection, doc, onSnapshot, orderBy, query, updateDoc, where } from 'firebase/firestore';
@@ -12,6 +23,8 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  KeyboardAvoidingView,
+  Modal,
   Platform,
   RefreshControl,
   ScrollView,
@@ -63,6 +76,7 @@ type Spot = {
 
 type ViewMode = 'list' | 'map';
 type SortOption = 'recommended' | 'rating' | 'reviews' | 'newest';
+type CityTab = 'spots' | 'whatToBuy';
 
 const categoryIcons: Record<string, string> = {
   coffee: 'cafe',
@@ -94,6 +108,7 @@ const categoryColors: Record<string, string> = {
 export default function CityScreen() {
   const { name } = useLocalSearchParams<{ name: string }>();
   const { role } = useAdminRole();
+  const { user } = useAuth();
   const colors = useColors();
   const isSuperAdmin = role === 'super';
   
@@ -106,6 +121,21 @@ export default function CityScreen() {
   const [sortBy, setSortBy] = useState<SortOption>('recommended');
   const [searchQuery, setSearchQuery] = useState('');
   
+  // City tab: spots vs what to buy
+  const [cityTab, setCityTab] = useState<CityTab>('spots');
+  
+  // What to Buy state
+  const [buyItems, setBuyItems] = useState<BuyItem[]>([]);
+  const [buyLoading, setBuyLoading] = useState(false);
+  const [buyCategory, setBuyCategory] = useState<BuyCategory | null>(null);
+  const [showAddBuyModal, setShowAddBuyModal] = useState(false);
+  const [newBuyItem, setNewBuyItem] = useState({
+    itemName: '',
+    category: 'groceries' as BuyCategory,
+    storeName: '',
+    tip: '',
+  });
+  const [addingBuyItem, setAddingBuyItem] = useState(false);  
   const mapRef = useRef<any>(null);
 
   // Load spots from Firestore
@@ -152,7 +182,119 @@ export default function CityScreen() {
   const handleRefresh = () => {
     setRefreshing(true);
     // Firestore listener will update automatically
+    if (cityTab === 'whatToBuy') {
+      loadBuyItems();
+    }
   };
+
+  // ─── What to Buy ────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (cityTab === 'whatToBuy' && name) {
+      loadBuyItems();
+    }
+  }, [cityTab, name]);
+
+  const loadBuyItems = async () => {
+    if (!name) return;
+    setBuyLoading(true);
+    try {
+      const items = await fetchWhatToBuy(name);
+      setBuyItems(items);
+    } catch (error) {
+      console.error('Error loading buy items:', error);
+    } finally {
+      setBuyLoading(false);
+    }
+  };
+
+  const handleAddBuyItem = async () => {
+    if (!user || !name) return;
+    if (!newBuyItem.itemName.trim()) {
+      Alert.alert('Missing Info', 'Please enter an item name');
+      return;
+    }
+    if (!newBuyItem.tip.trim()) {
+      Alert.alert('Missing Info', 'Please add a tip or description');
+      return;
+    }
+
+    setAddingBuyItem(true);
+    try {
+      // Get user display name from auth
+      const { doc: fDoc, getDoc } = await import('firebase/firestore');
+      const userDoc = await getDoc(fDoc(db, 'users', user.uid));
+      const displayName = userDoc.data()?.displayName || 'Crew Member';
+
+      await addBuyItem({
+        city: name,
+        itemName: newBuyItem.itemName.trim(),
+        category: newBuyItem.category,
+        storeName: newBuyItem.storeName.trim() || undefined,
+        tip: newBuyItem.tip.trim(),
+        addedBy: user.uid,
+        addedByName: displayName,
+      });
+
+      setShowAddBuyModal(false);
+      setNewBuyItem({ itemName: '', category: 'groceries', storeName: '', tip: '' });
+      loadBuyItems();
+    } catch (error) {
+      console.error('Error adding buy item:', error);
+      Alert.alert('Error', 'Failed to add recommendation');
+    } finally {
+      setAddingBuyItem(false);
+    }
+  };
+
+  const handleToggleUpvote = async (item: BuyItem) => {
+    if (!user) return;
+    const isUpvoted = item.upvotedBy?.includes(user.uid);
+    
+    // Optimistic update
+    setBuyItems(prev => prev.map(i => {
+      if (i.id !== item.id) return i;
+      return {
+        ...i,
+        upvotes: isUpvoted ? i.upvotes - 1 : i.upvotes + 1,
+        upvotedBy: isUpvoted
+          ? i.upvotedBy.filter(id => id !== user.uid)
+          : [...(i.upvotedBy || []), user.uid],
+      };
+    }));
+
+    try {
+      await toggleUpvote(item.id, user.uid, isUpvoted);
+    } catch (error) {
+      console.error('Error toggling upvote:', error);
+      loadBuyItems(); // Revert on error
+    }
+  };
+
+  const handleDeleteBuyItem = async (item: BuyItem) => {
+    if (!user) return;
+    if (item.addedBy !== user.uid && !isSuperAdmin) return;
+
+    Alert.alert('Delete Item', `Remove "${item.itemName}"?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await deleteBuyItem(item.id);
+            loadBuyItems();
+          } catch (error) {
+            Alert.alert('Error', 'Failed to delete item');
+          }
+        },
+      },
+    ]);
+  };
+
+  const filteredBuyItems = buyCategory
+    ? buyItems.filter(i => i.category === buyCategory)
+    : buyItems;
 
   // Filter spots
   const getFilteredSpots = () => {
@@ -475,6 +617,42 @@ export default function CityScreen() {
         </View>
       </View>
 
+      {/* Tab Toggle: Spots / What to Buy */}
+      <View style={styles.cityTabs}>
+        <TouchableOpacity
+          style={[styles.cityTab, cityTab === 'spots' && styles.cityTabActive]}
+          onPress={() => setCityTab('spots')}
+        >
+          <Ionicons
+            name="location"
+            size={16}
+            color={cityTab === 'spots' ? Colors.white : Colors.primary}
+          />
+          <ThemedText style={[
+            styles.cityTabText,
+            cityTab === 'spots' && styles.cityTabTextActive
+          ]}>
+            Spots ({spots.length})
+          </ThemedText>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.cityTab, cityTab === 'whatToBuy' && styles.cityTabActive]}
+          onPress={() => setCityTab('whatToBuy')}
+        >
+          <Ionicons
+            name="cart"
+            size={16}
+            color={cityTab === 'whatToBuy' ? Colors.white : Colors.primary}
+          />
+          <ThemedText style={[
+            styles.cityTabText,
+            cityTab === 'whatToBuy' && styles.cityTabTextActive
+          ]}>
+            What to Buy {buyItems.length > 0 ? `(${buyItems.length})` : ''}
+          </ThemedText>
+        </TouchableOpacity>
+      </View>
+
       <ScrollView 
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -485,6 +663,10 @@ export default function CityScreen() {
           />
         }
       >
+
+      {/* ─── SPOTS TAB ────────────────────────────────────────── */}
+      {cityTab === 'spots' && (
+        <>
         {/* Search Bar */}
         <View style={styles.searchContainer}>
           <Ionicons name="search" size={20} color={colors.text.secondary} style={styles.searchIcon} />
@@ -678,7 +860,281 @@ export default function CityScreen() {
         </TouchableOpacity>
 
         <View style={styles.bottomSpacer} />
+        </>
+      )}
+
+      {/* ─── WHAT TO BUY TAB ──────────────────────────────────── */}
+      {cityTab === 'whatToBuy' && (
+        <>
+          {/* Buy Category Filter */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.categoryFilter}
+            contentContainerStyle={styles.categoryFilterContent}
+          >
+            <TouchableOpacity
+              style={[
+                styles.categoryChip,
+                !buyCategory && styles.categoryChipActive,
+              ]}
+              onPress={() => setBuyCategory(null)}
+            >
+              <ThemedText
+                style={[
+                  styles.categoryChipText,
+                  !buyCategory && styles.categoryChipTextActive,
+                ]}
+              >
+                All
+              </ThemedText>
+            </TouchableOpacity>
+            {BUY_CATEGORIES.map((cat) => (
+              <TouchableOpacity
+                key={cat.id}
+                style={[
+                  styles.categoryChip,
+                  buyCategory === cat.id && styles.categoryChipActive,
+                  buyCategory === cat.id && { backgroundColor: cat.color },
+                ]}
+                onPress={() => setBuyCategory(buyCategory === cat.id ? null : cat.id)}
+              >
+                <ThemedText style={{ fontSize: 14, marginRight: 4 }}>{cat.emoji}</ThemedText>
+                <ThemedText
+                  style={[
+                    styles.categoryChipText,
+                    buyCategory === cat.id && styles.categoryChipTextActive,
+                  ]}
+                >
+                  {cat.label}
+                </ThemedText>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+
+          {/* Buy Items List */}
+          {buyLoading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color={Colors.primary} />
+            </View>
+          ) : filteredBuyItems.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="cart-outline" size={80} color={colors.text.secondary} />
+              <ThemedText style={styles.emptyText}>
+                {buyCategory ? `No ${getCategoryMeta(buyCategory).label} recommendations yet` : 'No recommendations yet'}
+              </ThemedText>
+              <ThemedText style={styles.emptySubtext}>
+                Know what's worth buying here? Share it with the crew! ✈️
+              </ThemedText>
+            </View>
+          ) : (
+            <View style={styles.buyItemsList}>
+              {filteredBuyItems.map((item) => {
+                const catMeta = getCategoryMeta(item.category);
+                const isUpvoted = user ? item.upvotedBy?.includes(user.uid) : false;
+                const isOwner = user?.uid === item.addedBy;
+
+                return (
+                  <View
+                    key={item.id}
+                    style={[styles.buyItemCard, {
+                      backgroundColor: colors.card,
+                      borderColor: colors.border,
+                    }]}
+                  >
+                    <View style={styles.buyItemHeader}>
+                      <View style={[styles.buyItemEmoji, { backgroundColor: catMeta.color + '15' }]}>
+                        <ThemedText style={{ fontSize: 20 }}>{catMeta.emoji}</ThemedText>
+                      </View>
+                      <View style={styles.buyItemInfo}>
+                        <ThemedText style={styles.buyItemName}>{item.itemName}</ThemedText>
+                        <View style={styles.buyItemMeta}>
+                          <View style={[styles.buyItemCatPill, { backgroundColor: catMeta.color + '20' }]}>
+                            <ThemedText style={[styles.buyItemCatText, { color: catMeta.color }]}>
+                              {catMeta.label}
+                            </ThemedText>
+                          </View>
+                          {item.storeName ? (
+                            <ThemedText style={styles.buyItemStore} numberOfLines={1}>
+                              📍 {item.storeName}
+                            </ThemedText>
+                          ) : null}
+                        </View>
+                      </View>
+                    </View>
+
+                    <ThemedText style={styles.buyItemTip}>{item.tip}</ThemedText>
+
+                    <View style={styles.buyItemFooter}>
+                      <ThemedText style={styles.buyItemAddedBy}>
+                        by {item.addedByName}
+                      </ThemedText>
+
+                      <View style={styles.buyItemActions}>
+                        {(isOwner || isSuperAdmin) && (
+                          <TouchableOpacity
+                            onPress={() => handleDeleteBuyItem(item)}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          >
+                            <Ionicons name="trash-outline" size={16} color={Colors.text.disabled} />
+                          </TouchableOpacity>
+                        )}
+                        <TouchableOpacity
+                          style={[
+                            styles.upvoteButton,
+                            isUpvoted && styles.upvoteButtonActive,
+                          ]}
+                          onPress={() => handleToggleUpvote(item)}
+                        >
+                          <Ionicons
+                            name={isUpvoted ? 'thumbs-up' : 'thumbs-up-outline'}
+                            size={14}
+                            color={isUpvoted ? Colors.white : Colors.primary}
+                          />
+                          <ThemedText
+                            style={[
+                              styles.upvoteText,
+                              isUpvoted && styles.upvoteTextActive,
+                            ]}
+                          >
+                            {item.upvotes}
+                          </ThemedText>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+
+          {/* Add Recommendation Button */}
+          <TouchableOpacity
+            style={styles.addButton}
+            onPress={() => setShowAddBuyModal(true)}
+          >
+            <Ionicons name="add-circle-outline" size={22} color={Colors.white} />
+            <ThemedText style={styles.addButtonText}>
+              Add a Recommendation
+            </ThemedText>
+          </TouchableOpacity>
+
+          <View style={styles.bottomSpacer} />
+        </>
+      )}
+
       </ScrollView>
+
+      {/* ─── ADD BUY ITEM MODAL ───────────────────────────────── */}
+      <Modal
+        visible={showAddBuyModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowAddBuyModal(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          <View style={styles.modalContent}>
+            {/* Modal Header */}
+            <View style={styles.modalHeader}>
+              <ThemedText style={styles.modalTitle}>What to Buy in {name}</ThemedText>
+              <TouchableOpacity onPress={() => setShowAddBuyModal(false)}>
+                <Ionicons name="close" size={24} color={Colors.text.primary} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
+              {/* Item Name */}
+              <ThemedText style={styles.modalLabel}>Item Name *</ThemedText>
+              <TextInput
+                style={[styles.modalInput, { color: Colors.text.primary }]}
+                placeholder="e.g. Olio Verde olive oil, La Roche-Posay..."
+                placeholderTextColor={Colors.text.disabled}
+                value={newBuyItem.itemName}
+                onChangeText={(t) => setNewBuyItem(prev => ({ ...prev, itemName: t }))}
+              />
+
+              {/* Category */}
+              <ThemedText style={[styles.modalLabel, { marginTop: 14 }]}>Category</ThemedText>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={{ marginBottom: 4 }}
+                contentContainerStyle={{ gap: 8 }}
+              >
+                {BUY_CATEGORIES.map((cat) => (
+                  <TouchableOpacity
+                    key={cat.id}
+                    style={[
+                      styles.modalCategoryChip,
+                      newBuyItem.category === cat.id && {
+                        backgroundColor: cat.color,
+                      },
+                    ]}
+                    onPress={() => setNewBuyItem(prev => ({ ...prev, category: cat.id }))}
+                  >
+                    <ThemedText style={{ fontSize: 14 }}>{cat.emoji}</ThemedText>
+                    <ThemedText
+                      style={[
+                        styles.modalCategoryText,
+                        newBuyItem.category === cat.id && { color: Colors.white },
+                      ]}
+                    >
+                      {cat.label}
+                    </ThemedText>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              {/* Store Name (optional) */}
+              <ThemedText style={[styles.modalLabel, { marginTop: 14 }]}>Store / Where to Find</ThemedText>
+              <TextInput
+                style={[styles.modalInput, { color: Colors.text.primary }]}
+                placeholder="e.g. Monoprix, local pharmacy, duty free..."
+                placeholderTextColor={Colors.text.disabled}
+                value={newBuyItem.storeName}
+                onChangeText={(t) => setNewBuyItem(prev => ({ ...prev, storeName: t }))}
+              />
+
+              {/* Tip */}
+              <ThemedText style={[styles.modalLabel, { marginTop: 14 }]}>Crew Tip *</ThemedText>
+              <TextInput
+                style={[styles.modalInput, styles.modalTextArea, { color: Colors.text.primary }]}
+                placeholder="Why should crew buy this? Any tips on getting the best deal?"
+                placeholderTextColor={Colors.text.disabled}
+                value={newBuyItem.tip}
+                onChangeText={(t) => setNewBuyItem(prev => ({ ...prev, tip: t }))}
+                multiline
+                numberOfLines={3}
+              />
+            </ScrollView>
+
+            {/* Modal Footer */}
+            <View style={styles.modalFooter}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => setShowAddBuyModal(false)}
+              >
+                <ThemedText style={styles.modalCancelText}>Cancel</ThemedText>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalSubmitBtn, addingBuyItem && { opacity: 0.6 }]}
+                onPress={handleAddBuyItem}
+                disabled={addingBuyItem}
+              >
+                {addingBuyItem ? (
+                  <ActivityIndicator color={Colors.white} size="small" />
+                ) : (
+                  <ThemedText style={styles.modalSubmitText}>Add Recommendation</ThemedText>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
     </ThemedView>
   );
 }
@@ -1035,5 +1491,218 @@ const styles = StyleSheet.create({
   },
   bottomSpacer: {
     height: 40,
+  },
+  // ─── City Tab Toggle ──────────────────────────────────────────
+  cityTabs: {
+    flexDirection: 'row',
+    marginHorizontal: 16,
+    marginBottom: 12,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 10,
+    padding: 3,
+  },
+  cityTab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  cityTabActive: {
+    backgroundColor: Colors.primary,
+  },
+  cityTabText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.primary,
+  },
+  cityTabTextActive: {
+    color: Colors.white,
+  },
+  // ─── What to Buy Items ────────────────────────────────────────
+  buyItemsList: {
+    paddingHorizontal: 16,
+  },
+  buyItemCard: {
+    borderRadius: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    padding: 14,
+  },
+  buyItemHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 10,
+  },
+  buyItemEmoji: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buyItemInfo: {
+    flex: 1,
+  },
+  buyItemName: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  buyItemMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  buyItemCatPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  buyItemCatText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  buyItemStore: {
+    fontSize: 12,
+    color: Colors.text.secondary,
+    flex: 1,
+  },
+  buyItemTip: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: Colors.text.secondary,
+    marginBottom: 10,
+  },
+  buyItemFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  buyItemAddedBy: {
+    fontSize: 12,
+    color: Colors.text.disabled,
+  },
+  buyItemActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  upvoteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.primary + '30',
+    backgroundColor: Colors.primary + '08',
+  },
+  upvoteButtonActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  upvoteText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.primary,
+  },
+  upvoteTextActive: {
+    color: Colors.white,
+  },
+  // ─── Add Buy Item Modal ──────────────────────────────────────
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: Colors.card,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '85%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  modalBody: {
+    padding: 20,
+  },
+  modalLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.text.primary,
+    marginBottom: 8,
+  },
+  modalInput: {
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+  },
+  modalTextArea: {
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+  modalCategoryChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    backgroundColor: '#F5F5F5',
+  },
+  modalCategoryText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.text.primary,
+  },
+  modalFooter: {
+    flexDirection: 'row',
+    gap: 12,
+    padding: 20,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 10,
+    backgroundColor: Colors.background,
+    alignItems: 'center',
+  },
+  modalCancelText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.text.primary,
+  },
+  modalSubmitBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 10,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+  },
+  modalSubmitText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: Colors.white,
   },
 });
